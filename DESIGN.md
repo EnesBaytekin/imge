@@ -216,35 +216,68 @@ imge/
 
 ## Implementation Roadmap
 
-### Priority 1: Core Foundation
-- [ ] Setup CMake project structure
-- [ ] Create Vec2, Rect basic types
-- [ ] Implement Singleton template
-- [ ] Component base class with lifecycle methods
-- [ ] Object class with x, y, depth, tags, components
-- [ ] Component-to-Object communication
-- [ ] Tag system with mapping
+### Priority 1: Core Foundation ✅
+- [x] Setup CMake project structure
+- [x] Create Vec2, Rect basic types
+- [x] Implement Singleton template
+- [x] Component base class with lifecycle methods
+- [x] Object class with x, y, depth, tags, components
+- [x] Component-to-Object communication
+- [x] Tag system with mapping
 
-### Priority 2: Scene System
-- [ ] Scene class with object dictionary
-- [ ] Tag mapping in Scene (auto-update)
-- [ ] Scene JSON save/load
+### Priority 2: Scene System ✅
+- [x] Scene class with object dictionary
+- [x] Tag mapping in Scene (auto-update)
+- [x] Scene JSON save/load
 - [ ] Template system (prefabs)
 - [ ] Scene transition support
 
-### Priority 3: Engine Core
-- [ ] Engine singleton (abstract)
-- [ ] Time singleton
-- [ ] Abstract Screen, Input, Audio interfaces
+### Priority 3: Engine Core ✅
+- [x] Engine singleton (pointer-based for abstract classes)
+- [x] Time singleton
+- [x] Abstract Screen, Input, Audio interfaces
 
-### Priority 4: SDL2 Implementation
-- [ ] SDL2Renderer
-- [ ] SDL2Input
-- [ ] Main loop with SDL2
-- [ ] SpriteRenderer component
-- [ ] AABB Collider component
+### Priority 4: SDL2 Implementation ✅
+- [x] SDL2Renderer
+- [x] SDL2Input
+- [x] SDL2Audio
+- [x] Main loop with SDL2
+- [ ] SpriteRenderer component (partial - needs Image component)
+- [ ] AABB Collider component (Hitbox implemented, needs collision system)
 
-### Priority 5: Testing
-- [ ] Unit tests for all core systems
-- [ ] Integration tests
-- [ ] Example game
+### Priority 5: Testing ✅
+- [x] Unit tests for all core systems
+- [x] Integration tests
+- [x] Example game (simple_game with rectangle renderer)
+
+---
+
+## Recent Changes (Post-Design)
+
+### Service Locator Pattern
+Due to the abstract nature of service classes (Screen, Input, Audio, Engine), a **pointer-based singleton pattern** is used instead of template-based singletons:
+
+```cpp
+// Abstract service with pointer-based singleton
+class Screen {
+public:
+    static Screen* getInstance() { return instance; }
+    static void setInstance(Screen* inst) { instance = inst; }
+
+    virtual void init(int width, int height, const std::string& title) = 0;
+    // ... other virtual methods
+
+protected:
+    static Screen* instance;
+};
+
+// Concrete implementation registers itself
+SDL2Renderer::SDL2Renderer() {
+    setInstance(this);
+}
+```
+
+This allows:
+- Abstract base classes with pure virtual methods
+- Concrete implementations to register themselves as the singleton instance
+- Platform-specific implementations without modifying core code

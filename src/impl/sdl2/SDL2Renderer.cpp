@@ -108,4 +108,28 @@ void SDL2Renderer::close() {
     open = false;
 }
 
+void SDL2Renderer::setColor(uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+    SDL_SetRenderDrawColor(renderer, r, g, b, a);
+}
+
+void SDL2Renderer::drawRect(float x, float y, float width, float height) {
+    SDL_Rect rect{
+        static_cast<int>(x),
+        static_cast<int>(y),
+        static_cast<int>(width),
+        static_cast<int>(height)
+    };
+    SDL_RenderFillRect(renderer, &rect);
+}
+
+void SDL2Renderer::drawRectOutline(float x, float y, float width, float height) {
+    SDL_Rect rect{
+        static_cast<int>(x),
+        static_cast<int>(y),
+        static_cast<int>(width),
+        static_cast<int>(height)
+    };
+    SDL_RenderDrawRect(renderer, &rect);
+}
+
 } // namespace imge

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <string>
 
@@ -80,6 +81,38 @@ public:
      * Close the window
      */
     virtual void close() = 0;
+
+    /**
+     * Drawing primitives - abstract interface for rendering
+     * These allow custom components to draw without platform-specific code
+     */
+
+    /**
+     * Set the current drawing color
+     * @param r Red component (0-255)
+     * @param g Green component (0-255)
+     * @param b Blue component (0-255)
+     * @param a Alpha component (0-255, default 255)
+     */
+    virtual void setColor(uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255) = 0;
+
+    /**
+     * Draw a filled rectangle
+     * @param x X position (top-left corner)
+     * @param y Y position (top-left corner)
+     * @param width Rectangle width
+     * @param height Rectangle height
+     */
+    virtual void drawRect(float x, float y, float width, float height) = 0;
+
+    /**
+     * Draw a rectangle outline
+     * @param x X position (top-left corner)
+     * @param y Y position (top-left corner)
+     * @param width Rectangle width
+     * @param height Rectangle height
+     */
+    virtual void drawRectOutline(float x, float y, float width, float height) = 0;
 
 protected:
     static Screen* instance;

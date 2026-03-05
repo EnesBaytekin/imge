@@ -2,53 +2,27 @@
 #include "imge/impl/SDL2Audio.hpp"
 #include "imge/impl/SDL2Input.hpp"
 #include "imge/impl/SDL2Renderer.hpp"
+#include "imge/services/Input.hpp"
+#include "imge/services/Screen.hpp"
+#include "imge/services/Time.hpp"
 
 #include <SDL2/SDL.h>
-#include <chrono>
 #include <cmath>
 #include <iostream>
-#include <stdexcept>
 
 namespace imge {
 
 /**
- * Simple rectangle renderer component - draws a colored rectangle
- */
-class RectangleRenderer : public Component {
-public:
-    uint8_t r = 255, g = 255, b = 255, a = 255;
-    float width = 50.0f;
-    float height = 50.0f;
-
-    RectangleRenderer(uint8_t r_, uint8_t g_, uint8_t b_,
-                     float w = 50.0f, float h = 50.0f)
-        : r(r_), g(g_), b(b_), width(w), height(h) {}
-
-    void onDraw(Object* owner) override {
-        auto* screen = static_cast<SDL2Renderer*>(Screen::getInstance());
-        auto* renderer = screen->getRenderer();
-
-        SDL_Rect rect{
-            static_cast<int>(owner->x - width / 2),
-            static_cast<int>(owner->y - height / 2),
-            static_cast<int>(width),
-            static_cast<int>(height)
-        };
-
-        SDL_SetRenderDrawColor(renderer, r, g, b, a);
-        SDL_RenderFillRect(renderer, &rect);
-    }
-};
-
-/**
  * Player controller component - WASD movement
+ * PLATFORM-AGNOSTIC - No SDL2 dependencies!
  */
 class PlayerController : public Component {
 public:
     float speed = 200.0f;
 
     void onUpdate(Object* owner) override {
-        auto* input = static_cast<SDL2Input*>(Input::getInstance());
+        // Use abstract interface - no casting needed!
+        auto* input = Input::getInstance();
         auto dt = Time::getInstance()->deltaTime;
 
         float dx = 0.0f;
@@ -77,6 +51,30 @@ public:
 };
 
 /**
+ * Simple rectangle renderer component - draws a colored rectangle
+ * PLATFORM-AGNOSTIC - Uses abstract Screen interface only!
+ */
+class RectangleRenderer : public Component {
+public:
+    uint8_t r = 255, g = 255, b = 255, a = 255;
+    float width = 50.0f;
+    float height = 50.0f;
+
+    RectangleRenderer(uint8_t r_, uint8_t g_, uint8_t b_,
+                     float w = 50.0f, float h = 50.0f)
+        : r(r_), g(g_), b(b_), width(w), height(h) {}
+
+    void onDraw(Object* owner) override {
+        // Use abstract Screen interface - no SDL2 dependency!
+        auto* screen = Screen::getInstance();
+
+        // Set color and draw rectangle
+        screen->setColor(r, g, b, a);
+        screen->drawRect(owner->x - width / 2, owner->y - height / 2, width, height);
+    }
+};
+
+/**
  * SDL2 implementation of the Engine main loop for example game
  */
 class SDL2Engine : public Engine {
@@ -90,8 +88,9 @@ public:
             running = true;
         }
 
-        auto* renderer = static_cast<SDL2Renderer*>(Screen::getInstance());
-        auto* input = static_cast<SDL2Input*>(Input::getInstance());
+        // Use abstract interfaces - no casting needed!
+        auto* renderer = Screen::getInstance();
+        auto* input = Input::getInstance();
         auto* time = Time::getInstance();
 
         auto lastTime = std::chrono::high_resolution_clock::now();
@@ -103,7 +102,7 @@ public:
             lastTime = currentTime;
             float dt = delta.count();
 
-            // Handle SDL events
+            // Handle SDL events (platform-specific, stays in implementation)
             SDL_Event event;
             while (SDL_PollEvent(&event)) {
                 if (event.type == SDL_QUIT) {

@@ -741,6 +741,7 @@ CMakeFiles/imge_sdl2.dir/src/impl/sdl2/SDL2Renderer.cpp.o: /home/imns/Desktop/im
   /usr/include/c++/14/compare \
   /usr/include/c++/14/concepts \
   /usr/include/c++/14/cstddef \
+  /usr/include/c++/14/cstdint \
   /usr/include/c++/14/cstdio \
   /usr/include/c++/14/cstdlib \
   /usr/include/c++/14/cwchar \

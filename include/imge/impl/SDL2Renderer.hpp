@@ -25,8 +25,14 @@ public:
     [[nodiscard]] bool isOpen() const override;
     void close() override;
 
+    // Drawing primitives
+    void setColor(uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255) override;
+    void drawRect(float x, float y, float width, float height) override;
+    void drawRectOutline(float x, float y, float width, float height) override;
+
     /**
-     * Get the SDL renderer
+     * Get the SDL renderer (for advanced usage - not needed for normal components)
+     * @deprecated Use abstract drawing methods instead
      */
     [[nodiscard]] SDL_Renderer* getRenderer() const {
         return renderer;

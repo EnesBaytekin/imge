@@ -426,7 +426,4 @@ examples/CMakeFiles/simple_game.dir/simple_game/main.cpp.o: \
  /usr/include/SDL2/SDL_system.h /usr/include/SDL2/SDL_timer.h \
  /usr/include/SDL2/SDL_locale.h /usr/include/SDL2/SDL_misc.h \
  /home/imns/Desktop/imge/include/imge/impl/SDL2Renderer.hpp \
- /usr/include/c++/14/chrono /usr/include/c++/14/bits/chrono_io.h \
- /usr/include/c++/14/format /usr/include/c++/14/charconv \
- /usr/include/c++/14/variant /usr/include/c++/14/bits/unicode.h \
- /usr/include/c++/14/bits/unicode-data.h /usr/include/c++/14/iostream
+ /usr/include/c++/14/iostream

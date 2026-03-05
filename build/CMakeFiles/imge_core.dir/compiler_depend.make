@@ -1819,6 +1819,8 @@ CMakeFiles/imge_core.dir/src/services/Screen.cpp.o: /home/imns/Desktop/imge/src/
   /usr/include/bits/pthreadtypes.h \
   /usr/include/bits/select.h \
   /usr/include/bits/stdint-intn.h \
+  /usr/include/bits/stdint-least.h \
+  /usr/include/bits/stdint-uintn.h \
   /usr/include/bits/stdio.h \
   /usr/include/bits/stdio_lim.h \
   /usr/include/bits/stdlib-bsearch.h \
@@ -1913,6 +1915,7 @@ CMakeFiles/imge_core.dir/src/services/Screen.cpp.o: /home/imns/Desktop/imge/src/
   /usr/include/c++/14/compare \
   /usr/include/c++/14/concepts \
   /usr/include/c++/14/cstddef \
+  /usr/include/c++/14/cstdint \
   /usr/include/c++/14/cstdio \
   /usr/include/c++/14/cstdlib \
   /usr/include/c++/14/cwchar \
@@ -1949,6 +1952,7 @@ CMakeFiles/imge_core.dir/src/services/Screen.cpp.o: /home/imns/Desktop/imge/src/
   /usr/include/linux/errno.h \
   /usr/include/locale.h \
   /usr/include/stdc-predef.h \
+  /usr/include/stdint.h \
   /usr/include/stdio.h \
   /usr/include/stdlib.h \
   /usr/include/sys/cdefs.h \
@@ -1956,7 +1960,8 @@ CMakeFiles/imge_core.dir/src/services/Screen.cpp.o: /home/imns/Desktop/imge/src/
   /usr/include/sys/types.h \
   /usr/include/wchar.h \
   /usr/lib/gcc/x86_64-redhat-linux/14/include/stdarg.h \
-  /usr/lib/gcc/x86_64-redhat-linux/14/include/stddef.h
+  /usr/lib/gcc/x86_64-redhat-linux/14/include/stddef.h \
+  /usr/lib/gcc/x86_64-redhat-linux/14/include/stdint.h
 
 
 /home/imns/Desktop/imge/src/services/Input.cpp:
