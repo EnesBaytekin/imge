@@ -8,11 +8,11 @@ using namespace imge;
 void testSceneObjectManagement() {
     std::cout << "Testing Scene object management..." << std::endl;
 
-    auto scene = std::make_shared<Scene>();
+    auto scene = std::shared_ptr<Scene>(new Scene());
 
     // Test adding objects
-    auto obj1 = std::make_shared<Object>(100.0f, 200.0f, "player");
-    auto obj2 = std::make_shared<Object>(150.0f, 250.0f, "enemy");
+    auto obj1 = std::shared_ptr<Object>(new Object(100.0f, 200.0f, "player"));
+    auto obj2 = std::shared_ptr<Object>(new Object(150.0f, 250.0f, "enemy"));
 
     scene->addObject(obj1);
     scene->addObject(obj2);
@@ -46,11 +46,11 @@ void testSceneObjectManagement() {
 void testSceneTags() {
     std::cout << "Testing Scene tag system..." << std::endl;
 
-    auto scene = std::make_shared<Scene>();
+    auto scene = std::shared_ptr<Scene>(new Scene());
 
-    auto obj1 = std::make_shared<Object>(0.0f, 0.0f, "player", {"hero", "controllable"});
-    auto obj2 = std::make_shared<Object>(100.0f, 100.0f, "enemy1", {"enemy"});
-    auto obj3 = std::make_shared<Object>(200.0f, 200.0f, "enemy2", {"enemy"});
+    auto obj1 = std::shared_ptr<Object>(new Object(0.0f, 0.0f, "player", {"hero", "controllable"}));
+    auto obj2 = std::shared_ptr<Object>(new Object(100.0f, 100.0f, "enemy1", {"enemy"}));
+    auto obj3 = std::shared_ptr<Object>(new Object(200.0f, 200.0f, "enemy2", {"enemy"}));
 
     scene->addObject(obj1);
     scene->addObject(obj2);
@@ -77,15 +77,15 @@ void testSceneTags() {
 void testSceneDepthSorting() {
     std::cout << "Testing Scene depth sorting..." << std::endl;
 
-    auto scene = std::make_shared<Scene>();
+    auto scene = std::shared_ptr<Scene>(new Scene());
 
-    auto obj1 = std::make_shared<Object>(0.0f, 0.0f, "background");
+    auto obj1 = std::shared_ptr<Object>(new Object(0.0f, 0.0f, "background"));
     obj1->depth = 10.0f;
 
-    auto obj2 = std::make_shared<Object>(100.0f, 100.0f, "foreground");
+    auto obj2 = std::shared_ptr<Object>(new Object(100.0f, 100.0f, "foreground"));
     obj2->depth = 50.0f;
 
-    auto obj3 = std::make_shared<Object>(50.0f, 50.0f, "ui");
+    auto obj3 = std::shared_ptr<Object>(new Object(50.0f, 50.0f, "ui"));
     obj3->depth = 100.0f;
 
     scene->addObject(obj1);
@@ -108,9 +108,9 @@ void testSceneDepthSorting() {
 void testScenePendingUpdates() {
     std::cout << "Testing Scene pending updates..." << std::endl;
 
-    auto scene = std::make_shared<Scene>();
+    auto scene = std::shared_ptr<Scene>(new Scene());
 
-    auto obj = std::make_shared<Object>(0.0f, 0.0f, "player");
+    auto obj = std::shared_ptr<Object>(new Object(0.0f, 0.0f, "player"));
     scene->addObject(obj);
     scene->update();
 

@@ -17,6 +17,18 @@ Object::Object(float x_, float y_,
 {
 }
 
+Object::Object(float x_, float y_,
+               const std::string& name_,
+               std::initializer_list<std::string> tags_,
+               float depth_)
+    : name(_generateName(name_))
+    , x(x_)
+    , y(y_)
+    , depth(depth_)
+    , tags(tags_)
+{
+}
+
 void Object::addTag(const std::string& tag) {
     if (tags.find(tag) != tags.end()) {
         return; // Already has this tag

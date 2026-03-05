@@ -1,0 +1,2 @@
+/usr/bin/ar qc libimge_sdl2.a CMakeFiles/imge_sdl2.dir/src/impl/sdl2/SDL2Renderer.cpp.o CMakeFiles/imge_sdl2.dir/src/impl/sdl2/SDL2Input.cpp.o CMakeFiles/imge_sdl2.dir/src/impl/sdl2/SDL2Audio.cpp.o CMakeFiles/imge_sdl2.dir/src/impl/sdl2/main.cpp.o
+/usr/bin/ranlib libimge_sdl2.a

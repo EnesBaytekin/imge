@@ -1,7 +1,6 @@
 #pragma once
 
 #include "imge/core/Scene.hpp"
-#include "imge/core/Singleton.hpp"
 #include "imge/services/Audio.hpp"
 #include "imge/services/Input.hpp"
 #include "imge/services/Screen.hpp"
@@ -14,11 +13,28 @@
 namespace imge {
 
 /**
- * Engine singleton - main game loop and scene management
+ * Engine - main game loop and scene management
+ * Abstract base class with pointer-based singleton pattern
  */
-class Engine : public Singleton<Engine> {
+class Engine {
 public:
-    ~Engine() override = default;
+    virtual ~Engine() = default;
+
+    /**
+     * Get the singleton instance
+     * @return Pointer to the engine instance or nullptr if not set
+     */
+    static Engine* getInstance() {
+        return instance;
+    }
+
+    /**
+     * Set the singleton instance (called by concrete implementation)
+     * @param inst Pointer to the concrete implementation
+     */
+    static void setInstance(Engine* inst) {
+        instance = inst;
+    }
 
     /**
      * Initialize the engine
@@ -78,6 +94,8 @@ protected:
     bool running = false;
     std::string currentSceneName;
     std::unordered_map<std::string, std::shared_ptr<Scene>> scenes;
+
+    static Engine* instance;
 };
 
 inline void Engine::init(int width, int height, const std::string& title) {

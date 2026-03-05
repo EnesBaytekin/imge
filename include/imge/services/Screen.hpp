@@ -1,6 +1,5 @@
 #pragma once
 
-#include "imge/core/Singleton.hpp"
 #include <optional>
 #include <string>
 
@@ -9,10 +8,28 @@ namespace imge {
 /**
  * Screen service - abstract interface for rendering
  * Platform-specific implementations (SDL2, OpenGL, etc.) inherit from this
+ *
+ * Uses pointer-based singleton pattern to allow abstract base class
  */
-class Screen : public Singleton<Screen> {
+class Screen {
 public:
     virtual ~Screen() = default;
+
+    /**
+     * Get the singleton instance
+     * @return Pointer to the screen service instance or nullptr if not set
+     */
+    static Screen* getInstance() {
+        return instance;
+    }
+
+    /**
+     * Set the singleton instance (called by concrete implementation)
+     * @param inst Pointer to the concrete implementation
+     */
+    static void setInstance(Screen* inst) {
+        instance = inst;
+    }
 
     /**
      * Initialize the screen/window
@@ -63,6 +80,9 @@ public:
      * Close the window
      */
     virtual void close() = 0;
+
+protected:
+    static Screen* instance;
 };
 
 } // namespace imge

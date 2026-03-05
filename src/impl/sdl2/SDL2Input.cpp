@@ -4,6 +4,10 @@
 
 namespace imge {
 
+SDL2Input::SDL2Input() {
+    setInstance(this);
+}
+
 void SDL2Input::update() {
     // Store previous state
     previousKeys = currentKeys;

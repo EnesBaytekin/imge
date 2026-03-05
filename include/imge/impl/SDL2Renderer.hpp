@@ -12,7 +12,7 @@ namespace imge {
  */
 class SDL2Renderer : public Screen {
 public:
-    SDL2Renderer() = default;
+    SDL2Renderer();
     ~SDL2Renderer() override;
 
     void init(int width, int height, const std::string& title) override;

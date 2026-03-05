@@ -14,6 +14,10 @@ namespace imge {
  */
 class SDL2Engine : public Engine {
 public:
+    SDL2Engine() {
+        setInstance(this);
+    }
+
     void run() override {
         if (!scenes.empty()) {
             running = true;
@@ -76,20 +80,34 @@ public:
  * Main entry point for SDL2 implementation
  */
 int main(int argc, char* argv[]) {
+    (void)argc;
+    (void)argv;
+
     // Initialize SDL2
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) {
         return 1;
     }
 
-    // Create engine instance
-    auto* engine = static_cast<imge::SDL2Engine*>(imge::Engine::getInstance());
+    try {
+        // Create SDL2 service instances (these register themselves as singletons)
+        imge::SDL2Renderer renderer;
+        imge::SDL2Input input;
+        imge::SDL2Audio audio;
 
-    // TODO: Load scene from command line argument
-    // For now, just initialize with default parameters
-    engine->init(800, 600, "IMGE Game");
+        // Create engine instance (registers itself)
+        imge::SDL2Engine engine;
 
-    // Run the engine
-    engine->run();
+        // TODO: Load scene from command line argument
+        // For now, just initialize with default parameters
+        engine.init(800, 600, "IMGE Game");
+
+        // Run the engine
+        engine.run();
+
+    } catch (const std::exception& e) {
+        SDL_Quit();
+        return 1;
+    }
 
     // Cleanup
     SDL_Quit();

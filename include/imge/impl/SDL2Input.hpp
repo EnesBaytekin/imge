@@ -13,7 +13,7 @@ namespace imge {
  */
 class SDL2Input : public Input {
 public:
-    SDL2Input() = default;
+    SDL2Input();
     ~SDL2Input() override = default;
 
     void update() override;

@@ -1,9 +1,14 @@
 #include "imge/impl/SDL2Audio.hpp"
 
+#include <algorithm>
 #include <map>
 #include <stdexcept>
 
 namespace imge {
+
+SDL2Audio::SDL2Audio() {
+    setInstance(this);
+}
 
 SDL2Audio::~SDL2Audio() {
     if (currentMusic) {

@@ -1,6 +1,5 @@
 #pragma once
 
-#include "imge/core/Singleton.hpp"
 #include <cstdint>
 #include <string>
 
@@ -9,10 +8,28 @@ namespace imge {
 /**
  * Audio service - abstract interface for audio playback
  * Platform-specific implementations (SDL2_mixer, OpenAL, etc.) inherit from this
+ *
+ * Uses pointer-based singleton pattern to allow abstract base class
  */
-class Audio : public Singleton<Audio> {
+class Audio {
 public:
     virtual ~Audio() = default;
+
+    /**
+     * Get the singleton instance
+     * @return Pointer to the audio service instance or nullptr if not set
+     */
+    static Audio* getInstance() {
+        return instance;
+    }
+
+    /**
+     * Set the singleton instance (called by concrete implementation)
+     * @param inst Pointer to the concrete implementation
+     */
+    static void setInstance(Audio* inst) {
+        instance = inst;
+    }
 
     /**
      * Initialize the audio system
@@ -79,6 +96,9 @@ public:
      * @param volume Volume (0.0 to 1.0)
      */
     virtual void setSoundVolume(float volume) = 0;
+
+protected:
+    static Audio* instance;
 };
 
 } // namespace imge

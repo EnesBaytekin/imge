@@ -4,6 +4,10 @@
 
 namespace imge {
 
+SDL2Renderer::SDL2Renderer() {
+    setInstance(this);
+}
+
 SDL2Renderer::~SDL2Renderer() {
     if (renderer) {
         SDL_DestroyRenderer(renderer);

@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG CMakeFiles/simple_game.dir/simple_game/main.cpp.o -o simple_game  ../libimge_sdl2.a ../libimge_core.a -lSDL2 -lSDL2_image -lSDL2_mixer

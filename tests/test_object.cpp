@@ -9,14 +9,14 @@ void testObjectCreation() {
     std::cout << "Testing Object creation..." << std::endl;
 
     // Test auto-generated name
-    auto obj1 = std::make_shared<Object>(100.0f, 200.0f);
+    auto obj1 = std::shared_ptr<Object>(new Object(100.0f, 200.0f));
     assert(obj1->name == "object_0");
 
-    auto obj2 = std::make_shared<Object>(150.0f, 250.0f);
+    auto obj2 = std::shared_ptr<Object>(new Object(150.0f, 250.0f));
     assert(obj2->name == "object_1");
 
     // Test explicit name
-    auto obj3 = std::make_shared<Object>(300.0f, 400.0f, "player");
+    auto obj3 = std::shared_ptr<Object>(new Object(300.0f, 400.0f, "player"));
     assert(obj3->name == "player");
 
     // Test position
@@ -25,7 +25,8 @@ void testObjectCreation() {
 
     // Test depth
     assert(obj1->depth == 0.0f);
-    auto obj4 = std::make_shared<Object>(0.0f, 0.0f, "", {}, 10.0f);
+    std::unordered_set<std::string> emptyTags;
+    auto obj4 = std::shared_ptr<Object>(new Object(0.0f, 0.0f, "", emptyTags, 10.0f));
     assert(obj4->depth == 10.0f);
 
     std::cout << "  Object creation tests passed!" << std::endl;
@@ -34,7 +35,7 @@ void testObjectCreation() {
 void testObjectTags() {
     std::cout << "Testing Object tags..." << std::endl;
 
-    auto obj = std::make_shared<Object>(0.0f, 0.0f, "", {"enemy", "flying"});
+    auto obj = std::shared_ptr<Object>(new Object(0.0f, 0.0f, "", {"enemy", "flying"}));
 
     // Test hasTag
     assert(obj->hasTag("enemy"));
@@ -64,7 +65,7 @@ void testObjectTags() {
 void testObjectKill() {
     std::cout << "Testing Object kill..." << std::endl;
 
-    auto obj = std::make_shared<Object>(0.0f, 0.0f);
+    auto obj = std::shared_ptr<Object>(new Object(0.0f, 0.0f));
     assert(!obj->dead);
 
     obj->kill();
@@ -76,7 +77,7 @@ void testObjectKill() {
 void testObjectComponents() {
     std::cout << "Testing Object components..." << std::endl;
 
-    auto obj = std::make_shared<Object>(0.0f, 0.0f);
+    auto obj = std::shared_ptr<Object>(new Object(0.0f, 0.0f));
 
     // Create a simple test component
     class TestComponent : public Component {

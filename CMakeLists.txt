@@ -25,6 +25,9 @@ add_library(imge_core
     src/core/Object.cpp
     src/core/Scene.cpp
     src/core/Engine.cpp
+    src/services/Screen.cpp
+    src/services/Input.cpp
+    src/services/Audio.cpp
 )
 
 target_link_libraries(imge_core
@@ -42,8 +45,6 @@ option(IMGE_WITH_SDL2 "Build SDL2 implementation" ON)
 
 if(IMGE_WITH_SDL2)
     find_package(SDL2 REQUIRED)
-    find_package(SDL2_image REQUIRED)
-    find_package(SDL2_mixer REQUIRED)
 
     add_library(imge_sdl2
         src/impl/sdl2/SDL2Renderer.cpp
@@ -55,9 +56,9 @@ if(IMGE_WITH_SDL2)
     target_link_libraries(imge_sdl2
         PUBLIC
             imge_core
-            SDL2::SDL2
-            SDL2::SDL2_image
-            SDL2::SDL2_mixer
+            SDL2
+            SDL2_image
+            SDL2_mixer
     )
 
     target_include_directories(imge_sdl2

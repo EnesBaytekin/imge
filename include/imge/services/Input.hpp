@@ -1,7 +1,7 @@
 #pragma once
 
-#include "imge/core/Singleton.hpp"
 #include <cstdint>
+#include <utility>
 
 namespace imge {
 
@@ -43,10 +43,28 @@ enum class MouseButton : uint32_t {
 /**
  * Input service - abstract interface for input handling
  * Platform-specific implementations inherit from this
+ *
+ * Uses pointer-based singleton pattern to allow abstract base class
  */
-class Input : public Singleton<Input> {
+class Input {
 public:
     virtual ~Input() = default;
+
+    /**
+     * Get the singleton instance
+     * @return Pointer to the input service instance or nullptr if not set
+     */
+    static Input* getInstance() {
+        return instance;
+    }
+
+    /**
+     * Set the singleton instance (called by concrete implementation)
+     * @param inst Pointer to the concrete implementation
+     */
+    static void setInstance(Input* inst) {
+        instance = inst;
+    }
 
     /**
      * Update input state (call once per frame)
@@ -106,6 +124,9 @@ public:
      * @return Pair of (x, y) scroll amounts
      */
     [[nodiscard]] virtual std::pair<float, float> getMouseWheel() const = 0;
+
+protected:
+    static Input* instance;
 };
 
 } // namespace imge

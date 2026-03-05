@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG CMakeFiles/test_scene.dir/test_scene.cpp.o -o test_scene  ../libimge_core.a

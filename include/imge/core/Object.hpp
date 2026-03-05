@@ -54,6 +54,19 @@ public:
            float depth_ = 0.0f);
 
     /**
+     * Constructor with initializer_list for tags
+     * @param x_ X position
+     * @param y_ Y position
+     * @param name_ Optional explicit name (auto-generated if empty)
+     * @param tags_ Optional initial tags (initializer list)
+     * @param depth_ Rendering depth (higher = front)
+     */
+    Object(float x_, float y_,
+           const std::string& name_,
+           std::initializer_list<std::string> tags_,
+           float depth_ = 0.0f);
+
+    /**
      * Add a tag to this object (deferred update)
      * @param tag Tag to add
      */
