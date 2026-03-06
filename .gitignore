@@ -36,8 +36,11 @@ tests/test_*
 # Example executables
 simple_game
 examples/simple_game
+full_game
+examples/full_game
 !examples/**/*.cpp
 !examples/**/*.json
+!examples/**/*.hpp
 !examples/CMakeLists.txt
 
 # IDE files

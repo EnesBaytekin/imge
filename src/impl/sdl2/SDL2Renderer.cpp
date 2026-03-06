@@ -54,11 +54,14 @@ void SDL2Renderer::init(int width_, int height_, const std::string& title) {
 }
 
 void SDL2Renderer::clear() {
-    // Set background color
+    // Set background color (stored as 0xRRGGBBAA)
     uint8_t r = (backgroundColor >> 24) & 0xFF;
     uint8_t g = (backgroundColor >> 16) & 0xFF;
     uint8_t b = (backgroundColor >> 8) & 0xFF;
     uint8_t a = backgroundColor & 0xFF;
+
+    // Debug: print color
+    // std::cout << "Clear color: R=" << (int)r << " G=" << (int)g << " B=" << (int)b << " A=" << (int)a << std::endl;
 
     SDL_SetRenderDrawColor(renderer, r, g, b, a);
     SDL_RenderClear(renderer);
@@ -130,6 +133,17 @@ void SDL2Renderer::drawRectOutline(float x, float y, float width, float height) 
         static_cast<int>(height)
     };
     SDL_RenderDrawRect(renderer, &rect);
+}
+
+void SDL2Renderer::drawTexture(void* textureId, float x, float y, float width, float height) {
+    auto* texture = static_cast<SDL_Texture*>(textureId);
+    SDL_Rect destRect{
+        static_cast<int>(x),
+        static_cast<int>(y),
+        static_cast<int>(width),
+        static_cast<int>(height)
+    };
+    SDL_RenderCopy(renderer, texture, nullptr, &destRect);
 }
 
 } // namespace imge

@@ -67,6 +67,13 @@ public:
     [[nodiscard]] std::vector<Object*> getObjectsByTag(const std::string& tag);
 
     /**
+     * Get all objects that have a specific tag (const version)
+     * @param tag Tag to query
+     * @return Vector of object pointers
+     */
+    [[nodiscard]] std::vector<Object*> getObjectsByTag(const std::string& tag) const;
+
+    /**
      * Get all objects in the scene
      * @return Vector of all object pointers
      */
@@ -81,6 +88,29 @@ public:
      * Draw all objects sorted by depth (higher depth = drawn first)
      */
     void draw();
+
+    /**
+     * Collision detection - check if two objects' hitboxes overlap
+     * @param obj1 First object
+     * @param obj2 Second object
+     * @return true if hitboxes overlap
+     */
+    [[nodiscard]] bool checkCollision(Object* obj1, Object* obj2) const;
+
+    /**
+     * Get all objects colliding with a given object
+     * @param obj Object to check collisions against
+     * @return Vector of colliding objects
+     */
+    [[nodiscard]] std::vector<Object*> getCollisions(Object* obj) const;
+
+    /**
+     * Get objects with a specific tag that are colliding with a given object
+     * @param obj Object to check collisions against
+     * @param tag Tag to filter by
+     * @return Vector of colliding objects with the specified tag
+     */
+    [[nodiscard]] std::vector<Object*> getCollisionsWithTag(Object* obj, const std::string& tag) const;
 
     /**
      * Load scene from JSON file

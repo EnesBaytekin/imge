@@ -1,4 +1,5 @@
 #include "imge/components/Hitbox.hpp"
+#include "imge/core/Object.hpp"
 
 #include <stdexcept>
 

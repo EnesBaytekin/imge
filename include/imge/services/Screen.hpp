@@ -114,6 +114,16 @@ public:
      */
     virtual void drawRectOutline(float x, float y, float width, float height) = 0;
 
+    /**
+     * Draw a texture/image
+     * @param textureId Opaque texture identifier (platform-specific)
+     * @param x X position
+     * @param y Y position
+     * @param width Width to draw
+     * @param height Height to draw
+     */
+    virtual void drawTexture(void* textureId, float x, float y, float width, float height) = 0;
+
 protected:
     static Screen* instance;
 };

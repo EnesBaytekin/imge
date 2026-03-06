@@ -1,5 +1,7 @@
 #include "imge/components/Image.hpp"
+#include "imge/core/Object.hpp"
 #include "imge/impl/SDL2Renderer.hpp"
+#include "imge/services/Screen.hpp"
 
 #include <SDL2/SDL_image.h>
 #include <stdexcept>
@@ -9,9 +11,9 @@ namespace imge {
 Image::Image(const std::string& imageOrPath,
              const std::string& pivotX_,
              const std::string& pivotY_)
-    : imagePath(imageOrPath)
-    , pivotX(0)
+    : pivotX(0)
     , pivotY(0)
+    , imagePath(imageOrPath)
 {
     // Note: Texture loading happens in onCreate when renderer is available
     // Store pivot values as strings for now
@@ -22,29 +24,40 @@ Image::Image(const std::string& imageOrPath,
 
 Image::~Image() {
     if (texture) {
-        SDL_DestroyTexture(texture);
+        SDL_DestroyTexture(static_cast<SDL_Texture*>(texture));
         texture = nullptr;
     }
 }
 
 void Image::onCreate(Object* owner) {
     // Load image when renderer is available
-    auto* renderer = static_cast<SDL2Renderer*>(Screen::getInstance());
-    if (!renderer || !renderer->getRenderer()) {
+    auto* screen = Screen::getInstance();
+    if (!screen) {
         return;
     }
 
+    // We need to get the SDL2 renderer - this is implementation detail
+    // In production, we'd have a TextureManager that handles this
+    // For now, we'll use a workaround
+    (void)owner;
+
+    // Load surface
     SDL_Surface* surface = IMG_Load(imagePath.c_str());
     if (!surface) {
         return; // Failed to load
     }
 
-    texture = SDL_CreateTextureFromSurface(renderer->getRenderer(), surface);
-    SDL_FreeSurface(surface);
-
-    if (texture) {
-        SDL_QueryTexture(texture, nullptr, nullptr, &width, &height);
+    // Get SDL renderer from implementation
+    // TODO: This should go through a TextureManager
+    auto* rendererImpl = static_cast<SDL2Renderer*>(screen);
+    if (rendererImpl && rendererImpl->getRenderer()) {
+        texture = SDL_CreateTextureFromSurface(rendererImpl->getRenderer(), surface);
+        if (texture) {
+            SDL_QueryTexture(static_cast<SDL_Texture*>(texture), nullptr, nullptr, &width, &height);
+        }
     }
+
+    SDL_FreeSurface(surface);
 }
 
 void Image::onDraw(Object* owner) {
@@ -52,18 +65,13 @@ void Image::onDraw(Object* owner) {
         return;
     }
 
-    auto* renderer = static_cast<SDL2Renderer*>(Screen::getInstance());
-    if (!renderer || !renderer->getRenderer()) {
+    auto* screen = Screen::getInstance();
+    if (!screen) {
         return;
     }
 
-    SDL_Rect destRect;
-    destRect.x = static_cast<int>(owner->x - pivotX);
-    destRect.y = static_cast<int>(owner->y - pivotY);
-    destRect.w = width;
-    destRect.h = height;
-
-    SDL_RenderCopy(renderer->getRenderer(), texture, nullptr, &destRect);
+    // Use abstract drawTexture method
+    screen->drawTexture(texture, owner->x - pivotX, owner->y - pivotY, width, height);
 }
 
 void Image::fromJSON(const nlohmann::json& j) {

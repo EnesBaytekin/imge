@@ -1,2 +1,0 @@
-/usr/bin/ar qc libimge_core.a CMakeFiles/imge_core.dir/src/core/Component.cpp.o CMakeFiles/imge_core.dir/src/core/Object.cpp.o CMakeFiles/imge_core.dir/src/core/Scene.cpp.o CMakeFiles/imge_core.dir/src/core/Engine.cpp.o CMakeFiles/imge_core.dir/src/services/Screen.cpp.o CMakeFiles/imge_core.dir/src/services/Input.cpp.o CMakeFiles/imge_core.dir/src/services/Audio.cpp.o
-/usr/bin/ranlib libimge_core.a

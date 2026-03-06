@@ -1,18 +1,21 @@
 #include "imge/components/Animation.hpp"
+#include "imge/core/Object.hpp"
 #include "imge/impl/SDL2Renderer.hpp"
+#include "imge/services/Time.hpp"
 
 #include <SDL2/SDL_image.h>
 #include <algorithm>
 
 namespace imge {
 
-Animation::Animation(const AnimationData& data,
+Animation::Animation(const AnimationData& data_,
                      const std::string& pivotX_,
                      const std::string& pivotY_)
-    : frameWidth(data.frameWidth)
-    , frameHeight(data.frameHeight)
-    , speed(data.speed)
-    , loop(data.loop)
+    : data(data_)
+    , frameWidth(data_.frameWidth)
+    , frameHeight(data_.frameHeight)
+    , speed(data_.speed)
+    , loop(data_.loop)
 {
     // Note: Texture loading happens in onCreate when renderer is available
     (void)pivotX_;

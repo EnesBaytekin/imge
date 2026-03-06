@@ -29,6 +29,7 @@ public:
     void setColor(uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255) override;
     void drawRect(float x, float y, float width, float height) override;
     void drawRectOutline(float x, float y, float width, float height) override;
+    void drawTexture(void* textureId, float x, float y, float width, float height) override;
 
     /**
      * Get the SDL renderer (for advanced usage - not needed for normal components)
@@ -51,7 +52,7 @@ private:
     int width = 0;
     int height = 0;
     bool open = false;
-    uint32_t backgroundColor = 0xFF000000; // Black by default
+    uint32_t backgroundColor = 0x000000FF; // Black (0,0,0,255 in RGBA)
 };
 
 } // namespace imge

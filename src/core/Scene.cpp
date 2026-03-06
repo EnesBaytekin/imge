@@ -1,4 +1,6 @@
 #include "imge/core/Scene.hpp"
+#include "imge/components/Hitbox.hpp"
+#include "imge/services/Screen.hpp"
 
 #include <algorithm>
 #include <fstream>
@@ -41,6 +43,22 @@ std::vector<Object*> Scene::getObjectsByTag(const std::string& tag) {
     return result;
 }
 
+std::vector<Object*> Scene::getObjectsByTag(const std::string& tag) const {
+    std::vector<Object*> result;
+
+    auto it = _tags.find(tag);
+    if (it != _tags.end()) {
+        for (const auto& objName : it->second) {
+            auto objIt = objects.find(objName);
+            if (objIt != objects.end() && objIt->second) {
+                result.push_back(objIt->second.get());
+            }
+        }
+    }
+
+    return result;
+}
+
 std::vector<Object*> Scene::getAllObjects() {
     std::vector<Object*> result;
     result.reserve(objects.size());
@@ -67,6 +85,11 @@ void Scene::update() {
 }
 
 void Scene::draw() {
+    // Set background color if specified
+    if (backgroundColor.has_value()) {
+        Screen::getInstance()->setBackgroundColor(backgroundColor.value());
+    }
+
     // Collect all non-dead objects
     std::vector<Object*> aliveObjects;
     for (auto& [name, obj] : objects) {
@@ -251,6 +274,78 @@ std::shared_ptr<Object> Scene::_loadObject(const nlohmann::json& objectData) {
 
         return Object::fromData(objectData, x, y);
     }
+}
+
+bool Scene::checkCollision(Object* obj1, Object* obj2) const {
+    // Get Hitbox components from both objects
+    auto* hitbox1 = obj1->getComponent("Hitbox");
+    auto* hitbox2 = obj2->getComponent("Hitbox");
+
+    // Both objects need Hitbox components to collide
+    if (!hitbox1 || !hitbox2) {
+        return false;
+    }
+
+    // Get world-space hitboxes
+    auto* hb1 = static_cast<Hitbox*>(hitbox1);
+    auto* hb2 = static_cast<Hitbox*>(hitbox2);
+
+    auto rects1 = hb1->getWorldHitboxes(obj1);
+    auto rects2 = hb2->getWorldHitboxes(obj2);
+
+    // Check if any hitbox from obj1 overlaps with any hitbox from obj2
+    for (const auto& r1 : rects1) {
+        for (const auto& r2 : rects2) {
+            // AABB collision detection
+            if (r1.x < r2.x + r2.width &&
+                r1.x + r1.width > r2.x &&
+                r1.y < r2.y + r2.height &&
+                r1.y + r1.height > r2.y) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+std::vector<Object*> Scene::getCollisions(Object* obj) const {
+    std::vector<Object*> collisions;
+
+    for (const auto& [name, otherObj] : objects) {
+        if (otherObj.get() == obj) {
+            continue; // Don't check against self
+        }
+        if (otherObj->dead) {
+            continue; // Skip dead objects
+        }
+        if (checkCollision(obj, otherObj.get())) {
+            collisions.push_back(otherObj.get());
+        }
+    }
+
+    return collisions;
+}
+
+std::vector<Object*> Scene::getCollisionsWithTag(Object* obj, const std::string& tag) const {
+    std::vector<Object*> collisions;
+
+    // Get objects with the specified tag
+    auto taggedObjects = getObjectsByTag(tag);
+
+    for (auto* otherObj : taggedObjects) {
+        if (otherObj == obj) {
+            continue; // Don't check against self
+        }
+        if (otherObj->dead) {
+            continue; // Skip dead objects
+        }
+        if (checkCollision(obj, otherObj)) {
+            collisions.push_back(otherObj);
+        }
+    }
+
+    return collisions;
 }
 
 } // namespace imge

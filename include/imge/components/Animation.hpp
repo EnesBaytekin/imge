@@ -48,6 +48,7 @@ private:
     int height = 0;
 
     // Animation data
+    AnimationData data;  // Store full animation data
     int frameWidth = 32;
     int frameHeight = 32;
     std::vector<SDL_Rect> frames;

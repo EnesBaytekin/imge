@@ -28,6 +28,9 @@ add_library(imge_core
     src/services/Screen.cpp
     src/services/Input.cpp
     src/services/Audio.cpp
+    src/components/Hitbox.cpp
+    src/components/Image.cpp
+    src/components/Animation.cpp
 )
 
 target_link_libraries(imge_core
