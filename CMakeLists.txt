@@ -53,7 +53,7 @@ if(IMGE_WITH_SDL2)
         src/impl/sdl2/SDL2Renderer.cpp
         src/impl/sdl2/SDL2Input.cpp
         src/impl/sdl2/SDL2Audio.cpp
-        src/impl/sdl2/main.cpp
+        src/impl/sdl2/SDL2Engine.cpp
     )
 
     target_link_libraries(imge_sdl2
@@ -62,6 +62,11 @@ if(IMGE_WITH_SDL2)
             SDL2
             SDL2_image
             SDL2_mixer
+    )
+
+    target_compile_definitions(imge_sdl2
+        PUBLIC
+            IMGE_USE_SDL2
     )
 
     target_include_directories(imge_sdl2
