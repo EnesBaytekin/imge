@@ -5,6 +5,7 @@
 
 #include <SDL2/SDL_image.h>
 #include <stdexcept>
+#include <iostream>
 
 namespace imge {
 
@@ -30,31 +31,31 @@ Image::~Image() {
 }
 
 void Image::onCreate(Object* owner) {
-    // Load image when renderer is available
-    auto* screen = Screen::getInstance();
-    if (!screen) {
-        return;
-    }
-
-    // We need to get the SDL2 renderer - this is implementation detail
-    // In production, we'd have a TextureManager that handles this
-    // For now, we'll use a workaround
     (void)owner;
 
     // Load surface
     SDL_Surface* surface = IMG_Load(imagePath.c_str());
     if (!surface) {
-        return; // Failed to load
+        return;
     }
 
-    // Get SDL renderer from implementation
-    // TODO: This should go through a TextureManager
+    // Get the Screen implementation (which is SDL2Renderer)
+    auto* screen = Screen::getInstance();
+    if (!screen) {
+        SDL_FreeSurface(surface);
+        return;
+    }
+
+    // Cast to implementation to get SDL_Renderer
     auto* rendererImpl = static_cast<SDL2Renderer*>(screen);
-    if (rendererImpl && rendererImpl->getRenderer()) {
-        texture = SDL_CreateTextureFromSurface(rendererImpl->getRenderer(), surface);
-        if (texture) {
-            SDL_QueryTexture(static_cast<SDL_Texture*>(texture), nullptr, nullptr, &width, &height);
-        }
+    if (!rendererImpl->getRenderer()) {
+        SDL_FreeSurface(surface);
+        return;
+    }
+
+    texture = SDL_CreateTextureFromSurface(rendererImpl->getRenderer(), surface);
+    if (texture) {
+        SDL_QueryTexture(static_cast<SDL_Texture*>(texture), nullptr, nullptr, &width, &height);
     }
 
     SDL_FreeSurface(surface);

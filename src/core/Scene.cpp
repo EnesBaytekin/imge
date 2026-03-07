@@ -171,6 +171,13 @@ void Scene::_addObjectNow(std::shared_ptr<Object> obj) {
     for (const auto& tag : obj->tags) {
         _addTagNow(obj, tag);
     }
+
+    // Call onCreate for all components
+    for (auto& [compName, comp] : obj->components) {
+        if (comp) {
+            comp->onCreate(obj.get());
+        }
+    }
 }
 
 void Scene::_removeObjectNow(std::shared_ptr<Object> obj) {

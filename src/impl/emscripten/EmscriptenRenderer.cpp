@@ -130,12 +130,54 @@ void EmscriptenRenderer::drawRectOutline(float x, float y, float width, float he
 }
 
 void EmscriptenRenderer::drawTexture(void* textureId, float x, float y, float width, float height) {
-    // TODO: Implement texture rendering
-    (void)textureId;
-    (void)x;
-    (void)y;
-    (void)width;
-    (void)height;
+    // textureId is actually a string pointer to image path
+    const char* imagePath = static_cast<const char*>(textureId);
+
+    EM_ASM_({
+        var imagePath = UTF8ToString($0);
+        var x = $1;
+        var y = $2;
+        var width = $3;
+        var height = $4;
+
+        var canvas = document.getElementById('canvas');
+        if (!canvas) return;
+        var ctx = canvas.getContext('2d');
+
+        // Check if image is already loaded
+        if (!window.imgeImages) {
+            window.imgeImages = {};
+        }
+
+        var img = window.imgeImages[imagePath];
+        if (!img) {
+            // Read file from Emscripten virtual filesystem and create Blob URL
+            var filePath = imagePath;
+
+            // Try to read the file using Emscripten's FS
+            try {
+                var data = FS.readFile(filePath);
+                var blob = new Blob([data], { type: 'image/png' });
+                var url = URL.createObjectURL(blob);
+
+                img = new Image();
+                img.src = url;
+                window.imgeImages[imagePath] = img;
+            } catch (e) {
+                console.error('[JS] Failed to read file from FS:', filePath, e);
+                return;
+            }
+        }
+
+        // Draw image
+        if (img.complete) {
+            ctx.drawImage(img, x, y, width, height);
+        } else {
+            img.onload = function() {
+                ctx.drawImage(img, x, y, width, height);
+            };
+        }
+    }, imagePath, x, y, width, height);
 }
 
 } // namespace imge
