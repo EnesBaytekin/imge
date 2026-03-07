@@ -1,8 +1,13 @@
 # Build directories
 build/
+build-web/
 bin/
 lib/
 out/
+
+# Template builds (users will copy templates to their own projects)
+templates/build/
+templates/build-web/
 
 # CMake generated files
 CMakeCache.txt
@@ -38,6 +43,10 @@ simple_game
 examples/simple_game
 full_game
 examples/full_game
+simple_game_web.*
+examples/simple_game_web.*
+full_game_web.*
+examples/full_game_web.*
 !examples/**/*.cpp
 !examples/**/*.json
 !examples/**/*.hpp

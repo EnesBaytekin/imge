@@ -1,4 +1,5 @@
 #include "imge/core/Object.hpp"
+#include "imge/core/ComponentFactory.hpp"
 
 #include <fstream>
 #include <sstream>
@@ -137,8 +138,28 @@ std::shared_ptr<Object> Object::fromData(const nlohmann::json& objectData,
 
     // Load components
     if (objectData.contains("components")) {
-        // This will be implemented when we have the component loader
-        // For now, just skip
+        for (const auto& componentData : objectData["components"]) {
+            auto comp = ComponentFactory::createComponent(componentData);
+            if (comp) {
+                // Get component name from JSON
+                std::string compName = componentData.value("name", "");
+
+                // If no explicit name, use component type (file name without @)
+                if (compName.empty() && componentData.contains("file")) {
+                    std::string file = componentData["file"].get<std::string>();
+                    compName = file;
+                    // Remove @ prefix for builtin components
+                    if (compName.starts_with("@")) {
+                        compName = compName.substr(1);
+                    }
+                }
+
+                obj->addComponent(comp, compName);
+
+                // Note: fromJSON is NOT called here because args are passed to constructor
+                // Individual components can handle additional JSON data if needed
+            }
+        }
     }
 
     return obj;

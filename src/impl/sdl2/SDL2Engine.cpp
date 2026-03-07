@@ -51,6 +51,12 @@ void SDL2Engine::run() {
         }
 
         input->update();
+
+        // Check for ESC key to quit
+        if (input->isKeyPressed(imge::Key::Escape)) {
+            running = false;
+        }
+
         Time::getInstance()->update(dt);
 
         auto* scene = getCurrentScene();

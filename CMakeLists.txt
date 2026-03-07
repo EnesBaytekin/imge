@@ -22,6 +22,7 @@ include_directories(${CMAKE_SOURCE_DIR}/include)
 # Core library
 add_library(imge_core
     src/core/Component.cpp
+    src/core/ComponentFactory.cpp
     src/core/Object.cpp
     src/core/Scene.cpp
     src/core/Engine.cpp
@@ -75,6 +76,50 @@ if(IMGE_WITH_SDL2)
     )
 endif()
 
+# WebAssembly implementation library (optional)
+option(IMGE_WITH_WEBGL "Build WebAssembly implementation" OFF)
+
+if(IMGE_WITH_WEBGL)
+    # Check if we're using Emscripten toolchain
+    if(NOT EMSCRIPTEN)
+        message(WARNING "WebAssembly implementation requires Emscripten toolchain!")
+        message(WARNING "Use: emcmake cmake ..")
+    endif()
+
+    add_library(imge_webgl
+        src/impl/emscripten/EmscriptenRenderer.cpp
+        src/impl/emscripten/EmscriptenInput.cpp
+        src/impl/emscripten/WebGLEngine.cpp
+    )
+
+    target_link_libraries(imge_webgl
+        PUBLIC
+            imge_core
+    )
+
+    target_compile_definitions(imge_webgl
+        PUBLIC
+            IMGE_USE_WEBGL
+    )
+
+    # Emscripten-specific linker flags
+    if(EMSCRIPTEN)
+        set_target_properties(imge_webgl PROPERTIES
+            SUFFIX ".html"
+        )
+
+        # Linker flags for Emscripten
+        target_link_options(imge_webgl
+            PUBLIC
+                "SHELL:-s USE_SDL=2"
+                "SHELL:-s WASM=1"
+                "SHELL:-s ALLOW_MEMORY_GROWTH=1"
+                "SHELL:-s ASYNCIFY"
+                "SHELL:-s EXPORTED_RUNTIME_METHODS=['ccall','cwrap']"
+        )
+    endif()
+endif()
+
 # Tests
 option(IMGE_BUILD_TESTS "Build tests" ON)
 if(IMGE_BUILD_TESTS)
@@ -82,10 +127,10 @@ if(IMGE_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
 
-# Examples
-option(IMGE_BUILD_EXAMPLES "Build examples" ON)
-if(IMGE_BUILD_EXAMPLES)
-    add_subdirectory(examples)
+# Templates (built only when explicitly requested)
+option(IMGE_BUILD_TEMPLATES "Build template projects" OFF)
+if(IMGE_BUILD_TEMPLATES)
+    add_subdirectory(templates)
 endif()
 
 # Installation
