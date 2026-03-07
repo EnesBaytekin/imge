@@ -3,6 +3,7 @@
 #include "imge/core/Engine.hpp"
 #include "imge/impl/EmscriptenInput.hpp"
 #include "imge/impl/EmscriptenRenderer.hpp"
+#include "imge/impl/EmscriptenAudio.hpp"
 #include "imge/services/Input.hpp"
 #include "imge/services/Screen.hpp"
 #include "imge/services/Time.hpp"
@@ -39,6 +40,7 @@ private:
     // Emscripten-specific service instances (owned by this engine)
     std::unique_ptr<EmscriptenRenderer> renderer;
     std::unique_ptr<EmscriptenInput> input;
+    std::unique_ptr<EmscriptenAudio> audio;
     bool emscriptenInitialized = false;
 
     // Static callback for Emscripten main loop

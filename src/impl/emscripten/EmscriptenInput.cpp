@@ -39,6 +39,13 @@ void EmscriptenInput::update() {
     justPressedKeys.clear();
     justReleasedKeys.clear();
 
+    // Store previous mouse buttons
+    previousMouseButtons = currentMouseButtons;
+
+    // Clear just pressed/released mouse tracking
+    justPressedMouseButtons.clear();
+    justReleasedMouseButtons.clear();
+
     // Clear wheel
     wheelX = 0.0f;
     wheelY = 0.0f;
@@ -58,6 +65,14 @@ bool EmscriptenInput::isKeyJustReleased(Key key) const {
 
 bool EmscriptenInput::isMouseButtonPressed(MouseButton button) const {
     return currentMouseButtons.find(button) != currentMouseButtons.end();
+}
+
+bool EmscriptenInput::isMouseButtonJustPressed(MouseButton button) const {
+    return justPressedMouseButtons.find(button) != justPressedMouseButtons.end();
+}
+
+bool EmscriptenInput::isMouseButtonJustReleased(MouseButton button) const {
+    return justReleasedMouseButtons.find(button) != justReleasedMouseButtons.end();
 }
 
 std::pair<int, int> EmscriptenInput::getMousePosition() const {
@@ -94,10 +109,14 @@ EM_BOOL EmscriptenInput::mouseCallback(int eventType, const EmscriptenMouseEvent
 
     if (eventType == EMSCRIPTEN_EVENT_MOUSEDOWN) {
         MouseButton button = static_cast<MouseButton>(mouseEvent->button);
+        if (input->currentMouseButtons.find(button) == input->currentMouseButtons.end()) {
+            input->justPressedMouseButtons.insert(button);
+        }
         input->currentMouseButtons.insert(button);
     } else if (eventType == EMSCRIPTEN_EVENT_MOUSEUP) {
         MouseButton button = static_cast<MouseButton>(mouseEvent->button);
         input->currentMouseButtons.erase(button);
+        input->justReleasedMouseButtons.insert(button);
     }
 
     return EM_TRUE;

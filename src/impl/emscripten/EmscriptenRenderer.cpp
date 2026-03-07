@@ -37,8 +37,15 @@ void EmscriptenRenderer::clear() {
     // Clear canvas with background color
     EM_ASM_({
         var canvas = document.getElementById('canvas');
-        if (!canvas) return;
+        if (!canvas) {
+            console.error('[Renderer] Canvas element not found!');
+            return;
+        }
         var ctx = canvas.getContext('2d');
+        if (!ctx) {
+            console.error('[Renderer] Failed to get 2d context!');
+            return;
+        }
         ctx.fillStyle = 'rgba(' + $0 + ',' + $1 + ',' + $2 + ',' + $3 + ')';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
     }, r, g, b, (double)a / 255.0);
@@ -98,7 +105,10 @@ void EmscriptenRenderer::setColor(uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
 void EmscriptenRenderer::drawRect(float x, float y, float width, float height) {
     EM_ASM_({
         var canvas = document.getElementById('canvas');
-        if (!canvas) return;
+        if (!canvas) {
+            console.error('[Renderer] drawRect: Canvas not found');
+            return;
+        }
         var ctx = canvas.getContext('2d');
         ctx.fillStyle = 'rgba(' + $0 + ',' + $1 + ',' + $2 + ',' + $3 + ')';
         ctx.fillRect($4, $5, $6, $7);
@@ -108,7 +118,10 @@ void EmscriptenRenderer::drawRect(float x, float y, float width, float height) {
 void EmscriptenRenderer::drawRectOutline(float x, float y, float width, float height) {
     EM_ASM_({
         var canvas = document.getElementById('canvas');
-        if (!canvas) return;
+        if (!canvas) {
+            console.error('[Renderer] drawRectOutline: Canvas not found');
+            return;
+        }
         var ctx = canvas.getContext('2d');
         ctx.strokeStyle = 'rgba(' + $0 + ',' + $1 + ',' + $2 + ',' + $3 + ')';
         ctx.lineWidth = 1;

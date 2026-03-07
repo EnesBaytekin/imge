@@ -8,7 +8,8 @@ namespace imge {
 
 WebGLEngine::WebGLEngine()
     : renderer(std::make_unique<EmscriptenRenderer>()),
-      input(std::make_unique<EmscriptenInput>()) {
+      input(std::make_unique<EmscriptenInput>()),
+      audio(std::make_unique<EmscriptenAudio>()) {
     setInstance(this);
 }
 

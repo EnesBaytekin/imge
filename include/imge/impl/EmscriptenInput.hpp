@@ -25,6 +25,8 @@ public:
     [[nodiscard]] bool isKeyJustReleased(Key key) const override;
 
     [[nodiscard]] bool isMouseButtonPressed(MouseButton button) const override;
+    [[nodiscard]] bool isMouseButtonJustPressed(MouseButton button) const override;
+    [[nodiscard]] bool isMouseButtonJustReleased(MouseButton button) const override;
     [[nodiscard]] std::pair<int, int> getMousePosition() const override;
     [[nodiscard]] std::pair<float, float> getMouseWheel() const override;
 
@@ -35,6 +37,10 @@ private:
     std::set<Key> justReleasedKeys;
 
     std::set<MouseButton> currentMouseButtons;
+    std::set<MouseButton> previousMouseButtons;
+    std::set<MouseButton> justPressedMouseButtons;
+    std::set<MouseButton> justReleasedMouseButtons;
+
     int mouseX = 0;
     int mouseY = 0;
     float wheelX = 0.0f;

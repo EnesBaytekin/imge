@@ -14,7 +14,18 @@ else()
 endif()
 
 # Find dependencies
-find_package(nlohmann_json 3.10.0 REQUIRED)
+if(EMSCRIPTEN)
+    # For Emscripten, download nlohmann_json header
+    include(FetchContent)
+    FetchContent_Declare(
+        json
+        URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+    )
+    FetchContent_MakeAvailable(json)
+    include_directories(${json_SOURCE_DIR}/include)
+else()
+    find_package(nlohmann_json 3.10.0 REQUIRED)
+endif()
 
 # Include directories
 include_directories(${CMAKE_SOURCE_DIR}/include)
@@ -30,13 +41,27 @@ add_library(imge_core
     src/services/Input.cpp
     src/services/Audio.cpp
     src/components/Hitbox.cpp
-    src/components/Image.cpp
-    src/components/Animation.cpp
 )
 
-target_link_libraries(imge_core
-    PUBLIC nlohmann_json::nlohmann_json
-)
+# SDL2-dependent components (only for desktop builds)
+if(NOT EMSCRIPTEN)
+    target_sources(imge_core
+        PRIVATE
+            src/components/Image.cpp
+            src/components/Animation.cpp
+    )
+endif()
+
+# For Emscripten, nlohmann_json is header-only (no linking needed)
+if(EMSCRIPTEN)
+    # Emscripten: nlohmann_json is header-only, included via /usr/include
+    target_link_libraries(imge_core PUBLIC)
+else()
+    # Desktop: link against nlohmann_json target
+    target_link_libraries(imge_core
+        PUBLIC nlohmann_json::nlohmann_json
+    )
+endif()
 
 target_include_directories(imge_core
     PUBLIC
@@ -89,6 +114,7 @@ if(IMGE_WITH_WEBGL)
     add_library(imge_webgl
         src/impl/emscripten/EmscriptenRenderer.cpp
         src/impl/emscripten/EmscriptenInput.cpp
+        src/impl/emscripten/EmscriptenAudio.cpp
         src/impl/emscripten/WebGLEngine.cpp
     )
 
@@ -104,9 +130,8 @@ if(IMGE_WITH_WEBGL)
 
     # Emscripten-specific linker flags
     if(EMSCRIPTEN)
-        set_target_properties(imge_webgl PROPERTIES
-            SUFFIX ".html"
-        )
+        # Library build - no SUFFIX needed
+        # target_link_options are PUBLIC so consumer projects inherit them
 
         # Linker flags for Emscripten
         target_link_options(imge_webgl
