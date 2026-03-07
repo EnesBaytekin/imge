@@ -169,3 +169,10 @@ install(TARGETS imge_core
 install(DIRECTORY include/
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
+
+# CLI Tool
+option(IMGE_BUILD_CLI "Build IMGE CLI tool" ON)
+if(IMGE_BUILD_CLI AND NOT EMSCRIPTEN)
+    add_subdirectory(cli)
+endif()
+

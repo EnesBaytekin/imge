@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IMGE Game</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        background-color: #000;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        overflow: hidden;
+      }
+      canvas {
+        display: block;
+        border: 0px none;
+        background-color: #222;
+      }
+      #loading {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        color: white;
+        font-family: Arial, sans-serif;
+        font-size: 24px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="loading">Loading...</div>
+    <canvas class="emscripten" id="canvas" tabindex="-1"></canvas>
+    <script>
+      var loadingElement = document.getElementById('loading');
+      if (loadingElement) {
+        loadingElement.style.display = 'none';
+      }
+
+      // Audio helper functions for IMGE
+      function _playMusicBuffer(ctx, buffer, loop, volume) {
+        var source = ctx.createBufferSource();
+        source.buffer = buffer;
+        source.loop = loop;
+
+        var gainNode = ctx.createGain();
+        gainNode.gain.value = volume;
+
+        source.connect(gainNode);
+        gainNode.connect(ctx.destination);
+        source.start();
+
+        window.imgeMusicSource = source;
+        window.imgeMusicGain = gainNode;
+      }
+
+      function _playSoundBuffer(ctx, buffer, filename, volume, loop) {
+        var source = ctx.createBufferSource();
+        source.buffer = buffer;
+        source.loop = loop;
+
+        var gainNode = ctx.createGain();
+        gainNode.gain.value = volume;
+
+        source.connect(gainNode);
+        gainNode.connect(ctx.destination);
+        source.start();
+
+        // Track source for stopping
+        if (!window.imgeSoundSources[filename]) {
+          window.imgeSoundSources[filename] = [];
+        }
+        window.imgeSoundSources[filename].push(source);
+
+        // Remove from tracking when done
+        source.onended = function() {
+          var idx = window.imgeSoundSources[filename].indexOf(source);
+          if (idx > -1) {
+            window.imgeSoundSources[filename].splice(idx, 1);
+          }
+        };
+      }
+    </script>
+    {{{ SCRIPT }}}
+  </body>
+</html>
