@@ -30,6 +30,7 @@ public:
     void drawRect(float x, float y, float width, float height) override;
     void drawRectOutline(float x, float y, float width, float height) override;
     void drawTexture(void* textureId, float x, float y, float width, float height) override;
+    void* loadTexture(const std::string& filename, int& outWidth, int& outHeight) override;
 
     /**
      * Get the SDL renderer (for advanced usage - not needed for normal components)

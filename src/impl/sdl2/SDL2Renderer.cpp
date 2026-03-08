@@ -1,5 +1,7 @@
 #include "imge/impl/SDL2Renderer.hpp"
 
+#include <SDL2/SDL_image.h>
+#include <iostream>
 #include <stdexcept>
 
 namespace imge {
@@ -137,6 +139,10 @@ void SDL2Renderer::drawRectOutline(float x, float y, float width, float height) 
 
 void SDL2Renderer::drawTexture(void* textureId, float x, float y, float width, float height) {
     auto* texture = static_cast<SDL_Texture*>(textureId);
+    if (!texture) {
+        return; // Invalid texture
+    }
+
     SDL_Rect destRect{
         static_cast<int>(x),
         static_cast<int>(y),
@@ -144,6 +150,33 @@ void SDL2Renderer::drawTexture(void* textureId, float x, float y, float width, f
         static_cast<int>(height)
     };
     SDL_RenderCopy(renderer, texture, nullptr, &destRect);
+}
+
+void* SDL2Renderer::loadTexture(const std::string& filename, int& outWidth, int& outHeight) {
+    // Load image using SDL_image
+    SDL_Surface* surface = IMG_Load(filename.c_str());
+    if (!surface) {
+        std::cerr << "Failed to load image " << filename << ": " << IMG_GetError() << std::endl;
+        outWidth = 0;
+        outHeight = 0;
+        return nullptr;
+    }
+
+    // Create texture from surface
+    SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
+    SDL_FreeSurface(surface); // Surface no longer needed
+
+    if (!texture) {
+        std::cerr << "Failed to create texture from " << filename << ": " << SDL_GetError() << std::endl;
+        outWidth = 0;
+        outHeight = 0;
+        return nullptr;
+    }
+
+    // Get texture dimensions
+    SDL_QueryTexture(texture, nullptr, nullptr, &outWidth, &outHeight);
+
+    return texture;
 }
 
 } // namespace imge

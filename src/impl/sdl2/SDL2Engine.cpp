@@ -1,5 +1,6 @@
 #include "imge/impl/SDL2Engine.hpp"
 
+#include <iostream>
 #include <stdexcept>
 
 namespace imge {
@@ -12,6 +13,12 @@ SDL2Engine::SDL2Engine()
 }
 
 SDL2Engine::~SDL2Engine() {
+    // Destroy SDL2-dependent services BEFORE quitting SDL
+    // This ensures proper cleanup order
+    renderer.reset();
+    input.reset();
+    audio.reset();
+
     if (sdlInitialized) {
         SDL_Quit();
     }

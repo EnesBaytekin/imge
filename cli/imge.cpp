@@ -205,6 +205,7 @@ void createDesktopCMakeLists(const std::string& gameName) {
 
     file << "include_directories(${IMGE_DIR}/include)\n";
     file << "include_directories(${IMGE_DIR}/cli/templates)\n";
+    file << "include_directories(${CMAKE_CURRENT_SOURCE_DIR})\n";  // For ComponentRegistry.hpp
     file << "link_directories(${IMGE_DIR}/build)\n\n";
 
     // Find SDL2
@@ -231,12 +232,12 @@ void createDesktopCMakeLists(const std::string& gameName) {
     // Link libraries
     file << "target_link_libraries(" << gameName << "\n";
     file << "    PRIVATE\n";
-    file << "        ${IMGE_DIR}/build/libimge_core.a\n";
-    file << "        ${IMGE_DIR}/build/libimge_sdl2.a\n";
     file << "        SDL2::SDL2\n";
     file << "        SDL2_image::SDL2_image\n";
     file << "        SDL2_mixer::SDL2_mixer\n";
     file << "        nlohmann_json::nlohmann_json\n";
+    file << "        ${IMGE_DIR}/build/libimge_sdl2.a\n";
+    file << "        ${IMGE_DIR}/build/libimge_core.a\n";
     file << ")\n\n";
 
     file << "target_compile_definitions(" << gameName << " PRIVATE IMGE_USE_SDL2)\n\n";
@@ -248,6 +249,62 @@ void createDesktopCMakeLists(const std::string& gameName) {
 
     file.close();
     std::cout << GREEN << "✓" << RESET << " Generated CMakeLists.txt for desktop" << std::endl;
+
+    // Generate component registration file
+    std::ofstream regFile("scripts/ComponentRegistry.hpp");
+    if (!regFile.is_open()) {
+        std::cerr << RED << "Error: Cannot create ComponentRegistry.hpp" << RESET << std::endl;
+        return;
+    }
+
+    regFile << "#pragma once\n\n";
+    regFile << "#include \"imge/core/ComponentFactory.hpp\"\n\n";
+
+    // Extract component class names from script files
+    std::vector<std::string> componentNames;
+    for (const auto& script : scripts) {
+        if (script.find(".hpp") != std::string::npos) {
+            // Try to extract class name from file
+            std::ifstream scriptFile(script);
+            if (scriptFile.is_open()) {
+                std::string line;
+                while (std::getline(scriptFile, line)) {
+                    if (line.find("class ") == 0 && line.find(" : public") != std::string::npos) {
+                        size_t classStart = 6; // "class "
+                        size_t classEnd = line.find(" : public");
+                        std::string className = line.substr(classStart, classEnd - classStart);
+                        // Trim whitespace
+                        while (!className.empty() && className[0] == ' ') className.erase(0, 1);
+                        while (!className.empty() && className.back() == ' ') className.pop_back();
+                        componentNames.push_back(className);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // Include headers
+    for (const auto& script : scripts) {
+        if (script.find(".hpp") != std::string::npos) {
+            regFile << "#include \"" << script << "\"\n";
+        }
+    }
+    regFile << "\n";
+
+    // Generate registration function
+    regFile << "inline void registerComponents() {\n";
+    for (const auto& name : componentNames) {
+        regFile << "    imge::ComponentFactory::registerComponent(\"" << name << "\", [](const nlohmann::json& args) {\n";
+        regFile << "        auto comp = std::make_shared<" << name << ">();\n";
+        regFile << "        comp->fromJSON(args);\n";
+        regFile << "        return comp;\n";
+        regFile << "    });\n\n";
+    }
+    regFile << "}\n";
+
+    regFile.close();
+    std::cout << GREEN << "✓" << RESET << " Generated scripts/ComponentRegistry.hpp" << std::endl;
 }
 
 void createWebReadme() {

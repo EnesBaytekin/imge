@@ -1,30 +1,27 @@
 #pragma once
 
 #include "imge/core/Component.hpp"
-#include "imge/core/Vec2.hpp"
-
-#include <SDL2/SDL.h>
 #include <string>
 
 namespace imge {
 
 /**
  * Image component - renders a sprite
- * Part of builtin components (prefixed with @)
+ * Platform-agnostic - rendering handled by Screen abstraction
  */
 class Image : public Component {
 public:
     /**
      * Constructor
-     * @param imageOrPath Path to image file
+     * @param imagePath Path to image file
      * @param pivotX Pivot X (0, "center", "end", or pixel value)
      * @param pivotY Pivot Y (0, "center", "end", or pixel value)
      */
-    Image(const std::string& imageOrPath,
+    Image(const std::string& imagePath,
           const std::string& pivotX = "0",
           const std::string& pivotY = "0");
 
-    ~Image() override;
+    ~Image() override = default;
 
     void onCreate(Object* owner) override;
     void onDraw(Object* owner) override;
@@ -37,13 +34,30 @@ public:
      */
     void setPivot(const std::string& x, const std::string& y);
 
+    /**
+     * Get image path (for renderer to use)
+     */
+    const std::string& getPath() const { return imagePath; }
+
+    /**
+     * Get width (may be 0 if not loaded yet)
+     */
+    int getWidth() const { return width; }
+
+    /**
+     * Get height (may be 0 if not loaded yet)
+     */
+    int getHeight() const { return height; }
+
 private:
-    SDL_Texture* texture = nullptr;
     int pivotX = 0;
     int pivotY = 0;
     int width = 0;
     int height = 0;
     std::string imagePath;
+    std::string pivotXStr = "0";
+    std::string pivotYStr = "0";
+    void* textureHandle = nullptr;  // Opaque handle for renderer
 
     /**
      * Parse pivot value to pixel coordinate

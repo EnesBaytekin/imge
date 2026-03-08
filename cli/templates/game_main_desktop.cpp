@@ -1,4 +1,5 @@
-#include "imge/core/Engine.hpp"
+#include "imge/impl/SDL2Engine.hpp"
+#include "scripts/ComponentRegistry.hpp"
 #include <iostream>
 
 int main(int argc, char* argv[]) {
@@ -7,7 +8,13 @@ int main(int argc, char* argv[]) {
 
     std::cout << "[IMGE] Game starting..." << std::endl;
 
-    auto* engine = imge::Engine::getInstance();
+    // Create SDL2 engine instance
+    auto engine = std::make_unique<imge::SDL2Engine>();
+    imge::Engine::setInstance(engine.get());
+
+    // Register custom components
+    std::cout << "[IMGE] Registering custom components..." << std::endl;
+    registerComponents();
 
     // Try to load and add main_scene.json
     auto scene = imge::Scene::fromFile("scenes/main_scene.json");
@@ -21,12 +28,6 @@ int main(int argc, char* argv[]) {
         engine->addScene("default", defaultScene);
         engine->setScene("default");
     }
-
-    // Register custom components
-    // Note: Your custom components are automatically registered via IMGE_REGISTER_COMPONENT
-    // Make sure all your scripts include IMGE_REGISTER_COMPONENT(YourClassName)
-
-    std::cout << "[IMGE] Components registered, creating engine..." << std::endl;
 
     // Initialize and run
     engine->init(800, 600, "Game");

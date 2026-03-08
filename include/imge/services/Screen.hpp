@@ -124,6 +124,15 @@ public:
      */
     virtual void drawTexture(void* textureId, float x, float y, float width, float height) = 0;
 
+    /**
+     * Load a texture from file
+     * @param filename Path to image file
+     * @param outWidth Output parameter for texture width
+     * @param outHeight Output parameter for texture height
+     * @return Opaque texture identifier (platform-specific), or nullptr on failure
+     */
+    [[nodiscard]] virtual void* loadTexture(const std::string& filename, int& outWidth, int& outHeight) = 0;
+
 protected:
     static Screen* instance;
 };

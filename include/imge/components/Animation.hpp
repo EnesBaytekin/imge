@@ -1,8 +1,6 @@
 #pragma once
 
 #include "imge/core/Component.hpp"
-
-#include <SDL2/SDL.h>
 #include <string>
 #include <vector>
 
@@ -10,7 +8,7 @@ namespace imge {
 
 /**
  * Animation component - renders sprite sheet animation
- * Part of builtin components (prefixed with @)
+ * Platform-agnostic - rendering handled by Screen abstraction
  */
 class Animation : public Component {
 public:
@@ -23,9 +21,13 @@ public:
         bool loop = true;
     };
 
+    struct FrameRect {
+        int x, y, width, height;
+    };
+
     /**
      * Constructor
-     * @param animOrData Animation file path or animation data
+     * @param data Animation data
      * @param pivotX Pivot X
      * @param pivotY Pivot Y
      */
@@ -41,17 +43,17 @@ public:
     void fromJSON(const nlohmann::json& j) override;
 
 private:
-    SDL_Texture* texture = nullptr;
     int pivotX = 0;
     int pivotY = 0;
     int width = 0;
     int height = 0;
+    void* textureHandle = nullptr;  // Opaque handle for renderer
 
     // Animation data
-    AnimationData data;  // Store full animation data
+    AnimationData data;
     int frameWidth = 32;
     int frameHeight = 32;
-    std::vector<SDL_Rect> frames;
+    std::vector<FrameRect> frames;
     float speed = 10.0f;
     bool loop = true;
 
