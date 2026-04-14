@@ -202,3 +202,25 @@ func GetDepth(component Component) float64 {
 	}
 	return owner.Depth
 }
+
+// CreateComponentFromJSON creates a component from JSON configuration.
+func CreateComponentFromJSON(kind, name string, args map[string]interface{}) (Component, error) {
+	// Convert map to slice for Initialize
+	argSlice := []interface{}{args}
+	component, err := CreateComponent(kind, argSlice)
+	if err != nil {
+		return nil, err
+	}
+	// Set component name
+	component.SetName(name)
+	return component, nil
+}
+
+// ResolveComponentKind resolves a component kind string.
+// If kind starts with '@', it's a built-in component.
+// Currently returns the kind as-is (registration handles mapping).
+func ResolveComponentKind(kind string) string {
+	// For now, just return the kind as-is.
+	// Built-in components should be registered with '@' prefix.
+	return kind
+}

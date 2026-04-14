@@ -3,8 +3,14 @@
 package core
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
+
+	"github.com/EnesBaytekin/imge/internal/core/json"
+	"github.com/EnesBaytekin/imge/internal/core/math"
 )
 
 // ============================================================================
@@ -361,9 +367,90 @@ func (s *Scene) generateUniqueName(base string) string {
 // ============================================================================
 
 // LoadFromJSON loads a scene from JSON data.
-// TODO: Implement JSON parsing based on the defined format.
 func (s *Scene) LoadFromJSON(data []byte) error {
-	return fmt.Errorf("LoadFromJSON not yet implemented")
+	var config json.SceneConfig
+	if err := json.Unmarshal(data, &config); err != nil {
+		return fmt.Errorf("failed to parse scene JSON: %w", err)
+	}
+
+	s.Name = config.Name
+	// TODO: Parse background color
+
+	// Load objects from config
+	for _, objConfig := range config.Objects {
+		obj, err := createObjectFromSceneObject(objConfig)
+		if err != nil {
+			return fmt.Errorf("failed to create object: %w", err)
+		}
+		if err := s.AddObject(obj); err != nil {
+			return fmt.Errorf("failed to add object to scene: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// createObjectFromSceneObject creates an Object from a SceneObject configuration.
+func createObjectFromSceneObject(objConfig json.SceneObject) (*Object, error) {
+	var obj *Object
+
+	if objConfig.File != "" {
+		// Load object template from file
+		objConfigFile, err := json.LoadObjectConfig(objConfig.File)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load object template %s: %w", objConfig.File, err)
+		}
+		obj = NewObject(objConfigFile.Name)
+		// Add components from template
+		for _, compConfig := range objConfigFile.Components {
+			component, err := CreateComponentFromJSON(compConfig.Kind, compConfig.Name, compConfig.Args)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create component %s: %w", compConfig.Kind, err)
+			}
+			if err := obj.AddComponent(component); err != nil {
+				return nil, fmt.Errorf("failed to add component %s: %w", compConfig.Name, err)
+			}
+		}
+		// Add default tags from template
+		for _, tag := range objConfigFile.DefaultTags {
+			obj.AddTag(tag)
+		}
+	} else {
+		// Inline object definition
+		obj = NewObject(objConfig.Name)
+		// Add components
+		for _, compConfig := range objConfig.Components {
+			component, err := CreateComponentFromJSON(compConfig.Kind, compConfig.Name, compConfig.Args)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create component %s: %w", compConfig.Kind, err)
+			}
+			if err := obj.AddComponent(component); err != nil {
+				return nil, fmt.Errorf("failed to add component %s: %w", compConfig.Name, err)
+			}
+		}
+		// Add tags
+		for _, tag := range objConfig.Tags {
+			obj.AddTag(tag)
+		}
+	}
+
+	// Apply transform if provided
+	if objConfig.Transform != nil {
+		obj.Transform.Position = objConfig.Transform.Position
+		if objConfig.Transform.Rotation != 0 {
+			obj.Transform.Rotation = objConfig.Transform.Rotation
+		}
+		if objConfig.Transform.Scale.X != 0 || objConfig.Transform.Scale.Y != 0 {
+			obj.Transform.Scale = objConfig.Transform.Scale
+		}
+	}
+
+	// Set depth if specified
+	if objConfig.Depth != 0 {
+		obj.SetDepth(objConfig.Depth)
+	}
+
+	return obj, nil
 }
 
 // SaveToJSON saves the scene to JSON format.
