@@ -2,6 +2,8 @@
 // This file defines the main Game engine and its lifecycle.
 package core
 
+import "github.com/EnesBaytekin/imge/internal/core/math"
+
 // ============================================================================
 // Configuration
 // ============================================================================
@@ -171,7 +173,7 @@ func (g *Game) Run() error {
 		g.Update(deltaTime)
 
 		// Begin rendering
-		g.platform.Renderer.Clear()
+		g.platform.Renderer.Clear(math.Black)
 
 		// Draw game
 		g.Draw()
