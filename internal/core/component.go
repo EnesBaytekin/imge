@@ -224,3 +224,34 @@ func ResolveComponentKind(kind string) string {
 	// Built-in components should be registered with '@' prefix.
 	return kind
 }
+
+// ============================================================================
+// Runtime Helper Functions for Components
+// ============================================================================
+
+// GetSceneFromComponent returns the scene that contains the component's owner object.
+// Returns nil if the component has no owner or the owner is not in a scene.
+func GetSceneFromComponent(component Component) *Scene {
+	owner := component.GetOwner()
+	if owner == nil {
+		return nil
+	}
+	return owner.Scene
+}
+
+// InstantiateFromTemplateInScene is a helper for components to instantiate objects.
+// If scene is nil, it tries to get the scene from the component's owner.
+func InstantiateFromTemplateInScene(component Component, templatePath string, transform *math.Transform) (*Object, error) {
+	var scene *Scene
+
+	// Try to get scene from component if not provided
+	if component != nil {
+		scene = GetSceneFromComponent(component)
+	}
+
+	if scene == nil {
+		return nil, fmt.Errorf("no scene available for instantiation")
+	}
+
+	return scene.InstantiateFromTemplate(templatePath, transform)
+}

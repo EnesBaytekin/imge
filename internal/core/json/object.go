@@ -7,10 +7,12 @@ import (
 )
 
 // ObjectConfig represents an object template (.obj file).
+// Contains all object properties except transform.
 type ObjectConfig struct {
 	Name       string                    `json:"name"`
+	Depth      float64                   `json:"depth,omitempty"`
 	Components []ComponentInstanceConfig `json:"components"`
-	DefaultTags []string                 `json:"tags,omitempty"`
+	Tags       []string                  `json:"tags,omitempty"`
 }
 
 // LoadObjectConfig loads an object configuration from a JSON file.

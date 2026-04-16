@@ -3,8 +3,11 @@
 package core
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 
+	"github.com/EnesBaytekin/imge/internal/core/json"
 	"github.com/EnesBaytekin/imge/internal/core/math"
 )
 
@@ -312,4 +315,103 @@ func (obj *Object) SetScale(x, y float64) {
 // GetScale returns the object's scale factors.
 func (obj *Object) GetScale() math.Vector2 {
 	return obj.Transform.Scale
+}
+
+// ============================================================================
+// JSON Serialization
+// ============================================================================
+
+// LoadFromJSON loads object data from JSON configuration.
+// Note: This creates a new object from JSON data, it doesn't update an existing object.
+func LoadObjectFromJSON(data []byte) (*Object, error) {
+	var config json.ObjectConfig
+	if err := json.Unmarshal(data, &config); err != nil {
+		return nil, fmt.Errorf("failed to parse object JSON: %w", err)
+	}
+
+	obj := NewObject(config.Name)
+
+	// Set depth if specified
+	if config.Depth != 0 {
+		obj.SetDepth(config.Depth)
+	}
+
+	// Add components
+	for _, compConfig := range config.Components {
+		component, err := CreateComponentFromJSON(compConfig.Kind, compConfig.Name, compConfig.Args)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create component %s: %w", compConfig.Kind, err)
+		}
+		if err := obj.AddComponent(component); err != nil {
+			return nil, fmt.Errorf("failed to add component %s: %w", compConfig.Name, err)
+		}
+	}
+
+	// Add tags
+	for _, tag := range config.Tags {
+		obj.AddTag(tag)
+	}
+
+	return obj, nil
+}
+
+// LoadObjectFromFile loads an object from a JSON file.
+func LoadObjectFromFile(path string) (*Object, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read object file %s: %w", path, err)
+	}
+	return LoadObjectFromJSON(data)
+}
+
+// ToJSONConfig converts the object to JSON configuration.
+// Note: Transform is not included in ObjectConfig (only in scene references).
+func (obj *Object) ToJSONConfig() *json.ObjectConfig {
+	config := &json.ObjectConfig{
+		Name:  obj.Name,
+		Depth: obj.Depth,
+	}
+
+	// Convert components
+	for _, component := range obj.Components {
+		compConfig := json.ComponentInstanceConfig{
+			Kind: component.GetKind(),
+			Name: component.GetName(),
+			Args: make(map[string]interface{}),
+		}
+		// TODO: Serialize component args properly
+		// For now, we'll leave args empty as we don't have a way to get them back from component
+		config.Components = append(config.Components, compConfig)
+	}
+
+	// Convert tags
+	for tag := range obj.Tags {
+		config.Tags = append(config.Tags, tag)
+	}
+
+	return config
+}
+
+// SaveToJSON saves the object to JSON format.
+func (obj *Object) SaveToJSON() ([]byte, error) {
+	config := obj.ToJSONConfig()
+	return json.MarshalIndent(config, "", "  ")
+}
+
+// SaveToFile saves the object to a JSON file.
+func (obj *Object) SaveToFile(path string) error {
+	data, err := obj.SaveToJSON()
+	if err != nil {
+		return fmt.Errorf("failed to marshal object to JSON: %w", err)
+	}
+
+	if err := os.MkdirAll(path, 0755); err != nil {
+		return fmt.Errorf("failed to create directory for %s: %w", path, err)
+	}
+
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return fmt.Errorf("failed to write object file %s: %w", path, err)
+	}
+
+	return nil
 }

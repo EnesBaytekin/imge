@@ -402,16 +402,23 @@ func (s *Scene) LoadFromFile(path string) error {
 // createObjectFromSceneObject creates an Object from a SceneObject configuration.
 func createObjectFromSceneObject(objConfig json.SceneObject) (*Object, error) {
 	var obj *Object
-	var objConfigFile *json.ObjectConfig
-	var err error
 
-	// Load template if file specified
+	// Case 1: File reference with transform override
 	if objConfig.File != "" {
-		objConfigFile, err = json.LoadObjectConfig(objConfig.File)
+		// Load object template from file
+		objConfigFile, err := json.LoadObjectConfig(objConfig.File)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load object template %s: %w", objConfig.File, err)
 		}
+
+		// Create object from template
 		obj = NewObject(objConfigFile.Name)
+
+		// Set depth from template if specified
+		if objConfigFile.Depth != 0 {
+			obj.SetDepth(objConfigFile.Depth)
+		}
+
 		// Add components from template
 		for _, compConfig := range objConfigFile.Components {
 			component, err := CreateComponentFromJSON(compConfig.Kind, compConfig.Name, compConfig.Args)
@@ -422,15 +429,40 @@ func createObjectFromSceneObject(objConfig json.SceneObject) (*Object, error) {
 				return nil, fmt.Errorf("failed to add component %s: %w", compConfig.Name, err)
 			}
 		}
-		// Add default tags from template
-		for _, tag := range objConfigFile.DefaultTags {
+
+		// Add tags from template
+		for _, tag := range objConfigFile.Tags {
 			obj.AddTag(tag)
 		}
-	} else {
-		obj = NewObject(objConfig.Name)
+
+		// Apply transform override if provided
+		if objConfig.Transform != nil {
+			obj.Transform.Position = objConfig.Transform.Position
+			if objConfig.Transform.Rotation != 0 {
+				obj.Transform.Rotation = objConfig.Transform.Rotation
+			}
+			if objConfig.Transform.Scale.X != 0 || objConfig.Transform.Scale.Y != 0 {
+				obj.Transform.Scale = objConfig.Transform.Scale
+			}
+		}
+
+		// Depth override from scene (if specified)
+		if objConfig.Depth != 0 {
+			obj.SetDepth(objConfig.Depth)
+		}
+
+		return obj, nil
 	}
 
-	// Add inline components (override or add to template)
+	// Case 2: Inline object definition (no file reference)
+	// Validate inline definition
+	if objConfig.Name == "" {
+		return nil, fmt.Errorf("inline object must have a name")
+	}
+
+	obj = NewObject(objConfig.Name)
+
+	// Add components
 	for _, compConfig := range objConfig.Components {
 		component, err := CreateComponentFromJSON(compConfig.Kind, compConfig.Name, compConfig.Args)
 		if err != nil {
@@ -441,7 +473,7 @@ func createObjectFromSceneObject(objConfig json.SceneObject) (*Object, error) {
 		}
 	}
 
-	// Add inline tags
+	// Add tags
 	for _, tag := range objConfig.Tags {
 		obj.AddTag(tag)
 	}
@@ -472,7 +504,45 @@ func (s *Scene) SaveToJSON() ([]byte, error) {
 }
 
 // InstantiateFromTemplate creates an object from a template file and adds it to the scene.
-// TODO: Implement template loading and instantiation.
-func (s *Scene) InstantiateFromTemplate(templatePath string, x, y, rotation, scaleX, scaleY float64) (*Object, error) {
-	return nil, fmt.Errorf("InstantiateFromTemplate not yet implemented")
+// Returns the created object or error.
+func (s *Scene) InstantiateFromTemplate(templatePath string, transform *math.Transform) (*Object, error) {
+	// Load object from template file
+	obj, err := LoadObjectFromFile(templatePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load template %s: %w", templatePath, err)
+	}
+
+	// Apply transform if provided
+	if transform != nil {
+		obj.Transform = *transform
+	}
+
+	// Add object to scene
+	if err := s.AddObject(obj); err != nil {
+		return nil, fmt.Errorf("failed to add object to scene: %w", err)
+	}
+
+	return obj, nil
+}
+
+// InstantiateObject creates an object from JSON data and adds it to the scene.
+// Useful for runtime object creation from component scripts.
+func (s *Scene) InstantiateObject(data []byte, transform *math.Transform) (*Object, error) {
+	// Load object from JSON
+	obj, err := LoadObjectFromJSON(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load object from JSON: %w", err)
+	}
+
+	// Apply transform if provided
+	if transform != nil {
+		obj.Transform = *transform
+	}
+
+	// Add object to scene
+	if err := s.AddObject(obj); err != nil {
+		return nil, fmt.Errorf("failed to add object to scene: %w", err)
+	}
+
+	return obj, nil
 }
