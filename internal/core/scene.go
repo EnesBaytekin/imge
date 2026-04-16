@@ -390,13 +390,24 @@ func (s *Scene) LoadFromJSON(data []byte) error {
 	return nil
 }
 
+// LoadFromFile loads a scene from a JSON file.
+func (s *Scene) LoadFromFile(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("failed to read scene file %s: %w", path, err)
+	}
+	return s.LoadFromJSON(data)
+}
+
 // createObjectFromSceneObject creates an Object from a SceneObject configuration.
 func createObjectFromSceneObject(objConfig json.SceneObject) (*Object, error) {
 	var obj *Object
+	var objConfigFile *json.ObjectConfig
+	var err error
 
+	// Load template if file specified
 	if objConfig.File != "" {
-		// Load object template from file
-		objConfigFile, err := json.LoadObjectConfig(objConfig.File)
+		objConfigFile, err = json.LoadObjectConfig(objConfig.File)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load object template %s: %w", objConfig.File, err)
 		}
@@ -416,22 +427,23 @@ func createObjectFromSceneObject(objConfig json.SceneObject) (*Object, error) {
 			obj.AddTag(tag)
 		}
 	} else {
-		// Inline object definition
 		obj = NewObject(objConfig.Name)
-		// Add components
-		for _, compConfig := range objConfig.Components {
-			component, err := CreateComponentFromJSON(compConfig.Kind, compConfig.Name, compConfig.Args)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create component %s: %w", compConfig.Kind, err)
-			}
-			if err := obj.AddComponent(component); err != nil {
-				return nil, fmt.Errorf("failed to add component %s: %w", compConfig.Name, err)
-			}
+	}
+
+	// Add inline components (override or add to template)
+	for _, compConfig := range objConfig.Components {
+		component, err := CreateComponentFromJSON(compConfig.Kind, compConfig.Name, compConfig.Args)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create component %s: %w", compConfig.Kind, err)
 		}
-		// Add tags
-		for _, tag := range objConfig.Tags {
-			obj.AddTag(tag)
+		if err := obj.AddComponent(component); err != nil {
+			return nil, fmt.Errorf("failed to add component %s: %w", compConfig.Name, err)
 		}
+	}
+
+	// Add inline tags
+	for _, tag := range objConfig.Tags {
+		obj.AddTag(tag)
 	}
 
 	// Apply transform if provided
