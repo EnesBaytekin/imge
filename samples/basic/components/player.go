@@ -2,8 +2,8 @@
 package components
 
 import (
-	"github.com/EnesBaytekin/imge/internal/core"
-	"github.com/EnesBaytekin/imge/internal/core/math"
+	"github.com/EnesBaytekin/imge/core"
+	"github.com/EnesBaytekin/imge/core/math"
 )
 
 // PlayerMovement component allows an object to be moved with keyboard input.

@@ -3,7 +3,7 @@ package mock
 import (
 	"fmt"
 
-	"github.com/EnesBaytekin/imge/internal/core/math"
+	"github.com/EnesBaytekin/imge/core/math"
 )
 
 // MockRenderer implements core.Renderer interface with debug prints.

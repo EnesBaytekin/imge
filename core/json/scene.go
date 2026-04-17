@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/EnesBaytekin/imge/internal/core/math"
+	"github.com/EnesBaytekin/imge/core/math"
 )
 
 // SceneConfig represents a scene definition (.scene file).

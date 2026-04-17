@@ -2,7 +2,7 @@
 package components
 
 import (
-	"github.com/EnesBaytekin/imge/internal/core"
+	"github.com/EnesBaytekin/imge/core"
 )
 
 // TransformComponent provides additional transform functionality.

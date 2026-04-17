@@ -2,7 +2,7 @@
 // This file defines the main Game engine and its lifecycle.
 package core
 
-import "github.com/EnesBaytekin/imge/internal/core/math"
+import "github.com/EnesBaytekin/imge/core/math"
 
 // ============================================================================
 // Configuration

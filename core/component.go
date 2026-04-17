@@ -2,7 +2,7 @@
 // This file defines the Component system - the building blocks of game objects.
 package core
 
-import "github.com/EnesBaytekin/imge/internal/core/math"
+import "github.com/EnesBaytekin/imge/core/math"
 
 // ============================================================================
 // Component Interface

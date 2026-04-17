@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/EnesBaytekin/imge/internal/core/json"
-	"github.com/EnesBaytekin/imge/internal/core/math"
+	corejson "github.com/EnesBaytekin/imge/core/json"
+	"github.com/EnesBaytekin/imge/core/math"
 )
 
 // ============================================================================
@@ -324,7 +324,7 @@ func (obj *Object) GetScale() math.Vector2 {
 // LoadFromJSON loads object data from JSON configuration.
 // Note: This creates a new object from JSON data, it doesn't update an existing object.
 func LoadObjectFromJSON(data []byte) (*Object, error) {
-	var config json.ObjectConfig
+	var config corejson.ObjectConfig
 	if err := json.Unmarshal(data, &config); err != nil {
 		return nil, fmt.Errorf("failed to parse object JSON: %w", err)
 	}
@@ -366,15 +366,15 @@ func LoadObjectFromFile(path string) (*Object, error) {
 
 // ToJSONConfig converts the object to JSON configuration.
 // Note: Transform is not included in ObjectConfig (only in scene references).
-func (obj *Object) ToJSONConfig() *json.ObjectConfig {
-	config := &json.ObjectConfig{
+func (obj *Object) ToJSONConfig() *corejson.ObjectConfig {
+	config := &corejson.ObjectConfig{
 		Name:  obj.Name,
 		Depth: obj.Depth,
 	}
 
 	// Convert components
 	for _, component := range obj.Components {
-		compConfig := json.ComponentInstanceConfig{
+		compConfig := corejson.ComponentInstanceConfig{
 			Kind: component.GetKind(),
 			Name: component.GetName(),
 			Args: make(map[string]interface{}),

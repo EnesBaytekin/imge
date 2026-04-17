@@ -15,8 +15,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/EnesBaytekin/imge/internal/core"
-	"github.com/EnesBaytekin/imge/internal/core/json"
+	"github.com/EnesBaytekin/imge/core"
+	"github.com/EnesBaytekin/imge/core/json"
 )
 
 // platformFactory is the function signature for platform creation.

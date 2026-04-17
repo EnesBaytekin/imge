@@ -3,7 +3,7 @@
 package core
 
 import (
-	"github.com/EnesBaytekin/imge/internal/core/math"
+	"github.com/EnesBaytekin/imge/core/math"
 )
 
 // ============================================================================

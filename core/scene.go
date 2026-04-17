@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/EnesBaytekin/imge/internal/core/json"
-	"github.com/EnesBaytekin/imge/internal/core/math"
+	corejson "github.com/EnesBaytekin/imge/core/json"
+	"github.com/EnesBaytekin/imge/core/math"
 )
 
 // ============================================================================
@@ -368,7 +368,7 @@ func (s *Scene) generateUniqueName(base string) string {
 
 // LoadFromJSON loads a scene from JSON data.
 func (s *Scene) LoadFromJSON(data []byte) error {
-	var config json.SceneConfig
+	var config corejson.SceneConfig
 	if err := json.Unmarshal(data, &config); err != nil {
 		return fmt.Errorf("failed to parse scene JSON: %w", err)
 	}
@@ -400,13 +400,13 @@ func (s *Scene) LoadFromFile(path string) error {
 }
 
 // createObjectFromSceneObject creates an Object from a SceneObject configuration.
-func createObjectFromSceneObject(objConfig json.SceneObject) (*Object, error) {
+func createObjectFromSceneObject(objConfig corejson.SceneObject) (*Object, error) {
 	var obj *Object
 
 	// Case 1: File reference with transform override
 	if objConfig.File != "" {
 		// Load object template from file
-		objConfigFile, err := json.LoadObjectConfig(objConfig.File)
+		objConfigFile, err := corejson.LoadObjectConfig(objConfig.File)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load object template %s: %w", objConfig.File, err)
 		}

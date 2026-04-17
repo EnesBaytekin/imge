@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/EnesBaytekin/imge/internal/build"
+	"github.com/EnesBaytekin/imge/build"
 )
 
 const version = "0.1.0"

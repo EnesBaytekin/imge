@@ -3,8 +3,8 @@ package mock
 import (
 	"fmt"
 
-	"github.com/EnesBaytekin/imge/internal/core"
-	"github.com/EnesBaytekin/imge/internal/core/math"
+	"github.com/EnesBaytekin/imge/core"
+	"github.com/EnesBaytekin/imge/core/math"
 )
 
 // MockInput implements core.Input interface with debug prints.

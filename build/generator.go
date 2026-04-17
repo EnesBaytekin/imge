@@ -49,9 +49,9 @@ func (g *Generator) Generate() error {
 
 func (g *Generator) createDirectories() error {
 	dirs := []string{
-		filepath.Join(g.BuildDir, "internal", "core"),
-		filepath.Join(g.BuildDir, "internal", "components"),
-		filepath.Join(g.BuildDir, "internal", "math"),
+		filepath.Join(g.BuildDir, "core"),
+		filepath.Join(g.BuildDir, "engine", "components"),
+		filepath.Join(g.BuildDir, "core", "math"),
 		filepath.Join(g.BuildDir, "platform", g.Platform),
 		filepath.Join(g.BuildDir, "components"),
 	}
@@ -66,24 +66,24 @@ func (g *Generator) createDirectories() error {
 }
 
 func (g *Generator) copyEngineCode() error {
-	// Copy internal/core directory
-	coreSrc := filepath.Join(g.EngineSource, "internal", "core")
-	coreDst := filepath.Join(g.BuildDir, "internal", "core")
+	// Copy core directory
+	coreSrc := filepath.Join(g.EngineSource, "core")
+	coreDst := filepath.Join(g.BuildDir, "core")
 	if err := copyDir(coreSrc, coreDst); err != nil {
 		return fmt.Errorf("failed to copy core: %v", err)
 	}
 
-	// Copy internal/components directory
-	componentsSrc := filepath.Join(g.EngineSource, "internal", "components")
-	componentsDst := filepath.Join(g.BuildDir, "internal", "components")
+	// Copy engine/components directory to components (built-in components)
+	componentsSrc := filepath.Join(g.EngineSource, "engine", "components")
+	componentsDst := filepath.Join(g.BuildDir, "components")
 	if err := copyDir(componentsSrc, componentsDst); err != nil {
 		return fmt.Errorf("failed to copy components: %v", err)
 	}
 
-	// Copy internal/math directory if exists
-	mathSrc := filepath.Join(g.EngineSource, "internal", "math")
+	// Copy core/math directory
+	mathSrc := filepath.Join(g.EngineSource, "core", "math")
 	if _, err := os.Stat(mathSrc); !os.IsNotExist(err) {
-		mathDst := filepath.Join(g.BuildDir, "internal", "math")
+		mathDst := filepath.Join(g.BuildDir, "core", "math")
 		if err := copyDir(mathSrc, mathDst); err != nil {
 			return fmt.Errorf("failed to copy math: %v", err)
 		}
@@ -139,8 +139,8 @@ import (
 	"path/filepath"
 
 	"github.com/EnesBaytekin/imge/components"
-	"github.com/EnesBaytekin/imge/internal/core"
-	"github.com/EnesBaytekin/imge/internal/platform/{{.Platform}}"
+	"github.com/EnesBaytekin/imge/core"
+	"github.com/EnesBaytekin/imge/platform/{{.Platform}}"
 )
 
 func main() {

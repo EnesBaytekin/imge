@@ -6,7 +6,7 @@
 package main
 
 import (
-	"github.com/EnesBaytekin/imge/internal/core"
+	"github.com/EnesBaytekin/imge/core"
 	mockplatform "github.com/EnesBaytekin/imge/platform/mock"
 )
 

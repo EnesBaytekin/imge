@@ -2,8 +2,8 @@
 package components
 
 import (
-	"github.com/EnesBaytekin/imge/internal/core"
-	"github.com/EnesBaytekin/imge/internal/core/math"
+	"github.com/EnesBaytekin/imge/core"
+	"github.com/EnesBaytekin/imge/core/math"
 )
 
 // EnemyAI component makes an object chase the player.
