@@ -217,19 +217,18 @@ func main() {
 }
 
 func (g *Generator) generateGoMod() error {
-	// Copy engine's go.mod file to build directory
-	srcModPath := filepath.Join(g.EngineSource, "go.mod")
-	modContent, err := os.ReadFile(srcModPath)
-	if err != nil {
-		// Fallback to a simple go.mod
-		modContent = []byte(`module github.com/EnesBaytekin/imge
+	// Create go.mod with replace directive to use local code
+	modContent := `module github.com/EnesBaytekin/imge
 
 go 1.24
-`)
-	}
+
+require github.com/EnesBaytekin/imge v0.1.0
+
+replace github.com/EnesBaytekin/imge => .
+`
 
 	dstModPath := filepath.Join(g.BuildDir, "go.mod")
-	return os.WriteFile(dstModPath, modContent, 0644)
+	return os.WriteFile(dstModPath, []byte(modContent), 0644)
 }
 
 // Helper functions for file copying

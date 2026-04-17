@@ -73,9 +73,22 @@ func (b *Builder) executeGoBuild() error {
 		// Continue anyway, build might still work
 	}
 
+	// Run go mod vendor to create vendor directory
+	vendorCmd := exec.Command("go", "mod", "vendor")
+	vendorCmd.Dir = b.BuildDir
+	vendorCmd.Stdout = os.Stdout
+	vendorCmd.Stderr = os.Stderr
+
+	fmt.Printf("Running: go mod vendor\n")
+	if err := vendorCmd.Run(); err != nil {
+		fmt.Printf("Warning: go mod vendor failed: %v\n", err)
+		// Continue anyway, build might still work
+	}
+
 	// Build command arguments
 	args := []string{
 		"build",
+		"-mod", "vendor",
 		"-o", outputPath,
 		".",
 	}
