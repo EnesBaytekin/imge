@@ -14,6 +14,7 @@ type Builder struct {
 	BuildDir     string
 	Platform     string
 	OutputName   string
+	OutputDir    string // Final output directory (e.g., imge_build_mock)
 	EngineSource string // Path to engine source code
 }
 
@@ -23,6 +24,11 @@ func (b *Builder) Build() error {
 	analysis, err := AnalyzeProject(b.ProjectDir)
 	if err != nil {
 		return fmt.Errorf("project analysis failed: %v", err)
+	}
+
+	// Set default output directory if not specified
+	if b.OutputDir == "" {
+		b.OutputDir = fmt.Sprintf("imge_build_%s", b.Platform)
 	}
 
 	// Create generator
@@ -43,9 +49,9 @@ func (b *Builder) Build() error {
 		return fmt.Errorf("go build failed: %v", err)
 	}
 
-	// Copy assets to output directory (optional)
-	if err := b.copyAssets(); err != nil {
-		fmt.Printf("Warning: Failed to copy assets: %v\n", err)
+	// Copy final output (executable + assets) to output directory
+	if err := b.copyFinalOutput(); err != nil {
+		fmt.Printf("Warning: Failed to copy final output: %v\n", err)
 	}
 
 	return nil
@@ -108,6 +114,47 @@ func (b *Builder) executeGoBuild() error {
 	}
 
 	fmt.Printf("Build successful! Output: %s\n", outputPath)
+	return nil
+}
+
+func (b *Builder) copyFinalOutput() error {
+	// Create output directory
+	if err := os.MkdirAll(b.OutputDir, 0755); err != nil {
+		return fmt.Errorf("failed to create output directory %s: %v", b.OutputDir, err)
+	}
+
+	// Determine source executable path
+	srcExePath := filepath.Join(b.BuildDir, b.OutputName)
+	if b.OutputName == "" {
+		srcExePath = filepath.Join(b.BuildDir, "game")
+	}
+
+	// Determine destination executable path
+	dstExePath := filepath.Join(b.OutputDir, filepath.Base(srcExePath))
+
+	// Copy executable
+	if err := copyFile(srcExePath, dstExePath); err != nil {
+		return fmt.Errorf("failed to copy executable: %v", err)
+	}
+
+	fmt.Printf("Executable copied to: %s\n", dstExePath)
+
+	// Copy project directories (assets/, scenes/, objects/)
+	dirsToCopy := []string{"assets", "scenes", "objects"}
+	for _, dir := range dirsToCopy {
+		srcDir := filepath.Join(b.ProjectDir, dir)
+		dstDir := filepath.Join(b.OutputDir, dir)
+
+		if _, err := os.Stat(srcDir); os.IsNotExist(err) {
+			continue // Directory doesn't exist, skip
+		}
+
+		if err := copyDir(srcDir, dstDir); err != nil {
+			return fmt.Errorf("failed to copy %s directory: %v", dir, err)
+		}
+		fmt.Printf("Copied %s/ directory to output\n", dir)
+	}
+
 	return nil
 }
 

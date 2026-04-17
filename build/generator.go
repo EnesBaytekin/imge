@@ -318,6 +318,12 @@ func copyDir(src, dst string) error {
 }
 
 func copyFile(src, dst string) error {
+	// Get source file info for permissions
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+
 	srcFile, err := os.Open(src)
 	if err != nil {
 		return err
@@ -331,5 +337,10 @@ func copyFile(src, dst string) error {
 	defer dstFile.Close()
 
 	_, err = io.Copy(dstFile, srcFile)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Preserve source file permissions
+	return os.Chmod(dst, srcInfo.Mode())
 }
