@@ -75,12 +75,13 @@ func handleBuild() {
 	if err := os.MkdirAll(buildDir, 0755); err != nil {
 		log.Fatalf("Failed to create build directory: %v", err)
 	}
-	defer func() {
-		// Clean up build directory after build
-		if err := os.RemoveAll(buildDir); err != nil {
-			log.Printf("Warning: Failed to clean build directory: %v", err)
-		}
-	}()
+	// Temporarily disabled cleanup for debugging
+	// defer func() {
+	// 	// Clean up build directory after build
+	// 	if err := os.RemoveAll(buildDir); err != nil {
+	// 		log.Printf("Warning: Failed to clean build directory: %v", err)
+	// 	}
+	// }()
 
 	// Determine output name (game or game.exe)
 	outputName := "game"

@@ -138,6 +138,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/EnesBaytekin/imge/components"
 	"github.com/EnesBaytekin/imge/internal/core"
 	"github.com/EnesBaytekin/imge/internal/platform/{{.Platform}}"
 )
@@ -216,11 +217,19 @@ func main() {
 }
 
 func (g *Generator) generateGoMod() error {
-	// Copy engine's go.mod file
+	// Copy engine's go.mod file to build directory
 	srcModPath := filepath.Join(g.EngineSource, "go.mod")
-	dstModPath := filepath.Join(g.BuildDir, "go.mod")
+	modContent, err := os.ReadFile(srcModPath)
+	if err != nil {
+		// Fallback to a simple go.mod
+		modContent = []byte(`module github.com/EnesBaytekin/imge
 
-	return copyFile(srcModPath, dstModPath)
+go 1.24
+`)
+	}
+
+	dstModPath := filepath.Join(g.BuildDir, "go.mod")
+	return os.WriteFile(dstModPath, modContent, 0644)
 }
 
 // Helper functions for file copying
