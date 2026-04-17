@@ -1,0 +1,32 @@
+{
+  "name": "Enemy",
+  "depth": 0,
+  "components": [
+    {
+      "kind": "@Sprite",
+      "name": "sprite",
+      "args": {
+        "width": 30,
+        "height": 30,
+        "color": { "r": 255, "g": 0, "b": 0, "a": 255 }
+      }
+    },
+    {
+      "kind": "components/enemy.go",
+      "name": "ai",
+      "args": {
+        "speed": 150,
+        "player_tag": "player"
+      }
+    },
+    {
+      "kind": "@Collider",
+      "name": "collider",
+      "args": {
+        "type": "circle",
+        "radius": 15
+      }
+    }
+  ],
+  "tags": ["enemy"]
+}

@@ -1,0 +1,32 @@
+{
+  "name": "Player",
+  "depth": 1,
+  "components": [
+    {
+      "kind": "@Sprite",
+      "name": "sprite",
+      "args": {
+        "width": 40,
+        "height": 40,
+        "color": { "r": 0, "g": 255, "b": 0, "a": 255 }
+      }
+    },
+    {
+      "kind": "components/player.go",
+      "name": "movement",
+      "args": {
+        "speed": 250
+      }
+    },
+    {
+      "kind": "@Collider",
+      "name": "collider",
+      "args": {
+        "type": "rectangle",
+        "width": 40,
+        "height": 40
+      }
+    }
+  ],
+  "tags": ["player"]
+}
