@@ -34,6 +34,11 @@ func (g *Generator) Generate() error {
 		return fmt.Errorf("failed to copy user components: %v", err)
 	}
 
+	// Copy project assets (assets/, scenes/, objects/)
+	if err := g.copyProjectAssets(); err != nil {
+		return fmt.Errorf("failed to copy project assets: %v", err)
+	}
+
 	// Generate main.go
 	if err := g.generateMainGo(); err != nil {
 		return fmt.Errorf("failed to generate main.go: %v", err)
@@ -54,6 +59,9 @@ func (g *Generator) createDirectories() error {
 		filepath.Join(g.BuildDir, "core", "math"),
 		filepath.Join(g.BuildDir, "platform", g.Platform),
 		filepath.Join(g.BuildDir, "components"),
+		filepath.Join(g.BuildDir, "assets"),
+		filepath.Join(g.BuildDir, "scenes"),
+		filepath.Join(g.BuildDir, "objects"),
 	}
 
 	for _, dir := range dirs {
@@ -109,6 +117,39 @@ func (g *Generator) copyEngineCode() error {
 	return nil
 }
 
+func (g *Generator) copyProjectAssets() error {
+	projectDir := g.Analysis.ProjectDir
+
+	// Copy assets directory if it exists
+	assetsSrc := filepath.Join(projectDir, "assets")
+	if _, err := os.Stat(assetsSrc); !os.IsNotExist(err) {
+		assetsDst := filepath.Join(g.BuildDir, "assets")
+		if err := copyDir(assetsSrc, assetsDst); err != nil {
+			return fmt.Errorf("failed to copy assets: %v", err)
+		}
+	}
+
+	// Copy scenes directory if it exists
+	scenesSrc := filepath.Join(projectDir, "scenes")
+	if _, err := os.Stat(scenesSrc); !os.IsNotExist(err) {
+		scenesDst := filepath.Join(g.BuildDir, "scenes")
+		if err := copyDir(scenesSrc, scenesDst); err != nil {
+			return fmt.Errorf("failed to copy scenes: %v", err)
+		}
+	}
+
+	// Copy objects directory if it exists
+	objectsSrc := filepath.Join(projectDir, "objects")
+	if _, err := os.Stat(objectsSrc); !os.IsNotExist(err) {
+		objectsDst := filepath.Join(g.BuildDir, "objects")
+		if err := copyDir(objectsSrc, objectsDst); err != nil {
+			return fmt.Errorf("failed to copy objects: %v", err)
+		}
+	}
+
+	return nil
+}
+
 func (g *Generator) copyUserComponents() error {
 	for _, compFile := range g.Analysis.ComponentFiles {
 		srcPath := filepath.Join(g.Analysis.ProjectDir, compFile)
@@ -138,7 +179,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/EnesBaytekin/imge/components"
+	_ "github.com/EnesBaytekin/imge/components"
 	"github.com/EnesBaytekin/imge/core"
 	"github.com/EnesBaytekin/imge/platform/{{.Platform}}"
 )
@@ -165,15 +206,24 @@ func main() {
 	}
 
 	// Create game
-	game := core.NewGameWithConfig(config, platform)
+	game := core.NewGameWithConfig(config)
+	game.SetPlatform(platform)
+
+	// Initialize the game
+	if err := game.Init(); err != nil {
+		log.Fatalf("Failed to initialize game: %v", err)
+	}
 
 	// Load initial scene if specified
 	if config.InitialScene != "" {
 		scenePath := filepath.Join(exeDir, "scenes", config.InitialScene + ".scene")
-		if err := game.LoadScene(scenePath); err != nil {
+		scene := core.NewScene(config.InitialScene)
+		if err := scene.LoadFromFile(scenePath); err != nil {
 			log.Printf("Warning: Could not load initial scene: %v", err)
 			log.Println("Starting with empty scene")
 		}
+		game.AddScene(scene)
+		game.SetActiveScene(config.InitialScene)
 	}
 
 	// Run the game

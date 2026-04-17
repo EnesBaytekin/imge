@@ -2,8 +2,10 @@
 package components
 
 import (
+	"math"
+
 	"github.com/EnesBaytekin/imge/core"
-	"github.com/EnesBaytekin/imge/core/math"
+	coremath "github.com/EnesBaytekin/imge/core/math"
 )
 
 // EnemyAI component makes an object chase the player.
@@ -52,7 +54,7 @@ func (c *EnemyAI) Update(deltaTime float64) {
 	enemyPos := owner.Transform.Position
 
 	// Calculate direction vector towards player
-	dir := math.Vector2{
+	dir := coremath.Vector2{
 		X: playerPos.X - enemyPos.X,
 		Y: playerPos.Y - enemyPos.Y,
 	}
@@ -73,7 +75,7 @@ func (c *EnemyAI) Update(deltaTime float64) {
 		moveDistance = length // Don't overshoot
 	}
 
-	owner.Transform.Position = math.Vector2{
+	owner.Transform.Position = coremath.Vector2{
 		X: enemyPos.X + dir.X * moveDistance,
 		Y: enemyPos.Y + dir.Y * moveDistance,
 	}

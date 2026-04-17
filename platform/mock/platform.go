@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/EnesBaytekin/imge/core"
-	"github.com/EnesBaytekin/imge/core/math"
 )
 
 // MockPlatform implements core.Platform interface with debug prints.

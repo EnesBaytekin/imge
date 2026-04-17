@@ -56,8 +56,7 @@ func (c *ColliderComponent) Draw(renderer core.Renderer) {
 	if c.colliderType == "rectangle" {
 		rect := math.Rect{
 			Position: position,
-			Width:    c.width,
-			Height:   c.height,
+			Size:     math.NewVector2(c.width, c.height),
 		}
 		// Draw red outline
 		renderer.DrawRectOutline(rect, math.Red, 1.0)

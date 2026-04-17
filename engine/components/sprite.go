@@ -69,16 +69,14 @@ func (c *SpriteComponent) Draw(renderer core.Renderer) {
 	if c.width > 0 && c.height > 0 {
 		rect := math.Rect{
 			Position: position,
-			Width:    c.width,
-			Height:   c.height,
+			Size:     math.NewVector2(c.width, c.height),
 		}
 		renderer.DrawRect(rect, c.color)
 	} else {
 		// Default size
 		rect := math.Rect{
 			Position: position,
-			Width:    32,
-			Height:   32,
+			Size:     math.NewVector2(32, 32),
 		}
 		renderer.DrawRect(rect, c.color)
 	}

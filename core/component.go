@@ -2,7 +2,10 @@
 // This file defines the Component system - the building blocks of game objects.
 package core
 
-import "github.com/EnesBaytekin/imge/core/math"
+import (
+	"fmt"
+	"github.com/EnesBaytekin/imge/core/math"
+)
 
 // ============================================================================
 // Component Interface
@@ -36,10 +39,16 @@ type Component interface {
 	// GetName returns the component's name (unique within the object).
 	GetName() string
 
+	// SetName sets the component's name.
+	SetName(name string)
+
 	// GetKind returns the component's kind identifier (file path).
 	// For built-in: "@Hitbox", "@Image", etc.
 	// For user-defined: "scripts/custom.lua", etc.
 	GetKind() string
+
+	// SetKind sets the component's kind identifier.
+	SetKind(kind string)
 }
 
 // ============================================================================
