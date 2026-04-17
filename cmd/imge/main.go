@@ -88,12 +88,33 @@ func handleBuild() {
 		outputName = "game.exe"
 	}
 
+	// Find engine source path (relative to this executable)
+	// Assuming imge CLI is at cmd/imge/imge, engine root is ../..
+	exePath, err := os.Executable()
+	var engineSource string
+	if err != nil {
+		// Fallback to relative path
+		engineSource = "../../"
+	} else {
+		// Get directory containing the executable
+		exeDir := filepath.Dir(exePath)
+		// Go up two levels: cmd/imge/imge -> cmd/imge -> cmd -> ?
+		// Actually, we need to find the engine root
+		// For now, use a heuristic: if we're in a cmd directory, go up one level
+		if strings.Contains(exeDir, "cmd") {
+			engineSource = filepath.Join(exeDir, "..")
+		} else {
+			engineSource = "../../"
+		}
+	}
+
 	// Create and execute builder
 	builder := &build.Builder{
-		ProjectDir: projectDir,
-		BuildDir:   buildDir,
-		Platform:   platform,
-		OutputName: outputName,
+		ProjectDir:   projectDir,
+		BuildDir:     buildDir,
+		Platform:     platform,
+		OutputName:   outputName,
+		EngineSource: engineSource,
 	}
 
 	if err := builder.Build(); err != nil {

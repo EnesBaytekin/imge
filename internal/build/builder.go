@@ -10,10 +10,11 @@ import (
 
 // Builder executes the build process
 type Builder struct {
-	ProjectDir string
-	BuildDir   string
-	Platform   string
-	OutputName string
+	ProjectDir   string
+	BuildDir     string
+	Platform     string
+	OutputName   string
+	EngineSource string // Path to engine source code
 }
 
 // Build executes the full build process
@@ -26,9 +27,10 @@ func (b *Builder) Build() error {
 
 	// Create generator
 	generator := &Generator{
-		BuildDir:  b.BuildDir,
-		Analysis:  analysis,
-		Platform:  b.Platform,
+		BuildDir:     b.BuildDir,
+		Analysis:     analysis,
+		Platform:     b.Platform,
+		EngineSource: b.EngineSource,
 	}
 
 	// Generate build files
@@ -59,12 +61,23 @@ func (b *Builder) executeGoBuild() error {
 		outputPath += ".exe"
 	}
 
+	// First, run go mod tidy to generate go.sum
+	tidyCmd := exec.Command("go", "mod", "tidy")
+	tidyCmd.Dir = b.BuildDir
+	tidyCmd.Stdout = os.Stdout
+	tidyCmd.Stderr = os.Stderr
+
+	fmt.Printf("Running: go mod tidy\n")
+	if err := tidyCmd.Run(); err != nil {
+		fmt.Printf("Warning: go mod tidy failed: %v\n", err)
+		// Continue anyway, build might still work
+	}
+
 	// Build command arguments
 	args := []string{
 		"build",
-		"-tags", b.Platform,
 		"-o", outputPath,
-		"./generated",
+		".",
 	}
 
 	// Create command
