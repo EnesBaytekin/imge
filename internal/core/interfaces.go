@@ -286,10 +286,24 @@ type FileSystem interface {
 // Platform is a convenience interface that groups all platform interfaces.
 // Implementations can choose to implement this or individual interfaces.
 type Platform interface {
-	Renderer
-	Input
-	Audio
-	Time
-	Window
-	FileSystem
+	// Renderer returns the renderer interface for drawing operations.
+	Renderer() Renderer
+
+	// Input returns the input interface for user input handling.
+	Input() Input
+
+	// Audio returns the audio interface for sound and music playback.
+	Audio() Audio
+
+	// Time returns the time interface for timing information.
+	Time() Time
+
+	// Window returns the window interface for window management.
+	Window() Window
+
+	// FileSystem returns the filesystem interface for file operations.
+	FileSystem() FileSystem
+
+	// Update is called each frame to update platform state.
+	Update()
 }

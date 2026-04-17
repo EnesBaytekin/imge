@@ -138,7 +138,7 @@ func (g *Game) Init() error {
 	}
 
 	// Initialize window
-	if err := g.platform.Window.Create(g.config.WindowTitle, g.config.WindowWidth, g.config.WindowHeight); err != nil {
+	if err := g.platform.Window().Create(g.config.WindowTitle, g.config.WindowWidth, g.config.WindowHeight); err != nil {
 		return &GameError{Stage: "Init", Reason: "window creation failed: " + err.Error()}
 	}
 
@@ -158,31 +158,31 @@ func (g *Game) Run() error {
 	// Main game loop
 	for g.running {
 		// Handle window events
-		if g.platform.Window.ShouldClose() {
+		if g.platform.Window().ShouldClose() {
 			g.running = false
 			break
 		}
 
 		// Update input state
-		g.platform.Input.Update()
+		g.platform.Input().Update()
 
 		// Update time
-		deltaTime := g.platform.Time.DeltaTime()
+		deltaTime := g.platform.Time().DeltaTime()
 
 		// Update game logic
 		g.Update(deltaTime)
 
 		// Begin rendering
-		g.platform.Renderer.Clear(math.Black)
+		g.platform.Renderer().Clear(math.Black)
 
 		// Draw game
 		g.Draw()
 
 		// Present rendered frame
-		g.platform.Renderer.Present()
+		g.platform.Renderer().Present()
 
 		// Tick time (advance frame)
-		g.platform.Time.Tick()
+		g.platform.Time().Tick()
 	}
 
 	return g.Shutdown()
@@ -198,14 +198,14 @@ func (g *Game) Update(deltaTime float64) {
 // Draw renders the game for the current frame.
 func (g *Game) Draw() {
 	if g.activeScene != nil {
-		g.activeScene.Draw(g.platform.Renderer)
+		g.activeScene.Draw(g.platform.Renderer())
 	}
 }
 
 // Shutdown cleans up resources and shuts down the game.
 func (g *Game) Shutdown() error {
-	if g.platform != nil && g.platform.Window != nil {
-		g.platform.Window.Destroy()
+	if g.platform != nil && g.platform.Window() != nil {
+		g.platform.Window().Destroy()
 	}
 
 	g.running = false
