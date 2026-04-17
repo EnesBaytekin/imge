@@ -1,10 +1,13 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/EnesBaytekin/imge/internal/build"
 )
 
 const version = "0.1.0"
@@ -41,8 +44,8 @@ func handleBuild() {
 
 	// Validate platform
 	validPlatforms := map[string]bool{
-		"mock":    true,
-		"sdl":     true,
+		"mock":    true,  // Implemented
+		"sdl":     false, // Not implemented yet
 		"web":     false, // Not implemented yet
 		"desktop": false, // Not implemented yet
 	}
@@ -52,17 +55,52 @@ func handleBuild() {
 	}
 
 	// Check if platform is implemented
-	if platform == "web" || platform == "desktop" {
+	if platform != "mock" {
 		log.Fatalf("Platform %s is not implemented yet", platform)
 	}
 
 	fmt.Printf("Building for platform: %s\n", platform)
 
-	// TODO: Implement build logic
-	// 1. Analyze project
-	// 2. Generate code
-	// 3. Execute go build
-	log.Println("Build command not implemented yet")
+	// Get current directory as project directory
+	projectDir, err := os.Getwd()
+	if err != nil {
+		log.Fatalf("Failed to get current directory: %v", err)
+	}
+
+	// Create build directory
+	buildDir := filepath.Join(projectDir, ".imge_build")
+	if err := os.RemoveAll(buildDir); err != nil {
+		log.Fatalf("Failed to clean build directory: %v", err)
+	}
+	if err := os.MkdirAll(buildDir, 0755); err != nil {
+		log.Fatalf("Failed to create build directory: %v", err)
+	}
+	defer func() {
+		// Clean up build directory after build
+		if err := os.RemoveAll(buildDir); err != nil {
+			log.Printf("Warning: Failed to clean build directory: %v", err)
+		}
+	}()
+
+	// Determine output name (game or game.exe)
+	outputName := "game"
+	if platform == "windows" || strings.Contains(platform, "win") {
+		outputName = "game.exe"
+	}
+
+	// Create and execute builder
+	builder := &build.Builder{
+		ProjectDir: projectDir,
+		BuildDir:   buildDir,
+		Platform:   platform,
+		OutputName: outputName,
+	}
+
+	if err := builder.Build(); err != nil {
+		log.Fatalf("Build failed: %v", err)
+	}
+
+	fmt.Println("Build completed successfully!")
 }
 
 func handleRun() {
