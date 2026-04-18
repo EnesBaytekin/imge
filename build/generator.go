@@ -240,7 +240,7 @@ func (g *Generator) generateGoMod() error {
 
 go 1.24
 
-require github.com/EnesBaytekin/imge v0.1.0
+require github.com/EnesBaytekin/imge v0.1.1
 `, modName)
 
 	dstModPath := filepath.Join(g.BuildDir, "go.mod")
