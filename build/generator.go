@@ -145,7 +145,7 @@ import (
 	_ "github.com/EnesBaytekin/imge/engine/components"
 	"github.com/EnesBaytekin/imge/core"
 	"github.com/EnesBaytekin/imge/platform/{{.Platform}}"
-	_ "components"
+	_ "{{.ModuleName}}/components"
 )
 
 func main() {
@@ -210,6 +210,7 @@ func main() {
 		WindowHeight  int
 		TargetFPS     int
 		InitialScene  string
+		ModuleName    string
 	}{
 		Platform:      g.Platform,
 		GameName:      g.Analysis.GameConfig.Name,
@@ -218,6 +219,7 @@ func main() {
 		WindowHeight:  g.Analysis.GameConfig.Window.Height,
 		TargetFPS:     g.Analysis.GameConfig.Game.TargetFPS,
 		InitialScene:  g.Analysis.GameConfig.Game.InitialScene,
+		ModuleName:    fmt.Sprintf("%s_build", filepath.Base(g.Analysis.ProjectDir)),
 	}
 
 	mainPath := filepath.Join(g.BuildDir, "main.go")
