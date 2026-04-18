@@ -105,25 +105,9 @@ func handleBuild() {
 		outputName = "game.exe"
 	}
 
-	// Find engine source path (relative to this executable)
-	// Assuming imge CLI is at cmd/imge/imge, engine root is ../..
-	exePath, err := os.Executable()
-	var engineSource string
-	if err != nil {
-		// Fallback to relative path
-		engineSource = "../../"
-	} else {
-		// Get directory containing the executable
-		exeDir := filepath.Dir(exePath)
-		// Go up two levels: cmd/imge/imge -> cmd/imge -> cmd -> ?
-		// Actually, we need to find the engine root
-		// For now, use a heuristic: if we're in a cmd directory, go up one level
-		if strings.Contains(exeDir, "cmd") {
-			engineSource = filepath.Join(exeDir, "..")
-		} else {
-			engineSource = "../../"
-		}
-	}
+	// Engine code will be fetched from GitHub via go modules
+	// No local engine source needed
+	engineSource := ""
 
 	// Create and execute builder
 	builder := &build.Builder{
@@ -238,6 +222,81 @@ func init() {
 		log.Fatalf("Failed to create components/player.go: %v", err)
 	}
 	fmt.Println("Created file: components/player.go")
+
+	// Create sample scene
+	sampleScene := `{
+  "name": "main",
+  "background_color": "#000000",
+  "objects": [
+    {
+      "file": "objects/player.obj",
+      "transform": {
+        "position": { "x": 100, "y": 100 }
+      }
+    },
+    {
+      "file": "objects/enemy.obj",
+      "transform": {
+        "position": { "x": 400, "y": 300 }
+      }
+    }
+  ]
+}`
+	if err := os.WriteFile("scenes/main.scene", []byte(sampleScene), 0644); err != nil {
+		log.Fatalf("Failed to create scenes/main.scene: %v", err)
+	}
+	fmt.Println("Created file: scenes/main.scene")
+
+	// Create sample player object
+	samplePlayerObj := `{
+  "name": "Player",
+  "depth": 1,
+  "components": [
+    {
+      "kind": "@Sprite",
+      "name": "sprite",
+      "args": {
+        "width": 40,
+        "height": 40,
+        "color": { "r": 0, "g": 255, "b": 0, "a": 255 }
+      }
+    },
+    {
+      "kind": "components/player.go",
+      "name": "movement",
+      "args": {
+        "speed": 250
+      }
+    }
+  ],
+  "tags": ["player"]
+}`
+	if err := os.WriteFile("objects/player.obj", []byte(samplePlayerObj), 0644); err != nil {
+		log.Fatalf("Failed to create objects/player.obj: %v", err)
+	}
+	fmt.Println("Created file: objects/player.obj")
+
+	// Create sample enemy object
+	sampleEnemyObj := `{
+  "name": "Enemy",
+  "depth": 0,
+  "components": [
+    {
+      "kind": "@Sprite",
+      "name": "sprite",
+      "args": {
+        "width": 30,
+        "height": 30,
+        "color": { "r": 255, "g": 0, "b": 0, "a": 255 }
+      }
+    }
+  ],
+  "tags": ["enemy"]
+}`
+	if err := os.WriteFile("objects/enemy.obj", []byte(sampleEnemyObj), 0644); err != nil {
+		log.Fatalf("Failed to create objects/enemy.obj: %v", err)
+	}
+	fmt.Println("Created file: objects/enemy.obj")
 
 	fmt.Println("\nProject initialized successfully!")
 	fmt.Println("Next steps:")

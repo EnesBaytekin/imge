@@ -74,46 +74,9 @@ func (g *Generator) createDirectories() error {
 }
 
 func (g *Generator) copyEngineCode() error {
-	// Copy core directory
-	coreSrc := filepath.Join(g.EngineSource, "core")
-	coreDst := filepath.Join(g.BuildDir, "core")
-	if err := copyDir(coreSrc, coreDst); err != nil {
-		return fmt.Errorf("failed to copy core: %v", err)
-	}
-
-	// Copy engine/components directory to components (built-in components)
-	componentsSrc := filepath.Join(g.EngineSource, "engine", "components")
-	componentsDst := filepath.Join(g.BuildDir, "components")
-	if err := copyDir(componentsSrc, componentsDst); err != nil {
-		return fmt.Errorf("failed to copy components: %v", err)
-	}
-
-	// Copy core/math directory
-	mathSrc := filepath.Join(g.EngineSource, "core", "math")
-	if _, err := os.Stat(mathSrc); !os.IsNotExist(err) {
-		mathDst := filepath.Join(g.BuildDir, "core", "math")
-		if err := copyDir(mathSrc, mathDst); err != nil {
-			return fmt.Errorf("failed to copy math: %v", err)
-		}
-	}
-
-	// Copy platform directory
-	platformSrc := filepath.Join(g.EngineSource, "platform", g.Platform)
-	platformDst := filepath.Join(g.BuildDir, "platform", g.Platform)
-	if err := copyDir(platformSrc, platformDst); err != nil {
-		return fmt.Errorf("failed to copy platform: %v", err)
-	}
-
-	// Copy other platform directories that might be needed
-	// (some platforms might depend on shared code in platform/common for example)
-	commonPlatformSrc := filepath.Join(g.EngineSource, "platform", "common")
-	if _, err := os.Stat(commonPlatformSrc); !os.IsNotExist(err) {
-		commonPlatformDst := filepath.Join(g.BuildDir, "platform", "common")
-		if err := copyDir(commonPlatformSrc, commonPlatformDst); err != nil {
-			return fmt.Errorf("failed to copy common platform: %v", err)
-		}
-	}
-
+	// Engine code will be fetched from GitHub via go modules
+	// No local copying needed
+	fmt.Println("Engine code will be fetched from GitHub during build")
 	return nil
 }
 
@@ -179,9 +142,10 @@ import (
 	"os"
 	"path/filepath"
 
-	_ "github.com/EnesBaytekin/imge/components"
+	_ "github.com/EnesBaytekin/imge/engine/components"
 	"github.com/EnesBaytekin/imge/core"
 	"github.com/EnesBaytekin/imge/platform/{{.Platform}}"
+	_ "components"
 )
 
 func main() {
@@ -267,15 +231,17 @@ func main() {
 }
 
 func (g *Generator) generateGoMod() error {
-	// Create go.mod with replace directive to use local code
-	modContent := `module github.com/EnesBaytekin/imge
+	// Create go.mod to fetch engine from GitHub
+	// Module name is based on project directory name
+	projectName := filepath.Base(g.Analysis.ProjectDir)
+	modName := fmt.Sprintf("%s_build", projectName)
+
+	modContent := fmt.Sprintf(`module %s
 
 go 1.24
 
 require github.com/EnesBaytekin/imge v0.1.0
-
-replace github.com/EnesBaytekin/imge => .
-`
+`, modName)
 
 	dstModPath := filepath.Join(g.BuildDir, "go.mod")
 	return os.WriteFile(dstModPath, []byte(modContent), 0644)
