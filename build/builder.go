@@ -118,6 +118,11 @@ func (b *Builder) executeGoBuild() error {
 }
 
 func (b *Builder) copyFinalOutput() error {
+	// Clean output directory before copying
+	if err := os.RemoveAll(b.OutputDir); err != nil {
+		fmt.Printf("Warning: Failed to clean output directory %s: %v\n", b.OutputDir, err)
+		// Continue anyway
+	}
 	// Create output directory
 	if err := os.MkdirAll(b.OutputDir, 0755); err != nil {
 		return fmt.Errorf("failed to create output directory %s: %v", b.OutputDir, err)

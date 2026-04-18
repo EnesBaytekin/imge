@@ -38,9 +38,17 @@ func main() {
 
 func handleBuild() {
 	if len(os.Args) < 3 {
-		log.Fatal("Usage: imge build <platform>")
+		log.Fatal("Usage: imge build <platform> [--clean]")
 	}
 	platform := os.Args[2]
+
+	// Parse flags
+	cleanBuild := false
+	for _, arg := range os.Args[3:] {
+		if arg == "--clean" {
+			cleanBuild = true
+		}
+	}
 
 	// Validate platform
 	validPlatforms := map[string]bool{
@@ -60,6 +68,9 @@ func handleBuild() {
 	}
 
 	fmt.Printf("Building for platform: %s\n", platform)
+	if cleanBuild {
+		fmt.Println("Clean build enabled (cache will be cleared)")
+	}
 
 	// Get current directory as project directory
 	projectDir, err := os.Getwd()
@@ -69,19 +80,24 @@ func handleBuild() {
 
 	// Create build directory
 	buildDir := filepath.Join(projectDir, ".imge_build")
-	if err := os.RemoveAll(buildDir); err != nil {
-		log.Fatalf("Failed to clean build directory: %v", err)
+	if cleanBuild {
+		// Clean build directory before starting
+		if err := os.RemoveAll(buildDir); err != nil {
+			log.Fatalf("Failed to clean build directory: %v", err)
+		}
 	}
 	if err := os.MkdirAll(buildDir, 0755); err != nil {
 		log.Fatalf("Failed to create build directory: %v", err)
 	}
-	// Temporarily disabled cleanup for debugging
-	// defer func() {
-	// 	// Clean up build directory after build
-	// 	if err := os.RemoveAll(buildDir); err != nil {
-	// 		log.Printf("Warning: Failed to clean build directory: %v", err)
-	// 	}
-	// }()
+	// Clean up build directory after build if cleanBuild is enabled
+	if cleanBuild {
+		defer func() {
+			// Clean up build directory after build
+			if err := os.RemoveAll(buildDir); err != nil {
+				log.Printf("Warning: Failed to clean build directory: %v", err)
+			}
+		}()
+	}
 
 	// Determine output name (game or game.exe)
 	outputName := "game"
