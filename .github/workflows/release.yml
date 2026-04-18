@@ -22,14 +22,14 @@ jobs:
 
     - name: Build IMGE CLI
       run: |
-        go build -o imge ./cmd/imge
+        go build -o imge_linux_amd64 ./cmd/imge
         mkdir -p dist
-        mv imge dist/
+        mv imge_linux_amd64 dist/
 
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
-        files: dist/imge
+        files: dist/imge_linux_amd64
         generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
