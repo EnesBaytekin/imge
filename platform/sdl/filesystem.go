@@ -12,7 +12,7 @@ import (
 type SDLFileSystem struct{}
 
 // ReadFile reads the entire contents of a file.
-func (fs *SDLFileSystem) ReadFile(path string) ([]byte, error) {
+func (s *SDLFileSystem) ReadFile(path string) ([]byte, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file %s: %v", path, err)
@@ -23,7 +23,7 @@ func (fs *SDLFileSystem) ReadFile(path string) ([]byte, error) {
 }
 
 // WriteFile writes data to a file.
-func (fs *SDLFileSystem) WriteFile(path string, data []byte) error {
+func (s *SDLFileSystem) WriteFile(path string, data []byte) error {
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		return fmt.Errorf("failed to write file %s: %v", path, err)
 	}
@@ -33,7 +33,7 @@ func (fs *SDLFileSystem) WriteFile(path string, data []byte) error {
 }
 
 // FileExists checks if a file exists.
-func (fs *SDLFileSystem) FileExists(path string) bool {
+func (s *SDLFileSystem) FileExists(path string) bool {
 	_, err := os.Stat(path)
 	exists := err == nil
 
@@ -42,7 +42,7 @@ func (fs *SDLFileSystem) FileExists(path string) bool {
 }
 
 // ListFiles lists all files in a directory (non-recursive).
-func (fs *SDLFileSystem) ListFiles(dir string) ([]string, error) {
+func (s *SDLFileSystem) ListFiles(dir string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read directory %s: %v", dir, err)
@@ -60,7 +60,7 @@ func (fs *SDLFileSystem) ListFiles(dir string) ([]string, error) {
 }
 
 // ListFilesRecursive lists all files in a directory recursively.
-func (fs *SDLFileSystem) ListFilesRecursive(dir string) ([]string, error) {
+func (s *SDLFileSystem) ListFilesRecursive(dir string) ([]string, error) {
 	var files []string
 
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
@@ -93,7 +93,7 @@ func (fs *SDLFileSystem) ListFilesRecursive(dir string) ([]string, error) {
 }
 
 // CreateDirectory creates a new directory.
-func (fs *SDLFileSystem) CreateDirectory(path string) error {
+func (s *SDLFileSystem) CreateDirectory(path string) error {
 	if err := os.MkdirAll(path, 0755); err != nil {
 		return fmt.Errorf("failed to create directory %s: %v", path, err)
 	}
@@ -103,7 +103,7 @@ func (fs *SDLFileSystem) CreateDirectory(path string) error {
 }
 
 // Delete deletes a file or empty directory.
-func (fs *SDLFileSystem) Delete(path string) error {
+func (s *SDLFileSystem) Delete(path string) error {
 	if err := os.Remove(path); err != nil {
 		return fmt.Errorf("failed to delete %s: %v", path, err)
 	}

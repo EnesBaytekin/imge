@@ -259,7 +259,7 @@ func (i *SDLInput) Update() {
 			}
 
 		case *sdl.MouseMotionEvent:
-			prevX, prevY := i.mousePosition.X, i.mousePosition.Y
+			// prevX, prevY := i.mousePosition.X, i.mousePosition.Y
 			i.mousePosition = math.Vector2{X: float64(e.X), Y: float64(e.Y)}
 			i.mouseDelta = math.Vector2{X: float64(e.XRel), Y: float64(e.YRel)}
 			// Alternatively: i.mouseDelta = math.Vector2{X: i.mousePosition.X - prevX, Y: i.mousePosition.Y - prevY}

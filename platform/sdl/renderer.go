@@ -81,10 +81,10 @@ func (r *SDLRenderer) DrawRect(rect math.Rect, color math.Color) {
 	r.renderer.SetDrawColor(color.R, color.G, color.B, color.A)
 
 	sdlRect := sdl.Rect{
-		X: int32(rect.X),
-		Y: int32(rect.Y),
-		W: int32(rect.Width),
-		H: int32(rect.Height),
+		X: int32(rect.X()),
+		Y: int32(rect.Y()),
+		W: int32(rect.Width()),
+		H: int32(rect.Height()),
 	}
 
 	r.renderer.FillRect(&sdlRect)
@@ -107,37 +107,37 @@ func (r *SDLRenderer) DrawRectOutline(rect math.Rect, color math.Color, thicknes
 	// Draw four lines for rectangle outline
 	// Top line
 	topRect := sdl.Rect{
-		X: int32(rect.X),
-		Y: int32(rect.Y),
-		W: int32(rect.Width),
+		X: int32(rect.X()),
+		Y: int32(rect.Y()),
+		W: int32(rect.Width()),
 		H: thick,
 	}
 	r.renderer.FillRect(&topRect)
 
 	// Bottom line
 	bottomRect := sdl.Rect{
-		X: int32(rect.X),
-		Y: int32(rect.Y + rect.Height - float64(thick)),
-		W: int32(rect.Width),
+		X: int32(rect.X()),
+		Y: int32(rect.Y() + rect.Height() - float64(thick)),
+		W: int32(rect.Width()),
 		H: thick,
 	}
 	r.renderer.FillRect(&bottomRect)
 
 	// Left line
 	leftRect := sdl.Rect{
-		X: int32(rect.X),
-		Y: int32(rect.Y) + thick,
+		X: int32(rect.X()),
+		Y: int32(rect.Y()) + thick,
 		W: thick,
-		H: int32(rect.Height) - thick*2,
+		H: int32(rect.Height()) - thick*2,
 	}
 	r.renderer.FillRect(&leftRect)
 
 	// Right line
 	rightRect := sdl.Rect{
-		X: int32(rect.X + rect.Width - float64(thick)),
-		Y: int32(rect.Y) + thick,
+		X: int32(rect.X() + rect.Width() - float64(thick)),
+		Y: int32(rect.Y()) + thick,
 		W: thick,
-		H: int32(rect.Height) - thick*2,
+		H: int32(rect.Height()) - thick*2,
 	}
 	r.renderer.FillRect(&rightRect)
 }
@@ -153,12 +153,7 @@ func (r *SDLRenderer) DrawCircle(center math.Vector2, radius float64, color math
 	// Simple implementation: draw a filled circle using multiple triangles
 	// For now, draw a rectangle as placeholder
 	// TODO: Implement proper circle drawing
-	rect := math.Rect{
-		X: center.X - radius,
-		Y: center.Y - radius,
-		Width: radius * 2,
-		Height: radius * 2,
-	}
+	rect := math.NewRect(center.X - radius, center.Y - radius, radius * 2, radius * 2)
 	r.DrawRect(rect, color)
 }
 
@@ -170,12 +165,7 @@ func (r *SDLRenderer) DrawCircleOutline(center math.Vector2, radius float64, col
 
 	// Simple placeholder: draw rectangle outline
 	// TODO: Implement proper circle outline drawing
-	rect := math.Rect{
-		X: center.X - radius,
-		Y: center.Y - radius,
-		Width: radius * 2,
-		Height: radius * 2,
-	}
+	rect := math.NewRect(center.X - radius, center.Y - radius, radius * 2, radius * 2)
 	r.DrawRectOutline(rect, color, thickness)
 }
 
@@ -203,12 +193,7 @@ func (r *SDLRenderer) DrawTexture(textureID string, position math.Vector2, scale
 	if !exists {
 		log.Printf("Texture not found: %s", textureID)
 		// Draw a colored rectangle as fallback
-		rect := math.Rect{
-			X: position.X,
-			Y: position.Y,
-			Width: 64 * scale.X,  // Default size
-			Height: 64 * scale.Y,
-		}
+		rect := math.NewRect(position.X, position.Y, 64 * scale.X, 64 * scale.Y)
 		r.DrawRect(rect, tint)
 		return
 	}

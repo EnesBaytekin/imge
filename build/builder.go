@@ -93,16 +93,31 @@ func (b *Builder) executeGoBuild() error {
 	// Build command arguments
 	args := []string{
 		"build",
+	}
+
+	// Add platform-specific build tags
+	if b.Platform == "sdl" {
+		args = append(args, "-tags", "sdl")
+	} else if b.Platform == "mock" {
+		args = append(args, "-tags", "mock")
+	}
+
+	args = append(args,
 		"-mod", "mod",
 		"-o", outputPath,
 		".",
-	}
+	)
 
 	// Create command
 	cmd := exec.Command("go", args...)
 	cmd.Dir = b.BuildDir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+
+	// Set CGO_ENABLED=1 for SDL platform (requires CGO)
+	if b.Platform == "sdl" {
+		cmd.Env = append(os.Environ(), "CGO_ENABLED=1")
+	}
 
 	fmt.Printf("Running: go %s\n", strings.Join(args, " "))
 	fmt.Printf("Working directory: %s\n", b.BuildDir)
