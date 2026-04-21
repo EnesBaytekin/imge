@@ -67,6 +67,13 @@ func (p *MockPlatform) FileSystem() core.FileSystem {
 	return p.filesystem
 }
 
+// Init initializes the platform with the given window configuration.
+func (p *MockPlatform) Init(title string, width, height int) error {
+	fmt.Printf("[MockPlatform] Init(title=%s, width=%d, height=%d)\n", title, width, height)
+	// Create the window
+	return p.window.Create(title, width, height)
+}
+
 // Update is called each frame to update platform state.
 func (p *MockPlatform) Update() {
 	fmt.Println("[MockPlatform] Update() called")

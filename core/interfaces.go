@@ -304,6 +304,10 @@ type Platform interface {
 	// FileSystem returns the filesystem interface for file operations.
 	FileSystem() FileSystem
 
+	// Init initializes the platform with the given window configuration.
+	// This should create the window, initialize subsystems, etc.
+	Init(title string, width, height int) error
+
 	// Update is called each frame to update platform state.
 	Update()
 }

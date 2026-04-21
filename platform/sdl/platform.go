@@ -102,6 +102,35 @@ func (p *SDLPlatform) FileSystem() core.FileSystem {
 	return p.filesystem
 }
 
+// Init initializes the platform with the given window configuration.
+// Creates the window, initializes renderer, opens audio device, etc.
+func (p *SDLPlatform) Init(title string, width, height int) error {
+	// Create window
+	if err := p.window.Create(title, width, height); err != nil {
+		return fmt.Errorf("failed to create window: %v", err)
+	}
+
+	// Initialize renderer with window
+	if err := p.renderer.Init(p.window); err != nil {
+		return fmt.Errorf("failed to initialize renderer: %v", err)
+	}
+
+	// Open audio device for SDL_mixer
+	// Default audio format: 22050 Hz, signed 16-bit, stereo, 4096 byte buffer
+	if err := mix.OpenAudio(22050, uint16(mix.DEFAULT_FORMAT), 2, 4096); err != nil {
+		log.Printf("Warning: Failed to open audio device: %v", err)
+		// Continue without audio
+	} else {
+		log.Println("Audio device opened successfully")
+	}
+
+	// Initialize time subsystem (reset timers)
+	// SDLTime doesn't need explicit initialization
+
+	log.Printf("SDL platform initialized: %s (%dx%d)", title, width, height)
+	return nil
+}
+
 // Update is called each frame to update platform state.
 // Polls window events and updates platform state.
 func (p *SDLPlatform) Update() {

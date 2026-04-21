@@ -137,9 +137,9 @@ func (g *Game) Init() error {
 		return &GameError{Stage: "Init", Reason: "platform not set"}
 	}
 
-	// Initialize window
-	if err := g.platform.Window().Create(g.config.WindowTitle, g.config.WindowWidth, g.config.WindowHeight); err != nil {
-		return &GameError{Stage: "Init", Reason: "window creation failed: " + err.Error()}
+	// Initialize platform (creates window, renderer, audio, etc.)
+	if err := g.platform.Init(g.config.WindowTitle, g.config.WindowWidth, g.config.WindowHeight); err != nil {
+		return &GameError{Stage: "Init", Reason: "platform initialization failed: " + err.Error()}
 	}
 
 	g.initialized = true
