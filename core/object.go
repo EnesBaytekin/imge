@@ -243,13 +243,13 @@ func (obj *Object) GetDepth() float64 {
 // ============================================================================
 
 // Update calls Update on all components.
-func (obj *Object) Update(deltaTime float64) {
+func (obj *Object) Update(ctx *ComponentContext) {
 	if !obj.Active || obj.destroyed {
 		return
 	}
 
 	for _, component := range obj.Components {
-		component.Update(deltaTime)
+		component.Update(ctx)
 	}
 }
 

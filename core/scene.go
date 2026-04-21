@@ -291,14 +291,14 @@ func (s *Scene) GetSortedObjects() []*Object {
 
 // Update calls Update on all active objects in the scene.
 // Depth order doesn't matter for updates.
-func (s *Scene) Update(deltaTime float64) {
+func (s *Scene) Update(ctx *ComponentContext) {
 	if !s.Active {
 		return
 	}
 
 	for _, obj := range s.Objects {
 		if obj.Active && !obj.IsDestroyed() {
-			obj.Update(deltaTime)
+			obj.Update(ctx)
 		}
 	}
 

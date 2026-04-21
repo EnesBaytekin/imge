@@ -19,7 +19,8 @@ type Component interface {
 	Initialize(args []interface{}) error
 
 	// Update is called every frame for logic updates.
-	Update(deltaTime float64)
+	// ctx provides access to engine services (Input, Audio, Time, etc.)
+	Update(ctx *ComponentContext)
 
 	// Draw is called every frame for rendering.
 	Draw(renderer Renderer)
@@ -95,7 +96,7 @@ func (c *BaseComponent) GetKind() string {
 
 // Update is a default empty implementation.
 // Components should override this method if they need update logic.
-func (c *BaseComponent) Update(deltaTime float64) {}
+func (c *BaseComponent) Update(ctx *ComponentContext) {}
 
 // Draw is a default empty implementation.
 // Components should override this method if they need rendering logic.

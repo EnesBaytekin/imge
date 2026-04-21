@@ -169,11 +169,15 @@ func (g *Game) Run() error {
 		// Update platform state (e.g., poll events)
 		g.platform.Update()
 
-		// Update time
-		deltaTime := g.platform.Time().DeltaTime()
+		// Create component context with engine services
+		ctx := &ComponentContext{
+			Input: g.platform.Input(),
+			Audio: g.platform.Audio(),
+			Time:  g.platform.Time(),
+		}
 
 		// Update game logic
-		g.Update(deltaTime)
+		g.Update(ctx)
 
 		// Begin rendering
 		g.platform.Renderer().Clear(math.Black)
@@ -192,9 +196,9 @@ func (g *Game) Run() error {
 }
 
 // Update updates game logic for the current frame.
-func (g *Game) Update(deltaTime float64) {
+func (g *Game) Update(ctx *ComponentContext) {
 	if g.activeScene != nil {
-		g.activeScene.Update(deltaTime)
+		g.activeScene.Update(ctx)
 	}
 }
 

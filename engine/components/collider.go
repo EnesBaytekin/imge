@@ -40,7 +40,7 @@ func (c *ColliderComponent) Initialize(args []interface{}) error {
 	return nil
 }
 
-func (c *ColliderComponent) Update(deltaTime float64) {
+func (c *ColliderComponent) Update(ctx *core.ComponentContext) {
 	// Collision detection would happen here in a real implementation
 }
 

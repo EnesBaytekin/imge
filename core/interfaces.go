@@ -280,6 +280,19 @@ type FileSystem interface {
 }
 
 // ============================================================================
+// Component Context
+// ============================================================================
+
+// ComponentContext provides access to engine services from within components.
+// Passed to Component.Update() method each frame.
+type ComponentContext struct {
+	Input   Input
+	Audio   Audio
+	Time    Time
+	// Note: Renderer is passed separately to Draw() method
+}
+
+// ============================================================================
 // Platform Interface (optional but useful)
 // ============================================================================
 

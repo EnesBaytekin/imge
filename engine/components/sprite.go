@@ -51,7 +51,7 @@ func (c *SpriteComponent) Initialize(args []interface{}) error {
 	return nil
 }
 
-func (c *SpriteComponent) Update(deltaTime float64) {
+func (c *SpriteComponent) Update(ctx *core.ComponentContext) {
 	// No update logic needed for sprite
 }
 

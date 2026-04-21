@@ -25,14 +25,14 @@ func (c *TransformComponent) Initialize(args []interface{}) error {
 	return nil
 }
 
-func (c *TransformComponent) Update(deltaTime float64) {
+func (c *TransformComponent) Update(ctx *core.ComponentContext) {
 	// Example: move object based on speed
 	if c.speed != 0 {
 		owner := c.GetOwner()
 		if owner != nil {
 			// Simple movement for demonstration
 			pos := owner.Transform.Position
-			pos.X += c.speed * deltaTime
+			pos.X += c.speed * ctx.Time.DeltaTime()
 			owner.Transform.Position = pos
 		}
 	}
