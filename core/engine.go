@@ -166,6 +166,9 @@ func (g *Game) Run() error {
 		// Update input state
 		g.platform.Input().Update()
 
+		// Update platform state (e.g., poll events)
+		g.platform.Update()
+
 		// Update time
 		deltaTime := g.platform.Time().DeltaTime()
 

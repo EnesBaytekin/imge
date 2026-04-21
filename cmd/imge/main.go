@@ -53,17 +53,17 @@ func handleBuild() {
 	// Validate platform
 	validPlatforms := map[string]bool{
 		"mock":    true,  // Implemented
-		"sdl":     false, // Not implemented yet
+		"sdl":     true,  // Being implemented
 		"web":     false, // Not implemented yet
 		"desktop": false, // Not implemented yet
 	}
 
 	if !validPlatforms[platform] {
-		log.Fatalf("Invalid platform: %s. Valid platforms: mock", platform)
+		log.Fatalf("Invalid platform: %s. Valid platforms: mock, sdl", platform)
 	}
 
 	// Check if platform is implemented
-	if platform != "mock" {
+	if platform != "mock" && platform != "sdl" {
 		log.Fatalf("Platform %s is not implemented yet", platform)
 	}
 
