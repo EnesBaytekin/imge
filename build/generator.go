@@ -157,7 +157,10 @@ func main() {
 	exeDir := filepath.Dir(exePath)
 
 	// Create platform
-	platform := {{.Platform}}.New()
+	platform, err := {{.Platform}}.New()
+	if err != nil {
+		log.Fatalf("Failed to create platform: %v", err)
+	}
 
 	// Create game configuration
 	config := core.Config{
@@ -242,7 +245,7 @@ func (g *Generator) generateGoMod() error {
 
 go 1.24
 
-require github.com/EnesBaytekin/imge v0.1.1
+require github.com/EnesBaytekin/imge v0.2.2
 `, modName)
 
 	dstModPath := filepath.Join(g.BuildDir, "go.mod")

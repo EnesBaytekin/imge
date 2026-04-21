@@ -1,5 +1,5 @@
-//go:build !sdl && !web && !mock
-// +build !sdl,!web,!mock
+//go:build !web && !mock
+// +build !web,!mock
 
 // Package main provides a generic entry point for the IMGE game engine.
 // Platform selection is done at build time using Go build tags:
