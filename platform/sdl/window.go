@@ -64,7 +64,8 @@ func (w *SDLWindow) ShouldClose() bool {
 // GetSize returns the current window size in pixels.
 func (w *SDLWindow) GetSize() (width, height int) {
 	if w.window != nil {
-		w.width, w.height = w.window.GetSize()
+		width32, height32 := w.window.GetSize()
+		w.width, w.height = int(width32), int(height32)
 	}
 	return w.width, w.height
 }

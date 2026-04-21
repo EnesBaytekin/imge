@@ -1,7 +1,6 @@
 package sdl
 
 import (
-	"fmt"
 	"log"
 
 	"github.com/EnesBaytekin/imge/core"
