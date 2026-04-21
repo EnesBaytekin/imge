@@ -105,18 +105,25 @@ func (p *SDLPlatform) FileSystem() core.FileSystem {
 // Init initializes the platform with the given window configuration.
 // Creates the window, initializes renderer, opens audio device, etc.
 func (p *SDLPlatform) Init(title string, width, height int) error {
+	log.Printf("[SDLPlatform] Init called: %s (%dx%d)", title, width, height)
+
 	// Create window
+	log.Printf("[SDLPlatform] Creating window...")
 	if err := p.window.Create(title, width, height); err != nil {
 		return fmt.Errorf("failed to create window: %v", err)
 	}
+	log.Printf("[SDLPlatform] Window created successfully")
 
 	// Initialize renderer with window
+	log.Printf("[SDLPlatform] Initializing renderer...")
 	if err := p.renderer.Init(p.window); err != nil {
 		return fmt.Errorf("failed to initialize renderer: %v", err)
 	}
+	log.Printf("[SDLPlatform] Renderer initialized successfully")
 
 	// Open audio device for SDL_mixer
 	// Default audio format: 22050 Hz, signed 16-bit, stereo, 4096 byte buffer
+	log.Printf("[SDLPlatform] Opening audio device...")
 	if err := mix.OpenAudio(22050, uint16(mix.DEFAULT_FORMAT), 2, 4096); err != nil {
 		log.Printf("Warning: Failed to open audio device: %v", err)
 		// Continue without audio
@@ -127,7 +134,7 @@ func (p *SDLPlatform) Init(title string, width, height int) error {
 	// Initialize time subsystem (reset timers)
 	// SDLTime doesn't need explicit initialization
 
-	log.Printf("SDL platform initialized: %s (%dx%d)", title, width, height)
+	log.Printf("[SDLPlatform] Platform initialized successfully: %s (%dx%d)", title, width, height)
 	return nil
 }
 
