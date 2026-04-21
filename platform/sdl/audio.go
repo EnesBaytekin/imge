@@ -5,7 +5,7 @@ import (
 	"log"
 	"sync"
 
-	"github.com/veandco/go-sdl2/sdl_mixer"
+	"github.com/veandco/go-sdl2/mix"
 )
 
 // SDLAudio implements core.Audio interface using SDL_mixer.

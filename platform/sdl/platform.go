@@ -7,7 +7,7 @@ import (
 
 	"github.com/EnesBaytekin/imge/core"
 	"github.com/veandco/go-sdl2/sdl"
-	"github.com/veandco/go-sdl2/sdl_mixer"
+	"github.com/veandco/go-sdl2/mix"
 )
 
 // SDLPlatform implements core.Platform interface using SDL2.
