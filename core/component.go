@@ -50,6 +50,28 @@ type Component interface {
 
 	// SetKind sets the component's kind identifier.
 	SetKind(kind string)
+
+	// Ping emits an event into the scene's event queue.
+	// The event will be delivered to subscribed components' Pong() methods
+	// after all Update() calls complete for this frame.
+	Ping(event Event)
+
+	// Pong receives an event that this component subscribed to.
+	// Components should switch on event.Name to handle different event types.
+	// ctx provides access to engine services for responder logic.
+	Pong(event *Event, ctx *ComponentContext)
+
+	// SetInitArgs stores the initialization arguments for later use.
+	// Called by CreateComponent after factory creation, before AddComponent.
+	SetInitArgs(args []interface{})
+
+	// GetInitArgs returns the stored initialization arguments.
+	GetInitArgs() []interface{}
+
+	// SubscribeEvents is called after the component's owner is set.
+	// Components should use this to register event subscriptions with the
+	// scene's EventManager via scene.EventManager.Subscribe().
+	SubscribeEvents()
 }
 
 // ============================================================================
@@ -59,9 +81,10 @@ type Component interface {
 // BaseComponent provides default implementations for the Component interface.
 // All components should embed BaseComponent to get common functionality.
 type BaseComponent struct {
-	owner *Object
-	name  string
-	kind  string // component kind (file identifier)
+	owner    *Object
+	name     string
+	kind     string   // component kind (file identifier)
+	initArgs []interface{} // stored init args, passed to Initialize after SetOwner
 }
 
 // SetOwner sets the parent object that owns this component.
@@ -116,6 +139,35 @@ func (c *BaseComponent) OnEnable() {}
 // Components should override this method if they need deactivation logic.
 func (c *BaseComponent) OnDisable() {}
 
+// Ping emits an event into the scene's event queue.
+// The default implementation enqueues the event on this component's scene EventManager.
+func (c *BaseComponent) Ping(event Event) {
+	scene := GetSceneFromComponent(c)
+	if scene == nil || scene.EventManager == nil {
+		return
+	}
+	event.Sender = c
+	scene.EventManager.Emit(&event)
+}
+
+// Pong is the default empty implementation for receiving events.
+// Components MUST override this if they subscribe to any events.
+func (c *BaseComponent) Pong(event *Event, ctx *ComponentContext) {}
+
+// SubscribeEvents is called after the component's owner is set.
+// Default is no-op; components override to register event subscriptions.
+func (c *BaseComponent) SubscribeEvents() {}
+
+// SetInitArgs stores the initialization arguments for later use.
+func (c *BaseComponent) SetInitArgs(args []interface{}) {
+	c.initArgs = args
+}
+
+// GetInitArgs returns the stored initialization arguments.
+func (c *BaseComponent) GetInitArgs() []interface{} {
+	return c.initArgs
+}
+
 // ============================================================================
 // Component Factory and Registry
 // ============================================================================
@@ -156,6 +208,11 @@ func CreateComponent(kind string, args []interface{}) (Component, error) {
 
 	// Set the component's kind
 	component.SetKind(kind)
+
+	// Store init args for later initialization in AddComponent
+	// (Initialize is called after SetOwner, not in the factory)
+	component.SetInitArgs(args)
+
 	return component, nil
 }
 

@@ -110,6 +110,7 @@ func (obj *Object) SetName(name string) error {
 
 // AddComponent adds a component to the object.
 // Returns an error if a component with the same name already exists.
+// Initialize is called AFTER SetOwner so the component can access the scene.
 func (obj *Object) AddComponent(component Component) error {
 	name := component.GetName()
 	if name == "" {
@@ -120,11 +121,23 @@ func (obj *Object) AddComponent(component Component) error {
 		return fmt.Errorf("component with name '%s' already exists", name)
 	}
 
-	// Set the component's owner
+	// Set the component's owner first (enables scene access during Initialize)
 	component.SetOwner(obj)
 
 	// Store the component
 	obj.Components[name] = component
+
+	// Initialize after owner is set — component can now access GetSceneFromComponent()
+	if err := component.Initialize(component.GetInitArgs()); err != nil {
+		delete(obj.Components, name)
+		component.SetOwner(nil)
+		return fmt.Errorf("failed to initialize component '%s': %w", name, err)
+	}
+
+	// Subscribe to events if the object is already in a scene
+	if obj.Scene != nil && obj.Scene.EventManager != nil {
+		component.SubscribeEvents()
+	}
 
 	// Call OnEnable if the object is active
 	if obj.Active {
@@ -162,6 +175,7 @@ func (obj *Object) GetComponentsByKind(kind string) []Component {
 }
 
 // RemoveComponent removes a component by name.
+// Unsubscribes the component from all events before removal.
 func (obj *Object) RemoveComponent(name string) {
 	component, exists := obj.Components[name]
 	if !exists {
@@ -171,6 +185,11 @@ func (obj *Object) RemoveComponent(name string) {
 	// Call OnDisable if the object is active
 	if obj.Active {
 		component.OnDisable()
+	}
+
+	// Unsubscribe from all events
+	if obj.Scene != nil && obj.Scene.EventManager != nil {
+		obj.Scene.EventManager.UnsubscribeAll(component)
 	}
 
 	delete(obj.Components, name)

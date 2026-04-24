@@ -42,6 +42,10 @@ type Scene struct {
 
 	// Active controls whether the scene is updated and drawn
 	Active bool
+
+	// EventManager handles the Ping-Pong event queue and subscriptions for this scene.
+	// Processed after all component Update() calls each frame.
+	EventManager *EventManager
 }
 
 // ============================================================================
@@ -59,6 +63,7 @@ func NewScene(name string) *Scene {
 		nextObjectID:    1, // Start from 1, 0 is invalid
 		Name:            name,
 		Active:          true,
+		EventManager:    NewEventManager(),
 	}
 }
 
@@ -95,14 +100,25 @@ func (s *Scene) AddObject(obj *Object) error {
 		s.addObjectToTag(id, tag)
 	}
 
+	// Subscribe all components to events now that they have a scene
+	for _, comp := range obj.Components {
+		comp.SubscribeEvents()
+	}
+
 	return nil
 }
 
 // RemoveObject removes an object from the scene by ID.
+// Unsubscribes all components from events before removal.
 func (s *Scene) RemoveObject(id uint64) {
 	obj, exists := s.Objects[id]
 	if !exists {
 		return
+	}
+
+	// Unsubscribe all components from events
+	for _, comp := range obj.Components {
+		s.EventManager.UnsubscribeAll(comp)
 	}
 
 	// Remove from name mapping
@@ -290,6 +306,7 @@ func (s *Scene) GetSortedObjects() []*Object {
 // ============================================================================
 
 // Update calls Update on all active objects in the scene.
+// After all component updates, processes the event queue (Ping -> Pong delivery).
 // Depth order doesn't matter for updates.
 func (s *Scene) Update(ctx *ComponentContext) {
 	if !s.Active {
@@ -301,6 +318,9 @@ func (s *Scene) Update(ctx *ComponentContext) {
 			obj.Update(ctx)
 		}
 	}
+
+	// Process Ping-Pong event queue (deliver events to subscribed components)
+	s.EventManager.Process(ctx)
 
 	// Remove destroyed objects
 	s.removeDestroyedObjects()
