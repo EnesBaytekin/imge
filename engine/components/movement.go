@@ -95,21 +95,22 @@ func (c *MovementComponent) GetSpeed() float64 {
 }
 
 // checkCollisionAt checks if moving the owner to newPos would cause a collision.
+// Returns the colliding object, or nil if movement is clear.
 // Only checks if the owner has an @Hitbox component.
-func (c *MovementComponent) checkCollisionAt(newPos math.Vector2) bool {
+func (c *MovementComponent) checkCollisionAt(newPos math.Vector2) *core.Object {
 	owner := c.GetOwner()
 	if owner == nil || owner.Scene == nil {
-		return false
+		return nil
 	}
 
 	hitboxComp := owner.GetComponent("@Hitbox")
 	if hitboxComp == nil {
-		return false
+		return nil
 	}
 
 	hb, ok := hitboxComp.(*HitboxComponent)
 	if !ok {
-		return false
+		return nil
 	}
 
 	// Simulate hitbox at the new position
@@ -132,11 +133,11 @@ func (c *MovementComponent) checkCollisionAt(newPos math.Vector2) bool {
 		}
 
 		if bounds.Overlaps(otherHb.GetBounds()) {
-			return true // collision detected
+			return other // collision detected, return the blocking object
 		}
 	}
 
-	return false
+	return nil
 }
 
 // ============================================================================
