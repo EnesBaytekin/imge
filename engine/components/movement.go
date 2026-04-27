@@ -37,8 +37,9 @@ func (c *MovementComponent) Initialize(args []interface{}) error {
 }
 
 // Move attempts to move the owner by (dx, dy).
-// If the owner has an @Hitbox, checks collision with other objects' hitboxes
-// and returns false if the movement is blocked.
+// If the owner has an @Hitbox, checks collision with other objects' hitboxes.
+// When a collision blocks the movement, emits a "collision" event via Ping
+// with the blocking object as Data, so subscribers can react.
 // Returns true if the movement was applied successfully.
 func (c *MovementComponent) Move(dx, dy float64) bool {
 	owner := c.GetOwner()
@@ -49,7 +50,11 @@ func (c *MovementComponent) Move(dx, dy float64) bool {
 	newPos := owner.Transform.Position.Add(math.Vector2{X: dx, Y: dy})
 
 	// Collision check if owner has @Hitbox
-	if c.checkCollisionAt(newPos) {
+	if collisionObj := c.checkCollisionAt(newPos); collisionObj != nil {
+		c.Ping(core.Event{
+			Name: "blocked_collision",
+			Data: collisionObj,
+		})
 		return false
 	}
 
