@@ -122,7 +122,7 @@ func (c *MovementComponent) checkCollisionAt(newPos math.Vector2) *core.Object {
 			continue
 		}
 
-		otherHitboxComp := other.GetComponent("@Hitbox")
+		otherHitboxComp := other.GetComponentByKind("@Hitbox")
 		if otherHitboxComp == nil {
 			continue
 		}
