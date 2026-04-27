@@ -89,7 +89,7 @@ func (c *HitboxComponent) Update(ctx *core.ComponentContext) {
 			continue
 		}
 
-		otherHitboxComp := other.GetComponent("@Hitbox")
+		otherHitboxComp := other.GetComponentByKind("@Hitbox")
 		if otherHitboxComp == nil {
 			continue
 		}
