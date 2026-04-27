@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"text/template"
+
+	"github.com/EnesBaytekin/imge"
 )
 
 // Generator creates build files in a temporary directory
@@ -76,7 +78,7 @@ func (g *Generator) createDirectories() error {
 func (g *Generator) copyEngineCode() error {
 	// Engine code will be fetched from GitHub via go modules
 	// No local copying needed
-	fmt.Println("Engine code will be fetched from GitHub during build")
+	fmt.Printf("Engine code will be fetched from GitHub during build (tag: %s)\n", imge.EngineVersion)
 	return nil
 }
 
@@ -245,8 +247,8 @@ func (g *Generator) generateGoMod() error {
 
 go 1.24
 
-require github.com/EnesBaytekin/imge v0.2.11
-`, modName)
+require github.com/EnesBaytekin/imge %s
+`, modName, imge.EngineVersion)
 
 	dstModPath := filepath.Join(g.BuildDir, "go.mod")
 	return os.WriteFile(dstModPath, []byte(modContent), 0644)

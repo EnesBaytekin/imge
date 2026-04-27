@@ -7,10 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/EnesBaytekin/imge"
 	"github.com/EnesBaytekin/imge/build"
 )
-
-const version = "0.1.0"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -28,7 +27,7 @@ func main() {
 	case "init":
 		handleInit()
 	case "version":
-		fmt.Printf("imge version %s\n", version)
+		fmt.Printf("imge version %s\n", imge.EngineVersion)
 	default:
 		log.Printf("Unknown command: %s", command)
 		printUsage()
