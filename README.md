@@ -1,6 +1,6 @@
 # IMGE — 2D Game Engine in Go
 
-IMGE is a 2D game engine being developed in Go with a component-based architecture and an event-driven communication system. It is in active development.
+**I**MGE is **M**inimal **G**ame **E**ngine. A 2D game engine being developed in Go with a component-based architecture and an event-driven communication system. It is in active development.
 
 ## Motivation
 
@@ -57,7 +57,6 @@ my-game/
 
 IMGE is in early development. While the core systems are functional, expect rough edges:
 
-- **Platform support**: Currently developed and tested on Linux only. The engine, CLI tool, and build pipeline assume a Linux environment with Go dev tools. Windows and macOS support are planned.
 - **Editor**: A visual editor is planned to make scene/object editing more accessible.
 - **Web builds**: WASM export will be added once the platform abstraction stabilizes.
 - **Audio**: SDL audio device opens, but playback APIs are being built out.
