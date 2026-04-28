@@ -52,12 +52,12 @@ my-game/
 | SDL2     | Working — desktop builds (Linux, macOS, Windows) |
 | Mock     | Headless testing |
 | Web/WASM | Planned |
-| Desktop  | Planned (native packaging) |
 
 ## Development Status
 
 IMGE is in early development. While the core systems are functional, expect rough edges:
 
+- **Platform support**: Currently developed and tested on Linux only. The engine, CLI tool, and build pipeline assume a Linux environment with Go dev tools. Windows and macOS support are planned.
 - **Editor**: A visual editor is planned to make scene/object editing more accessible.
 - **Web builds**: WASM export will be added once the platform abstraction stabilizes.
 - **Audio**: SDL audio device opens, but playback APIs are being built out.
