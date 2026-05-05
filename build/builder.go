@@ -2,6 +2,7 @@ package build
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +17,7 @@ type Builder struct {
 	OutputName   string
 	OutputDir    string // Final output directory (e.g., imge_build_mock)
 	EngineSource string // Path to engine source code
+	UseDocker    bool   // Build inside a Docker container (static SDL linking)
 }
 
 // Build executes the full build process
@@ -37,6 +39,7 @@ func (b *Builder) Build() error {
 		Analysis:     analysis,
 		Platform:     b.Platform,
 		EngineSource: b.EngineSource,
+		UseDocker:    b.UseDocker,
 	}
 
 	// Generate build files
@@ -58,6 +61,14 @@ func (b *Builder) Build() error {
 }
 
 func (b *Builder) executeGoBuild() error {
+	// If Docker mode is enabled, build inside Docker container
+	if b.UseDocker {
+		if b.Platform != "sdl" {
+			return fmt.Errorf("docker build is only supported for sdl platform")
+		}
+		return b.executeDockerBuild()
+	}
+
 	// Determine output path
 	outputPath := b.OutputName
 	if outputPath == "" {
@@ -112,7 +123,10 @@ func (b *Builder) executeGoBuild() error {
 	cmd := exec.Command("go", args...)
 	cmd.Dir = b.BuildDir
 	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+
+	// Capture stderr so we can include it in the error message
+	var stderrBuf strings.Builder
+	cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
 
 	// Set CGO_ENABLED=1 for SDL platform (requires CGO)
 	if b.Platform == "sdl" {
@@ -124,6 +138,10 @@ func (b *Builder) executeGoBuild() error {
 
 	// Execute build
 	if err := cmd.Run(); err != nil {
+		errOutput := strings.TrimSpace(stderrBuf.String())
+		if errOutput != "" {
+			return fmt.Errorf("go build failed:\n%s", errOutput)
+		}
 		return fmt.Errorf("go build command failed: %v", err)
 	}
 

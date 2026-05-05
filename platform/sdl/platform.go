@@ -23,9 +23,13 @@ type SDLPlatform struct {
 // New creates a new SDLPlatform instance.
 // Initializes SDL subsystems and creates window/renderer.
 func New() (*SDLPlatform, error) {
-	// Initialize SDL
-	if err := sdl.Init(sdl.INIT_VIDEO | sdl.INIT_AUDIO | sdl.INIT_EVENTS); err != nil {
+	// Initialize SDL (video & events are required)
+	if err := sdl.Init(sdl.INIT_VIDEO | sdl.INIT_EVENTS); err != nil {
 		return nil, fmt.Errorf("SDL initialization failed: %v", err)
+	}
+	// Audio is optional — games should work without sound hardware
+	if err := sdl.InitSubSystem(sdl.INIT_AUDIO); err != nil {
+		log.Printf("Warning: SDL audio subsystem not available: %v", err)
 	}
 
 	// Initialize SDL_mixer for audio

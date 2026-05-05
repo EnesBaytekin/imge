@@ -1,0 +1,9 @@
+.git
+.gitignore
+.gitattributes
+.github
+.vscode
+imge
+imge_build_*
+*.md
+LICENSE

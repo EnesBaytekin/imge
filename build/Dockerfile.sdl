@@ -1,0 +1,75 @@
+FROM golang:1.24-bookworm
+
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    pkg-config \
+    wget \
+    libasound2-dev \
+    libpulse-dev \
+    libpng-dev \
+    libjpeg-dev \
+    libwebp-dev \
+    libogg-dev \
+    libvorbis-dev \
+    libflac-dev \
+    libfreetype-dev \
+    libharfbuzz-dev \
+    libfribidi-dev \
+    libx11-dev \
+    libxext-dev \
+    libxrandr-dev \
+    libxcursor-dev \
+    libxi-dev \
+    libxfixes-dev \
+    libxrender-dev \
+    libxss-dev \
+    libxxf86vm-dev \
+    libudev-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Static build: SDL2 2.32.10 from source
+RUN wget -qO- https://github.com/libsdl-org/SDL/releases/download/release-2.32.10/SDL2-2.32.10.tar.gz \
+    | tar xz -C /tmp && \
+    cd /tmp/SDL2-2.32.10 && \
+    ./configure --prefix=/usr --enable-shared=no --enable-static=yes \
+      --enable-alsa-shared=no --enable-pulseaudio-shared=no --enable-pipewire=no \
+      --enable-x11-shared=no --enable-video-wayland=no \
+      --enable-video-opengl=yes --enable-video-vulkan=no \
+      --enable-arts=no --enable-esd=no --enable-nas=no --enable-sndio=no \
+      --enable-input-tslib=no --enable-libsamplerate=no && \
+    make -j$(nproc) && make install && \
+    rm -rf /tmp/SDL2-2.32.10
+
+# Static build: SDL2_mixer 2.8.1
+RUN wget -qO- https://github.com/libsdl-org/SDL_mixer/releases/download/release-2.8.1/SDL2_mixer-2.8.1.tar.gz \
+    | tar xz -C /tmp && \
+    cd /tmp/SDL2_mixer-2.8.1 && \
+    ./configure --prefix=/usr --enable-shared=no --enable-static=yes && \
+    make -j$(nproc) && make install && \
+    rm -rf /tmp/SDL2_mixer-2.8.1
+
+# Static build: SDL2_image 2.8.8
+RUN wget -qO- https://github.com/libsdl-org/SDL_image/releases/download/release-2.8.8/SDL2_image-2.8.8.tar.gz \
+    | tar xz -C /tmp && \
+    cd /tmp/SDL2_image-2.8.8 && \
+    ./configure --prefix=/usr --enable-shared=no --enable-static=yes && \
+    make -j$(nproc) && make install && \
+    rm -rf /tmp/SDL2_image-2.8.8
+
+# Static build: SDL2_ttf 2.24.0
+RUN wget -qO- https://github.com/libsdl-org/SDL_ttf/releases/download/release-2.24.0/SDL2_ttf-2.24.0.tar.gz \
+    | tar xz -C /tmp && \
+    cd /tmp/SDL2_ttf-2.24.0 && \
+    ./configure --prefix=/usr --enable-shared=no --enable-static=yes && \
+    make -j$(nproc) && make install && \
+    rm -rf /tmp/SDL2_ttf-2.24.0
+
+# pkg-config wrapper: force static linking for SDL libs
+RUN printf '#!/bin/sh\n/usr/bin/pkg-config --static "$@"' > /usr/local/bin/pkg-config && \
+    chmod +x /usr/local/bin/pkg-config
+
+# Copy engine source and pre-cache Go module dependencies
+COPY . /imge-engine/
+RUN rm -rf /imge-engine/.git && cd /imge-engine && go mod download
+
+WORKDIR /build

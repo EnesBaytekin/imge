@@ -44,10 +44,17 @@ func handleBuild() {
 
 	// Parse flags
 	cleanBuild := false
+	useDocker := false
 	for _, arg := range os.Args[3:] {
 		if arg == "--clean" {
 			cleanBuild = true
+		} else if arg == "--docker" {
+			useDocker = true
 		}
+	}
+
+	if useDocker && platform != "sdl" {
+		log.Fatal("--docker is only supported for sdl platform")
 	}
 
 	// Validate platform
@@ -116,6 +123,7 @@ func handleBuild() {
 		Platform:     platform,
 		OutputName:   outputName,
 		EngineSource: engineSource,
+		UseDocker:    useDocker,
 	}
 
 	if err := builder.Build(); err != nil {

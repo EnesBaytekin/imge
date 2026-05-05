@@ -17,6 +17,7 @@ type Generator struct {
 	Analysis     *ProjectAnalysis
 	Platform     string
 	EngineSource string // Path to engine source code
+	UseDocker    bool   // Building inside Docker (engine is pre-cached in image)
 }
 
 // Generate creates all necessary build files
@@ -76,9 +77,11 @@ func (g *Generator) createDirectories() error {
 }
 
 func (g *Generator) copyEngineCode() error {
-	// Engine code will be fetched from GitHub via go modules
-	// No local copying needed
-	fmt.Printf("Engine code will be fetched from GitHub during build (tag: %s)\n", imge.EngineVersion)
+	if g.UseDocker {
+		fmt.Printf("Using IMGE engine %s from Docker image\n", imge.EngineVersion)
+	} else {
+		fmt.Printf("Engine code will be fetched from GitHub during build (version %s)\n", imge.EngineVersion)
+	}
 	return nil
 }
 
