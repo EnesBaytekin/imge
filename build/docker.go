@@ -70,6 +70,8 @@ func (b *Builder) executeDockerBuild() error {
 	args := []string{
 		"run", "--rm",
 		"-v", fmt.Sprintf("%s:/build", absBuildDir),
+		// Persist Go build cache between builds so recompilation is instant
+		"-v", "imge-go-build-cache:/root/.cache/go-build",
 		dockerImageName,
 		"sh", "-c", buildCmd,
 	}
