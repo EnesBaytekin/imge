@@ -366,6 +366,10 @@ func main() {
 	}
 	defer platform.Cleanup()
 
+	// Load textures and audio from the embedded filesystem (no OS file I/O in
+	// the browser).
+	platform.SetAssetFS(projectData)
+
 	game := core.NewGameWithConfig(core.Config{
 		WindowWidth:  {{.WindowWidth}},
 		WindowHeight: {{.WindowHeight}},

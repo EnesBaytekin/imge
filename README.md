@@ -10,7 +10,7 @@
 
 ## Features
 
-- **Built-in components** (`@Hitbox`, `@Movement`) with collision detection
+- **Built-in components** (`@Hitbox`, `@Movement`, `@Image`, `@Sound`) with collision detection
 - **User components** — write any `.go` component, register it, use it in objects
 - **JSON-defined scenes and objects** — compose your game world from `.scene` and `.obj` files
 - **Ping-Pong event bus** — decoupled communication between components
@@ -72,12 +72,30 @@ imge init
 imge run        # opens a window — move with WASD, enemies chase you
 ```
 
+## Assets
+
+Put images and sounds in the `assets/` directory and reference them by name (or
+by an `assets/`-prefixed path) from the built-in components:
+
+```json
+{ "kind": "@Image", "name": "sprite", "args": { "texture": "player.png", "width": 32, "height": 32 } }
+```
+
+```json
+{ "kind": "@Sound", "name": "beep", "args": { "sound": "blip.wav" } }
+```
+
+`@Image` renders automatically each frame. `@Sound` is driven from a component
+via `ctx.Audio.PlaySound(...)` / `PlayMusic(...)` (see `engine/components/sound.go`).
+Supported image formats are PNG and JPEG; audio formats are WAV, MP3, and OGG.
+Assets are embedded into the final executable (desktop) or the WebAssembly bundle
+(web), so they work in both targets.
+
 ## Development Status
 
 IMGE is in early development. While the core systems are functional, expect rough edges:
 
 - **Editor**: A visual editor is planned to make scene/object editing more accessible.
-- **Web assets**: Web builds run scenes/objects/components, but texture/audio asset loading on the web target is still being wired up.
 - **Missing features**: Several convenience APIs and component types are still being implemented.
 
 ## License

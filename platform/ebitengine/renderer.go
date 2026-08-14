@@ -5,10 +5,11 @@ import (
 	"image/color"
 	_ "image/jpeg" // register JPEG decoder
 	_ "image/png"  // register PNG decoder
+	"io/fs"
 	"log"
-	"os"
 
 	"github.com/EnesBaytekin/imge/core/math"
+	"github.com/EnesBaytekin/imge/platform/ebitengine/assetfs"
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
@@ -21,6 +22,7 @@ type Renderer struct {
 	missing        map[string]bool // textures we already warned about
 	viewportWidth  int
 	viewportHeight int
+	assetFS        fs.FS // embedded assets (web); nil means use the OS filesystem
 }
 
 func newRenderer() *Renderer {
@@ -37,6 +39,12 @@ func (r *Renderer) begin(target *ebiten.Image) {
 
 func (r *Renderer) setViewport(w, h int) {
 	r.viewportWidth, r.viewportHeight = w, h
+}
+
+// SetAssetFS sets the filesystem textures are loaded from. Web builds pass their
+// embedded fs.FS here; desktop builds leave it nil so assets load from the OS.
+func (r *Renderer) SetAssetFS(fsys fs.FS) {
+	r.assetFS = fsys
 }
 
 // toRGBA converts a math.Color to the standard library color.RGBA.
@@ -153,8 +161,7 @@ func (r *Renderer) loadTexture(textureID string) *ebiten.Image {
 		return img
 	}
 
-	path := resolveAssetPath(textureID)
-	f, err := os.Open(path)
+	f, err := assetfs.Open(r.assetFS, textureID)
 	if err != nil {
 		if !r.missing[textureID] {
 			log.Printf("ebitengine: texture not found: %q", textureID)

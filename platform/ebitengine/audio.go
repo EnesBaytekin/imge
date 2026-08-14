@@ -3,11 +3,12 @@ package ebitengine
 import (
 	"bytes"
 	"io"
+	"io/fs"
 	"log"
-	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/EnesBaytekin/imge/platform/ebitengine/assetfs"
 	"github.com/hajimehoshi/ebiten/v2/audio"
 	"github.com/hajimehoshi/ebiten/v2/audio/mp3"
 	"github.com/hajimehoshi/ebiten/v2/audio/vorbis"
@@ -37,6 +38,8 @@ type Audio struct {
 	masterVolume float64
 	soundVolume  float64
 	musicVolume  float64
+
+	assetFS fs.FS // embedded assets (web); nil means use the OS filesystem
 }
 
 func newAudio() *Audio {
@@ -50,21 +53,28 @@ func newAudio() *Audio {
 	}
 }
 
-// load decodes an audio file and caches its PCM data. soundID is used as the
-// cache key; path is resolved from the working directory or assets/.
-func (a *Audio) load(cache map[string]*sound, soundID, path string) error {
+// SetAssetFS sets the filesystem sounds are loaded from. Web builds pass their
+// embedded fs.FS here; desktop builds leave it nil so assets load from the OS.
+func (a *Audio) SetAssetFS(fsys fs.FS) {
+	a.assetFS = fsys
+}
+
+// load decodes an audio file and caches its PCM data. soundID is used as both
+// the cache key and the asset path, resolved from the working directory or
+// assets/ (or the embedded filesystem on web).
+func (a *Audio) load(cache map[string]*sound, soundID string) error {
 	if _, ok := cache[soundID]; ok {
 		return nil
 	}
 
-	f, err := os.Open(path)
+	f, err := assetfs.Open(a.assetFS, soundID)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 
 	var src io.Reader
-	switch strings.ToLower(filepath.Ext(path)) {
+	switch strings.ToLower(filepath.Ext(soundID)) {
 	case ".mp3":
 		s, err := mp3.Decode(a.context, f)
 		if err != nil {
@@ -106,7 +116,7 @@ func clamp01(v float64) float64 {
 
 // PlaySound plays a sound effect once.
 func (a *Audio) PlaySound(soundID string, volume, pitch float64) {
-	if err := a.load(a.sounds, soundID, resolveAssetPath(soundID)); err != nil {
+	if err := a.load(a.sounds, soundID); err != nil {
 		log.Printf("ebitengine: sound not found: %q (%v)", soundID, err)
 		return
 	}
@@ -126,7 +136,7 @@ func (a *Audio) PlaySound(soundID string, volume, pitch float64) {
 
 // PlayMusic starts background music playback, optionally looping.
 func (a *Audio) PlayMusic(musicID string, loop bool) {
-	if err := a.load(a.music, musicID, resolveAssetPath(musicID)); err != nil {
+	if err := a.load(a.music, musicID); err != nil {
 		log.Printf("ebitengine: music not found: %q (%v)", musicID, err)
 		return
 	}

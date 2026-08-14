@@ -7,6 +7,7 @@ package ebitengine
 
 import (
 	"fmt"
+	"io/fs"
 
 	"github.com/EnesBaytekin/imge/core"
 	"github.com/EnesBaytekin/imge/core/math"
@@ -52,6 +53,14 @@ func (p *Platform) Window() core.Window { return p.window }
 
 // FileSystem returns the filesystem handler.
 func (p *Platform) FileSystem() core.FileSystem { return p.filesystem }
+
+// SetAssetFS sets the filesystem used to load textures and audio. Web builds
+// pass their embedded fs.FS here; desktop builds leave it nil so assets load
+// from the OS filesystem.
+func (p *Platform) SetAssetFS(fsys fs.FS) {
+	p.renderer.SetAssetFS(fsys)
+	p.audio.SetAssetFS(fsys)
+}
 
 // Init configures the Ebitengine window. The underlying window is created by
 // Ebitengine when Run is called.
