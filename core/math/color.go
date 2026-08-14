@@ -4,6 +4,7 @@ package math
 import (
 	"fmt"
 	"math"
+	"strings"
 )
 
 // Color represents a 32-bit RGBA color with 8 bits per channel.
@@ -45,6 +46,76 @@ func NewColorFromHex(hex uint32) Color {
 		B: uint8((hex >> 8) & 0xFF),
 		A: uint8(hex & 0xFF),
 	}
+}
+
+// ParseHex parses a color from a hex string. Accepts "#RGB", "#RGBA",
+// "#RRGGBB", and "#RRGGBBAA" (the leading "#" is optional). Returns an error on
+// invalid input.
+func ParseHex(s string) (Color, error) {
+	s = strings.TrimSpace(s)
+	s = strings.TrimPrefix(s, "#")
+
+	// Expand a short form (#RGB / #RGBA) to its full-length equivalent.
+	switch len(s) {
+	case 3, 4:
+		var b strings.Builder
+		for i := 0; i < len(s); i++ {
+			b.WriteByte(s[i])
+			b.WriteByte(s[i])
+		}
+		s = b.String()
+	case 6, 8:
+		// already full-length
+	default:
+		return Color{}, fmt.Errorf("invalid hex color %q: expected #RGB, #RGBA, #RRGGBB, or #RRGGBBAA", s)
+	}
+
+	pair := func(i int) (uint8, error) {
+		hi, ok := hexDigit(s[i])
+		if !ok {
+			return 0, fmt.Errorf("invalid hex digit %q", s[i])
+		}
+		lo, ok := hexDigit(s[i+1])
+		if !ok {
+			return 0, fmt.Errorf("invalid hex digit %q", s[i+1])
+		}
+		return hi<<4 | lo, nil
+	}
+
+	r, err := pair(0)
+	if err != nil {
+		return Color{}, err
+	}
+	g, err := pair(2)
+	if err != nil {
+		return Color{}, err
+	}
+	b, err := pair(4)
+	if err != nil {
+		return Color{}, err
+	}
+
+	a := uint8(255)
+	if len(s) == 8 {
+		a, err = pair(6)
+		if err != nil {
+			return Color{}, err
+		}
+	}
+
+	return Color{R: r, G: g, B: b, A: a}, nil
+}
+
+func hexDigit(c byte) (uint8, bool) {
+	switch {
+	case c >= '0' && c <= '9':
+		return c - '0', true
+	case c >= 'a' && c <= 'f':
+		return c - 'a' + 10, true
+	case c >= 'A' && c <= 'F':
+		return c - 'A' + 10, true
+	}
+	return 0, false
 }
 
 // ToFloats converts the color to float values (0.0 to 1.0).

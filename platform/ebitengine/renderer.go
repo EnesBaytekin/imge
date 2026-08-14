@@ -112,9 +112,9 @@ func (r *Renderer) DrawLine(start, end math.Vector2, c math.Color, thickness flo
 		float32(thickness), toRGBA(c), false)
 }
 
-// DrawTexture draws a texture at the given position with scale, rotation, and tint.
-// Textures are loaded lazily on first use and cached by ID.
-func (r *Renderer) DrawTexture(textureID string, position math.Vector2, scale math.Vector2, rotation float64, tint math.Color) {
+// DrawTexture draws a texture (or a sub-region of it) at the given position with
+// scale, rotation, and tint. Textures are loaded lazily on first use and cached by ID.
+func (r *Renderer) DrawTexture(textureID string, src math.Rect, position math.Vector2, scale math.Vector2, rotation float64, tint math.Color) {
 	if r.target == nil {
 		return
 	}
@@ -124,21 +124,44 @@ func (r *Renderer) DrawTexture(textureID string, position math.Vector2, scale ma
 		return
 	}
 
-	w := float64(img.Bounds().Dx())
-	h := float64(img.Bounds().Dy())
+	var drawImg *ebiten.Image
+	var w, h float64
+
+	if src.Width() > 0 && src.Height() > 0 {
+		x, y := int(src.X()), int(src.Y())
+		iw, ih := int(src.Width()), int(src.Height())
+		drawImg = img.SubImage(image.Rect(x, y, x+iw, y+ih)).(*ebiten.Image)
+		w, h = float64(iw), float64(ih)
+	} else {
+		b := img.Bounds()
+		drawImg = img
+		w, h = float64(b.Dx()), float64(b.Dy())
+	}
+
 	cx := w / 2
 	cy := h / 2
 
 	opts := &ebiten.DrawImageOptions{}
-	// Anchor the image at its center, apply scale and rotation, then place its
-	// top-left corner at `position`.
+	// Anchor the (sub-)image at its center, apply scale and rotation, then place
+	// its top-left corner at `position`.
 	opts.GeoM.Translate(-cx, -cy)
 	opts.GeoM.Scale(scale.X, scale.Y)
 	opts.GeoM.Rotate(rotation)
 	opts.GeoM.Translate(position.X+cx*scale.X, position.Y+cy*scale.Y)
 	opts.ColorScale.ScaleWithColor(toRGBA(tint))
 
-	r.target.DrawImage(img, opts)
+	r.target.DrawImage(drawImg, opts)
+}
+
+// GetTextureSize returns the natural pixel size of a texture, loading it if
+// needed. Returns (0, 0) when the texture cannot be loaded.
+func (r *Renderer) GetTextureSize(textureID string) (float64, float64) {
+	img := r.loadTexture(textureID)
+	if img == nil {
+		return 0, 0
+	}
+	b := img.Bounds()
+	return float64(b.Dx()), float64(b.Dy())
 }
 
 // Present is a no-op; Ebitengine presents the frame automatically.

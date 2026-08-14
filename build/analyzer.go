@@ -3,6 +3,9 @@ package build
 import (
 	"encoding/json"
 	"fmt"
+	"go/parser"
+	"go/token"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -56,9 +59,8 @@ func AnalyzeProject(projectDir string) (*ProjectAnalysis, error) {
 		return nil, fmt.Errorf("failed to load game.json: %v", err)
 	}
 
-	// Find component files
-	componentsDir := filepath.Join(projectDir, "components")
-	if err := analysis.findComponentFiles(componentsDir); err != nil {
+	// Find component files anywhere in the project (recursive).
+	if err := analysis.findComponentFiles(projectDir); err != nil {
 		return nil, fmt.Errorf("failed to find component files: %v", err)
 	}
 
@@ -125,21 +127,50 @@ func (a *ProjectAnalysis) loadGameConfig(path string) error {
 	return nil
 }
 
-func (a *ProjectAnalysis) findComponentFiles(dir string) error {
-	return filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+// findComponentFiles recursively scans the project for .go files that declare
+// `package components`, recording their project-relative paths. This lets users
+// organize component scripts anywhere in the project, not just under components/.
+func (a *ProjectAnalysis) findComponentFiles(root string) error {
+	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-
-		if !info.IsDir() && strings.HasSuffix(info.Name(), ".go") {
-			relPath, err := filepath.Rel(a.ProjectDir, path)
-			if err != nil {
-				return err
+		if d.IsDir() {
+			switch d.Name() {
+			case ".git", ".imge_build", "node_modules":
+				return filepath.SkipDir
 			}
-			a.ComponentFiles = append(a.ComponentFiles, relPath)
+			return nil
 		}
+
+		name := d.Name()
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			return nil
+		}
+
+		if !isComponentFile(path) {
+			return nil
+		}
+
+		relPath, err := filepath.Rel(a.ProjectDir, path)
+		if err != nil {
+			return err
+		}
+		a.ComponentFiles = append(a.ComponentFiles, relPath)
 		return nil
 	})
+}
+
+// isComponentFile reports whether a .go file declares `package components`.
+// PackageClauseOnly stops after the package clause, so a file with a syntax error
+// elsewhere (e.g. mid-edit) is still classified correctly.
+func isComponentFile(path string) bool {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, path, nil, parser.PackageClauseOnly)
+	if err != nil {
+		return false
+	}
+	return f.Name.Name == "components"
 }
 
 func (a *ProjectAnalysis) findAssetFiles(dir string) error {

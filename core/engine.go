@@ -179,10 +179,7 @@ func (g *Game) Run() error {
 		// Update game logic
 		g.Update(ctx)
 
-		// Begin rendering
-		g.platform.Renderer().Clear(math.Black)
-
-		// Draw game
+		// Draw game (clears with the active scene's background color)
 		g.Draw()
 
 		// Present rendered frame
@@ -202,11 +199,16 @@ func (g *Game) Update(ctx *ComponentContext) {
 	}
 }
 
-// Draw renders the game for the current frame.
+// Draw renders the game for the current frame. It clears the screen with the
+// active scene's background color, then draws that scene.
 func (g *Game) Draw() {
-	if g.activeScene != nil {
-		g.activeScene.Draw(g.platform.Renderer())
+	renderer := g.platform.Renderer()
+	if g.activeScene == nil {
+		renderer.Clear(math.Black)
+		return
 	}
+	renderer.Clear(g.activeScene.BackgroundColor)
+	g.activeScene.Draw(renderer)
 }
 
 // Shutdown cleans up resources and shuts down the game.

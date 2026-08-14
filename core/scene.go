@@ -41,6 +41,9 @@ type Scene struct {
 	// Name is the scene's identifier
 	Name string
 
+	// BackgroundColor is the clear color used each frame before objects draw.
+	BackgroundColor math.Color
+
 	// Active controls whether the scene is updated and drawn
 	Active bool
 
@@ -63,6 +66,7 @@ func NewScene(name string) *Scene {
 		depthChangedIDs: make(map[uint64]bool),
 		nextObjectID:    1, // Start from 1, 0 is invalid
 		Name:            name,
+		BackgroundColor: math.Black,
 		Active:          true,
 		EventManager:    NewEventManager(),
 	}
@@ -411,7 +415,11 @@ func (s *Scene) loadFromJSON(data []byte, fsys fs.FS) error {
 	}
 
 	s.Name = config.Name
-	// TODO: Parse background color
+	if config.BackgroundColor != "" {
+		if c, err := math.ParseHex(config.BackgroundColor); err == nil {
+			s.BackgroundColor = c
+		}
+	}
 
 	// Load objects from config
 	for _, objConfig := range config.Objects {

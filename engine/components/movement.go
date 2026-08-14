@@ -1,4 +1,3 @@
-// Package components contains built-in game components.
 package components
 
 import (
@@ -6,50 +5,30 @@ import (
 	"github.com/EnesBaytekin/imge/core/math"
 )
 
-// ============================================================================
-// @Movement Component
-// ============================================================================
-
-// MovementComponent provides basic 2D movement with optional collision checking.
-// When the owner also has an @Hitbox component, Move() and MoveTowards()
-// will check for collisions and block movement that would overlap other hitboxes.
+// MovementComponent moves its owner and, when the owner has an @Hitbox, blocks
+// movement that would overlap another object's hitbox. It holds no speed state:
+// callers pass an explicit displacement in pixels each frame.
 type MovementComponent struct {
 	core.BaseComponent
-	speed float64
 }
 
-// Initialize parses component configuration from JSON args.
-// Supported args: speed (default: 100).
+// Initialize is a no-op; @Movement takes no configuration.
 func (c *MovementComponent) Initialize(args []interface{}) error {
-	if len(args) > 0 {
-		if argMap, ok := args[0].(map[string]interface{}); ok {
-			if s, ok := argMap["speed"].(float64); ok {
-				c.speed = s
-			}
-		}
-	}
-
-	if c.speed <= 0 {
-		c.speed = 100
-	}
-
 	return nil
 }
 
-// Move attempts to move the owner by (dx, dy).
-// If the owner has an @Hitbox, checks collision with other objects' hitboxes.
-// When a collision blocks the movement, emits a "collision" event via Ping
-// with the blocking object as Data, so subscribers can react.
-// Returns true if the movement was applied successfully.
+// Move attempts to move the owner by (dx, dy). If the owner has an @Hitbox and
+// the destination overlaps another object, the move is blocked and a
+// "blocked_collision" event is emitted with the blocking object as Data.
+// Returns true if the movement was applied.
 func (c *MovementComponent) Move(dx, dy float64) bool {
 	owner := c.GetOwner()
 	if owner == nil {
 		return false
 	}
 
-	newPos := owner.Transform.Position.Add(math.Vector2{X: dx, Y: dy})
+	newPos := owner.Transform.Position.Add(math.NewVector2(dx, dy))
 
-	// Collision check if owner has @Hitbox
 	if collisionObj := c.checkCollisionAt(newPos); collisionObj != nil {
 		c.Ping(core.Event{
 			Name: "blocked_collision",
@@ -62,87 +41,64 @@ func (c *MovementComponent) Move(dx, dy float64) bool {
 	return true
 }
 
-// MoveTowards moves the owner towards a target position at the given speed.
-// Returns true if the movement was applied (no collision).
-func (c *MovementComponent) MoveTowards(target math.Vector2, speed float64) bool {
+// MoveTowards moves the owner up to `distance` pixels toward a target, with the
+// same collision checks as Move. Returns true if any movement was applied.
+func (c *MovementComponent) MoveTowards(target math.Vector2, distance float64) bool {
 	owner := c.GetOwner()
-	if owner == nil {
+	if owner == nil || distance <= 0 {
 		return false
 	}
 
-	// Calculate direction to target
 	direction := target.Subtract(owner.Transform.Position)
 	dist := direction.Length()
 	if dist <= 0 {
 		return false
 	}
 
-	// Normalize and scale by speed
+	// Don't overshoot the target.
+	if distance > dist {
+		distance = dist
+	}
+
 	direction = direction.Divide(dist)
-	movement := direction.Multiply(speed)
+	movement := direction.Multiply(distance)
 
 	return c.Move(movement.X, movement.Y)
 }
 
-// SetSpeed sets the movement speed.
-func (c *MovementComponent) SetSpeed(speed float64) {
-	c.speed = speed
-}
-
-// GetSpeed returns the current movement speed.
-func (c *MovementComponent) GetSpeed() float64 {
-	return c.speed
-}
-
-// checkCollisionAt checks if moving the owner to newPos would cause a collision.
-// Returns the colliding object, or nil if movement is clear.
-// Only checks if the owner has an @Hitbox component.
+// checkCollisionAt returns the object that would block moving the owner to
+// newPos, or nil if the move is clear. Only checks when the owner has an @Hitbox.
 func (c *MovementComponent) checkCollisionAt(newPos math.Vector2) *core.Object {
 	owner := c.GetOwner()
 	if owner == nil || owner.Scene == nil {
 		return nil
 	}
 
-	hitboxComp := owner.GetComponentByKind("@Hitbox")
-	if hitboxComp == nil {
-		return nil
-	}
-
-	hb, ok := hitboxComp.(*HitboxComponent)
+	hb, ok := owner.GetComponentByKind("@Hitbox").(*HitboxComponent)
 	if !ok {
 		return nil
 	}
 
-	// Simulate hitbox at the new position
 	bounds := hb.GetBounds()
 	bounds.Position = newPos
 
 	for _, other := range owner.Scene.Objects {
-		if other == owner || !other.Active {
+		if other == owner || !other.Active || other.IsDestroyed() {
 			continue
 		}
 
-		otherHitboxComp := other.GetComponentByKind("@Hitbox")
-		if otherHitboxComp == nil {
-			continue
-		}
-
-		otherHb, ok := otherHitboxComp.(*HitboxComponent)
+		otherHb, ok := other.GetComponentByKind("@Hitbox").(*HitboxComponent)
 		if !ok {
 			continue
 		}
 
 		if bounds.Overlaps(otherHb.GetBounds()) {
-			return other // collision detected, return the blocking object
+			return other
 		}
 	}
 
 	return nil
 }
-
-// ============================================================================
-// Registration
-// ============================================================================
 
 func init() {
 	core.RegisterComponent("@Movement", func(args []interface{}) (core.Component, error) {

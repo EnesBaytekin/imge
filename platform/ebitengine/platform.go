@@ -10,7 +10,6 @@ import (
 	"io/fs"
 
 	"github.com/EnesBaytekin/imge/core"
-	"github.com/EnesBaytekin/imge/core/math"
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
@@ -109,11 +108,11 @@ func (r *runner) Update() error {
 	return nil
 }
 
-// Draw implements ebiten.Game.Draw.
+// Draw implements ebiten.Game.Draw. The core game clears the screen with the
+// active scene's background color.
 func (r *runner) Draw(screen *ebiten.Image) {
 	p := r.platform
 	p.renderer.begin(screen)
-	p.renderer.Clear(math.Black)
 	r.game.Draw()
 }
 

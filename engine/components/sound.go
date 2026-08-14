@@ -1,31 +1,26 @@
-// Package components contains built-in game components.
 package components
 
 import (
 	"github.com/EnesBaytekin/imge/core"
 )
 
-// ============================================================================
-// @Sound Component
-// ============================================================================
-
-// SoundComponent provides sound effect and music playback.
-// Use Play() to start playback and Stop() to halt it.
-// Configure loop mode for background music or single-shot for sound effects.
+// SoundComponent plays a sound effect or background music. Set play_on_start to
+// true to begin playback automatically on the first frame; otherwise drive
+// playback from another component via Play()/Stop().
 type SoundComponent struct {
 	core.BaseComponent
-	soundID string
-	volume  float64
-	loop    bool
+	soundID     string
+	volume      float64
+	loop        bool
+	playOnStart bool
+	started     bool
 }
 
 // Initialize parses component configuration from JSON args.
-// Supported args:
-//
-//	sound: string (sound/music identifier)
-//	volume: float64 (0.0 to 1.0, default: 1.0)
-//	loop: bool (true for continuous playback, default: false)
+// Supported args: sound, volume (0.0-1.0, default 1.0), loop, play_on_start.
 func (c *SoundComponent) Initialize(args []interface{}) error {
+	c.volume = 1.0
+
 	if len(args) > 0 {
 		if argMap, ok := args[0].(map[string]interface{}); ok {
 			if id, ok := argMap["sound"].(string); ok {
@@ -37,19 +32,25 @@ func (c *SoundComponent) Initialize(args []interface{}) error {
 			if l, ok := argMap["loop"].(bool); ok {
 				c.loop = l
 			}
+			if p, ok := argMap["play_on_start"].(bool); ok {
+				c.playOnStart = p
+			}
 		}
-	}
-
-	if c.volume <= 0 {
-		c.volume = 1.0
 	}
 
 	return nil
 }
 
-// Play starts playback of the configured sound or music.
-// If loop is true, plays as background music (ctx.Audio.PlayMusic).
-// Otherwise plays as a one-shot sound effect (ctx.Audio.PlaySound).
+// Update auto-plays the sound once on the first frame when play_on_start is set.
+func (c *SoundComponent) Update(ctx *core.ComponentContext) {
+	if c.playOnStart && !c.started {
+		c.started = true
+		c.Play(ctx)
+	}
+}
+
+// Play starts playback. If loop is true, plays as background music; otherwise as
+// a one-shot sound effect.
 func (c *SoundComponent) Play(ctx *core.ComponentContext) {
 	if c.soundID == "" {
 		return
@@ -67,20 +68,15 @@ func (c *SoundComponent) Stop(ctx *core.ComponentContext) {
 	ctx.Audio.StopMusic()
 }
 
-// SetVolume sets the playback volume (0.0 to 1.0).
+// SetVolume sets the playback volume (0.0 to 1.0). Takes effect on the next Play().
 func (c *SoundComponent) SetVolume(volume float64) {
 	c.volume = volume
-	// Note: volume takes effect on next Play() call
 }
 
-// SetLoop sets whether the sound should loop continuously.
+// SetLoop sets whether the sound loops continuously.
 func (c *SoundComponent) SetLoop(loop bool) {
 	c.loop = loop
 }
-
-// ============================================================================
-// Registration
-// ============================================================================
 
 func init() {
 	core.RegisterComponent("@Sound", func(args []interface{}) (core.Component, error) {

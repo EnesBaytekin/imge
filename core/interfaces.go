@@ -31,9 +31,14 @@ type Renderer interface {
 	// DrawLine draws a line between two points.
 	DrawLine(start, end math.Vector2, color math.Color, thickness float64)
 
-	// DrawTexture draws a texture (image) at the specified position with transformations.
-	// textureID identifies a previously loaded texture.
-	DrawTexture(textureID string, position math.Vector2, scale math.Vector2, rotation float64, tint math.Color)
+	// DrawTexture draws a texture (or a region of it) at the specified position
+	// with transformations. textureID identifies a previously loaded texture.
+	// src is the source region in the texture; a zero Rect means the entire texture.
+	DrawTexture(textureID string, src math.Rect, position math.Vector2, scale math.Vector2, rotation float64, tint math.Color)
+
+	// GetTextureSize returns the natural pixel size of a loaded texture.
+	// Returns (0, 0) if the texture cannot be loaded.
+	GetTextureSize(textureID string) (width, height float64)
 
 	// Present presents the rendered frame to the screen (swap buffers).
 	Present()

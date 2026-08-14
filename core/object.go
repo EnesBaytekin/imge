@@ -28,6 +28,10 @@ type Object struct {
 	// Key: component name (unique within object), Value: component instance
 	Components map[string]Component
 
+	// componentOrder records component names in insertion (JSON) order so that
+	// Update/Draw/serialization are deterministic rather than map-ordered.
+	componentOrder []string
+
 	// Tags is a set of tags assigned to this object (for quick filtering)
 	Tags map[string]bool
 
@@ -57,8 +61,9 @@ func NewObject(name string) *Object {
 	return &Object{
 		ID:         0, // Will be set by scene
 		Name:       name,
-		Components: make(map[string]Component),
-		Tags:       make(map[string]bool),
+		Components:     make(map[string]Component),
+		componentOrder: make([]string, 0),
+		Tags:           make(map[string]bool),
 		Transform:  math.NewTransform(),
 		Depth:      0,
 		Active:     true,
@@ -134,6 +139,9 @@ func (obj *Object) AddComponent(component Component) error {
 		return fmt.Errorf("failed to initialize component '%s': %w", name, err)
 	}
 
+	// Record insertion order only after initialization succeeds.
+	obj.componentOrder = append(obj.componentOrder, name)
+
 	// Subscribe to events if the object is already in a scene
 	if obj.Scene != nil && obj.Scene.EventManager != nil {
 		component.SubscribeEvents()
@@ -205,6 +213,29 @@ func (obj *Object) RemoveComponent(name string) {
 	}
 
 	delete(obj.Components, name)
+	obj.removeFromOrder(name)
+}
+
+// removeFromOrder removes a component name from the insertion-order slice.
+func (obj *Object) removeFromOrder(name string) {
+	for i, n := range obj.componentOrder {
+		if n == name {
+			obj.componentOrder = append(obj.componentOrder[:i], obj.componentOrder[i+1:]...)
+			return
+		}
+	}
+}
+
+// orderedComponents returns the object's components in insertion order. It
+// returns a snapshot so callers can safely mutate the object during iteration.
+func (obj *Object) orderedComponents() []Component {
+	comps := make([]Component, 0, len(obj.componentOrder))
+	for _, name := range obj.componentOrder {
+		if component, ok := obj.Components[name]; ok {
+			comps = append(comps, component)
+		}
+	}
+	return comps
 }
 
 // ============================================================================
@@ -273,25 +304,41 @@ func (obj *Object) GetDepth() float64 {
 // Lifecycle Methods
 // ============================================================================
 
-// Update calls Update on all components.
+// Update calls Update on all components in insertion order.
 func (obj *Object) Update(ctx *ComponentContext) {
 	if !obj.Active || obj.destroyed {
 		return
 	}
 
-	for _, component := range obj.Components {
+	for _, component := range obj.orderedComponents() {
 		component.Update(ctx)
 	}
 }
 
-// Draw calls Draw on all components.
+// Draw calls Draw on all components in insertion order.
 func (obj *Object) Draw(renderer Renderer) {
 	if !obj.Active || obj.destroyed {
 		return
 	}
 
-	for _, component := range obj.Components {
+	for _, component := range obj.orderedComponents() {
 		component.Draw(renderer)
+	}
+}
+
+// SetActive enables or disables the object. Toggling fires OnEnable/OnDisable on
+// every component so they can react to activation changes (e.g. pause timers).
+func (obj *Object) SetActive(active bool) {
+	if obj.Active == active {
+		return
+	}
+	obj.Active = active
+	for _, component := range obj.Components {
+		if active {
+			component.OnEnable()
+		} else {
+			component.OnDisable()
+		}
 	}
 }
 
@@ -403,8 +450,8 @@ func (obj *Object) ToJSONConfig() *corejson.ObjectConfig {
 		Depth: obj.Depth,
 	}
 
-	// Convert components
-	for _, component := range obj.Components {
+	// Convert components (in deterministic insertion order)
+	for _, component := range obj.orderedComponents() {
 		compConfig := corejson.ComponentInstanceConfig{
 			Kind: component.GetKind(),
 			Name: component.GetName(),

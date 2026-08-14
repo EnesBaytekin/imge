@@ -275,10 +275,8 @@ func (c *PlayerComponent) Update(ctx *core.ComponentContext) {
 	if ctx.Input.IsKeyPressed(core.KeyA) || ctx.Input.IsKeyPressed(core.KeyLeft) { dx = -speed * dt }
 	if ctx.Input.IsKeyPressed(core.KeyD) || ctx.Input.IsKeyPressed(core.KeyRight) { dx = speed * dt }
 
-	if mover := owner.GetComponentByKind("@Movement"); mover != nil {
-		if m, ok := mover.(interface{ Move(dx, dy float64) bool }); ok {
-			m.Move(dx, dy)
-		}
+	if m, ok := owner.GetComponentByKind("@Movement").(*MovementComponent); ok {
+		m.Move(dx, dy)
 	}
 }
 
@@ -343,11 +341,9 @@ func (c *EnemyComponent) Update(ctx *core.ComponentContext) {
 	moveX := dir.X * c.speed * dt
 	moveY := dir.Y * c.speed * dt
 
-	if mover := owner.GetComponentByKind("@Movement"); mover != nil {
-		if m, ok := mover.(interface{ Move(dx, dy float64) bool }); ok {
-			m.Move(moveX, 0)
-			m.Move(0, moveY)
-		}
+	if m, ok := owner.GetComponentByKind("@Movement").(*MovementComponent); ok {
+		m.Move(moveX, 0)
+		m.Move(0, moveY)
 	}
 }
 
@@ -411,9 +407,7 @@ func init() {
     {
       "kind": "@Movement",
       "name": "movement",
-      "args": {
-        "speed": 200
-      }
+      "args": {}
     },
     {
       "kind": "components/sprite.go",
@@ -454,9 +448,7 @@ func init() {
     {
       "kind": "@Movement",
       "name": "movement",
-      "args": {
-        "speed": 60
-      }
+      "args": {}
     },
     {
       "kind": "components/sprite.go",

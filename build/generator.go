@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"text/template"
@@ -45,8 +46,11 @@ func (g *Generator) Generate() error {
 	if err := g.writeEngineGoMod(); err != nil {
 		return fmt.Errorf("failed to write engine go.mod: %w", err)
 	}
-	if err := g.copyUserComponents(); err != nil {
-		return fmt.Errorf("failed to copy user components: %w", err)
+	if err := g.copyComponents(); err != nil {
+		return fmt.Errorf("failed to copy components: %w", err)
+	}
+	if err := g.validateComponents(); err != nil {
+		return err
 	}
 	if err := g.copyProjectData(); err != nil {
 		return fmt.Errorf("failed to copy project data: %w", err)
@@ -73,29 +77,64 @@ func (g *Generator) writeEngineGoMod() error {
 	return os.WriteFile(filepath.Join(g.BuildDir, "_engine", "go.mod"), []byte(content), 0644)
 }
 
-// copyUserComponents copies the user's component .go files into the build dir.
-// If the project has no components, a placeholder package is written so the
-// generated main.go's blank import remains valid.
-func (g *Generator) copyUserComponents() error {
-	if len(g.Analysis.ComponentFiles) == 0 {
-		placeholder := filepath.Join(g.BuildDir, "components", "placeholder.go")
-		if err := os.MkdirAll(filepath.Dir(placeholder), 0755); err != nil {
-			return err
-		}
-		return os.WriteFile(placeholder, []byte("// Package components holds user-defined components.\npackage components\n"), 0644)
+// copyComponents merges the built-in component files (from the embedded engine)
+// and the user's component files into a single `components` package in the build
+// dir. This single-package model lets every component call every other
+// component's methods directly, with no capability interfaces between them.
+func (g *Generator) copyComponents() error {
+	dstDir := filepath.Join(g.BuildDir, "components")
+	if err := os.MkdirAll(dstDir, 0755); err != nil {
+		return err
 	}
 
-	for _, compFile := range g.Analysis.ComponentFiles {
-		srcPath := filepath.Join(g.Analysis.ProjectDir, compFile)
-		dstPath := filepath.Join(g.BuildDir, compFile)
-		if err := os.MkdirAll(filepath.Dir(dstPath), 0755); err != nil {
-			return fmt.Errorf("failed to create component directory %s: %w", filepath.Dir(dstPath), err)
+	// Track flattened filenames so collisions are reported clearly.
+	used := make(map[string]string) // flattened name -> source description
+
+	// 1. Built-in components from the extracted engine.
+	builtinDir := filepath.Join(g.BuildDir, "_engine", "engine", "components")
+	entries, err := os.ReadDir(builtinDir)
+	if err != nil {
+		return fmt.Errorf("failed to read built-in components: %w", err)
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
 		}
-		if err := copyFile(srcPath, dstPath); err != nil {
+		if err := copyFile(filepath.Join(builtinDir, name), filepath.Join(dstDir, name)); err != nil {
+			return fmt.Errorf("failed to copy built-in component %s: %w", name, err)
+		}
+		used[name] = "built-in:" + name
+	}
+
+	// 2. User components, flattened into the single package directory.
+	for _, compFile := range g.Analysis.ComponentFiles {
+		flattened := flattenComponentName(compFile)
+		if prev, exists := used[flattened]; exists {
+			return fmt.Errorf("component file collision: %s and %s both flatten to %s", prev, compFile, flattened)
+		}
+		used[flattened] = compFile
+
+		srcPath := filepath.Join(g.Analysis.ProjectDir, compFile)
+		if err := copyFile(srcPath, filepath.Join(dstDir, flattened)); err != nil {
 			return fmt.Errorf("failed to copy component %s: %w", compFile, err)
 		}
 	}
+
 	return nil
+}
+
+// flattenComponentName maps a project-relative component path to a filename in
+// the single components/ package. Files directly under components/ keep their
+// basename; nested files fold their directory into the filename.
+func flattenComponentName(rel string) string {
+	rel = filepath.ToSlash(rel)
+	base := path.Base(rel)
+	dir := path.Dir(rel)
+	if dir == "." || dir == "/" || dir == "components" {
+		return base
+	}
+	return strings.ReplaceAll(dir, "/", "_") + "_" + base
 }
 
 // copyProjectData copies the assets/, scenes/, and objects/ directories (any
@@ -229,7 +268,6 @@ import (
 	"strings"
 
 	"github.com/EnesBaytekin/imge/core"
-	_ "github.com/EnesBaytekin/imge/engine/components"
 	"github.com/EnesBaytekin/imge/platform/ebitengine"
 	_ "{{.ModuleName}}/components"
 )
@@ -351,7 +389,6 @@ import (
 	"strings"
 
 	"github.com/EnesBaytekin/imge/core"
-	_ "github.com/EnesBaytekin/imge/engine/components"
 	"github.com/EnesBaytekin/imge/platform/ebitengine"
 	_ "{{.ModuleName}}/components"
 )

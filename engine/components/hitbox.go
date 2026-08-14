@@ -1,4 +1,6 @@
-// Package components contains built-in game components.
+// Package components contains IMGE's built-in components. At build time, custom
+// component files are merged into this same package, so built-ins and customs can
+// call each other's methods directly (no capability interfaces needed).
 package components
 
 import (
@@ -6,12 +8,9 @@ import (
 	"github.com/EnesBaytekin/imge/core/math"
 )
 
-// ============================================================================
-// @Hitbox Component
-// ============================================================================
-
-// HitboxComponent provides rectangle-based collision detection.
-// Can check collision with other @Hitbox components and emit "collision" events.
+// HitboxComponent is a pure rectangle collider. It stores dimensions and answers
+// collision queries; it does not draw or scan the scene (movement components scan
+// when they move).
 type HitboxComponent struct {
 	core.BaseComponent
 	width  float64
@@ -32,7 +31,6 @@ func (c *HitboxComponent) Initialize(args []interface{}) error {
 		}
 	}
 
-	// Default size
 	if c.width <= 0 {
 		c.width = 32
 	}
@@ -43,8 +41,8 @@ func (c *HitboxComponent) Initialize(args []interface{}) error {
 	return nil
 }
 
-// GetBounds returns the hitbox rectangle in world space.
-// Uses the owner's transform position as the top-left corner.
+// GetBounds returns the hitbox rectangle in world space, anchored at the owner's
+// position (top-left corner).
 func (c *HitboxComponent) GetBounds() math.Rect {
 	owner := c.GetOwner()
 	if owner == nil {
@@ -64,59 +62,20 @@ func (c *HitboxComponent) SetSize(width, height float64) {
 	c.height = height
 }
 
-// CheckCollision checks if this hitbox overlaps with another hitbox.
+// GetSize returns the hitbox dimensions.
+func (c *HitboxComponent) GetSize() (width, height float64) {
+	return c.width, c.height
+}
+
+// CheckCollision reports whether this hitbox overlaps another.
 func (c *HitboxComponent) CheckCollision(other *HitboxComponent) bool {
 	return c.GetBounds().Overlaps(other.GetBounds())
 }
 
-// ContainsPoint checks if a point is inside this hitbox.
+// ContainsPoint reports whether a point is inside this hitbox.
 func (c *HitboxComponent) ContainsPoint(point math.Vector2) bool {
 	return c.GetBounds().ContainsPoint(point)
 }
-
-// Update checks for collisions with other @Hitbox components in the scene.
-// When a collision is detected, emits a "collision" event with the other object as data.
-func (c *HitboxComponent) Update(ctx *core.ComponentContext) {
-	owner := c.GetOwner()
-	if owner == nil || owner.Scene == nil {
-		return
-	}
-
-	myBounds := c.GetBounds()
-
-	for _, other := range owner.Scene.Objects {
-		if other == owner || !other.Active {
-			continue
-		}
-
-		otherHitboxComp := other.GetComponentByKind("@Hitbox")
-		if otherHitboxComp == nil {
-			continue
-		}
-
-		otherHb, ok := otherHitboxComp.(*HitboxComponent)
-		if !ok {
-			continue
-		}
-
-		if myBounds.Overlaps(otherHb.GetBounds()) {
-			c.Ping(core.Event{
-				Name: "collision",
-				Data: other,
-			})
-		}
-	}
-}
-
-// Draw renders a debug rectangle outline for the hitbox.
-func (c *HitboxComponent) Draw(renderer core.Renderer) {
-	bounds := c.GetBounds()
-	renderer.DrawRectOutline(bounds, math.Green, 1)
-}
-
-// ============================================================================
-// Registration
-// ============================================================================
 
 func init() {
 	core.RegisterComponent("@Hitbox", func(args []interface{}) (core.Component, error) {

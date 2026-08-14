@@ -5,6 +5,7 @@
 ## Architecture
 
 - **Component-based**: Game objects are composed of reusable components (built-in `@Hitbox`, `@Movement`, or user-defined). Components are registered with a factory pattern.
+- **Single-package components**: Built-in and user components are compiled into one Go package at build time, so any component can call any other component's methods directly — no capability interfaces in between.
 - **Ping-Pong Event System**: Components communicate through a deferred event queue. `Ping()` emits an event, the EventManager queues it between frames, and subscribers receive it via `Pong()`.
 - **Platform layer**: Rendering, input, and audio are abstracted behind a `Platform` interface. The Ebitengine implementation drives the game loop through a runner adapter, leaving the platform-agnostic core untouched.
 
@@ -58,7 +59,7 @@ then open <http://localhost:8000/> in a browser.
 ```
 my-game/
 ├── game.json           # Game config (window size, title, FPS, initial scene)
-├── components/         # User-defined Go components
+├── components/         # User-defined Go components (any nesting depth)
 ├── scenes/             # Scene definitions (.scene)
 ├── objects/            # Object templates (.obj)
 └── assets/             # Game assets (images, sounds)
@@ -85,8 +86,11 @@ by an `assets/`-prefixed path) from the built-in components:
 { "kind": "@Sound", "name": "beep", "args": { "sound": "blip.wav" } }
 ```
 
-`@Image` renders automatically each frame. `@Sound` is driven from a component
-via `ctx.Audio.PlaySound(...)` / `PlayMusic(...)` (see `engine/components/sound.go`).
+`@Image` renders automatically each frame. Give it `frameWidth`/`frameHeight`/
+`frameCount` to play a horizontal sprite-sheet animation, or `width`/`height` to
+scale it to a display size. `@Sound` auto-plays with `"play_on_start": true`, or
+you can drive it from another component via `Play(ctx)` / `Stop(ctx)`.
+
 Supported image formats are PNG and JPEG; audio formats are WAV, MP3, and OGG.
 Assets are embedded into the final executable (desktop) or the WebAssembly bundle
 (web), so they work in both targets.
