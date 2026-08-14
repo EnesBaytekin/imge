@@ -2,10 +2,7 @@ module github.com/EnesBaytekin/imge
 
 go 1.24.10
 
-require (
-	github.com/hajimehoshi/ebiten/v2 v2.9.9
-	github.com/veandco/go-sdl2 v0.4.40
-)
+require github.com/hajimehoshi/ebiten/v2 v2.9.9
 
 require (
 	github.com/ebitengine/gomobile v0.0.0-20250923094054-ea854a63cce1 // indirect

@@ -5,31 +5,38 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
-  build:
+  release:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: '1.24'
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
 
-    - name: Build IMGE CLI
-      run: |
-        go build -o imge_linux_amd64 ./cmd/imge
-        mkdir -p dist
-        mv imge_linux_amd64 dist/
+      - name: Build CLI binaries (cross-compile, no CGO)
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for target in "linux amd64" "linux arm64" "windows amd64" "windows arm64" "darwin amd64" "darwin arm64"; do
+            set -- $target
+            os="$1"; arch="$2"
+            ext=""
+            if [ "$os" = "windows" ]; then ext=".exe"; fi
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
+              go build -o "dist/imge_${os}_${arch}${ext}" ./cmd/imge
+          done
+          ls -la dist
 
-    - name: Create Release
-      uses: softprops/action-gh-release@v1
-      with:
-        files: dist/imge_linux_amd64
-        generate_release_notes: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

@@ -35,19 +35,22 @@ type TransformConfig struct {
 	Scale    math.Vector2 `json:"scale,omitempty"`
 }
 
+// ParseSceneConfig parses a scene configuration from JSON bytes.
+func ParseSceneConfig(data []byte) (*SceneConfig, error) {
+	var config SceneConfig
+	if err := json.Unmarshal(data, &config); err != nil {
+		return nil, err
+	}
+	return &config, nil
+}
+
 // LoadSceneConfig loads a scene configuration from a JSON file.
 func LoadSceneConfig(path string) (*SceneConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-
-	var config SceneConfig
-	if err := json.Unmarshal(data, &config); err != nil {
-		return nil, err
-	}
-
-	return &config, nil
+	return ParseSceneConfig(data)
 }
 
 // SaveSceneConfig saves a scene configuration to a JSON file.

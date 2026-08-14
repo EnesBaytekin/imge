@@ -5,6 +5,7 @@ package core
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"sort"
 
@@ -387,6 +388,23 @@ func (s *Scene) generateUniqueName(base string) string {
 
 // LoadFromJSON loads a scene from JSON data.
 func (s *Scene) LoadFromJSON(data []byte) error {
+	return s.loadFromJSON(data, nil)
+}
+
+// LoadFromFS loads a scene from the given filesystem, resolving any referenced
+// object files through the same filesystem. This is used by web builds, where
+// game data is embedded rather than read from a real filesystem.
+func (s *Scene) LoadFromFS(fsys fs.FS, path string) error {
+	data, err := fs.ReadFile(fsys, path)
+	if err != nil {
+		return fmt.Errorf("failed to read scene file %s: %w", path, err)
+	}
+	return s.loadFromJSON(data, fsys)
+}
+
+// loadFromJSON loads a scene from JSON data. When fsys is nil, referenced object
+// files are read from the OS filesystem; otherwise they are read from fsys.
+func (s *Scene) loadFromJSON(data []byte, fsys fs.FS) error {
 	var config corejson.SceneConfig
 	if err := json.Unmarshal(data, &config); err != nil {
 		return fmt.Errorf("failed to parse scene JSON: %w", err)
@@ -397,7 +415,7 @@ func (s *Scene) LoadFromJSON(data []byte) error {
 
 	// Load objects from config
 	for _, objConfig := range config.Objects {
-		obj, err := createObjectFromSceneObject(objConfig)
+		obj, err := createObjectFromSceneObject(objConfig, fsys)
 		if err != nil {
 			return fmt.Errorf("failed to create object: %w", err)
 		}
@@ -419,13 +437,20 @@ func (s *Scene) LoadFromFile(path string) error {
 }
 
 // createObjectFromSceneObject creates an Object from a SceneObject configuration.
-func createObjectFromSceneObject(objConfig corejson.SceneObject) (*Object, error) {
+// When fsys is non-nil, object template files are resolved through it.
+func createObjectFromSceneObject(objConfig corejson.SceneObject, fsys fs.FS) (*Object, error) {
 	var obj *Object
 
 	// Case 1: File reference with transform override
 	if objConfig.File != "" {
-		// Load object template from file
-		objConfigFile, err := corejson.LoadObjectConfig(objConfig.File)
+		// Load object template from file (or embedded filesystem).
+		var objConfigFile *corejson.ObjectConfig
+		var err error
+		if fsys != nil {
+			objConfigFile, err = corejson.LoadObjectConfigFS(fsys, objConfig.File)
+		} else {
+			objConfigFile, err = corejson.LoadObjectConfig(objConfig.File)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("failed to load object template %s: %w", objConfig.File, err)
 		}

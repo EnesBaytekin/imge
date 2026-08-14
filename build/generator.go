@@ -21,13 +21,20 @@ const engineModule = "github.com/EnesBaytekin/imge"
 // Ebitengine release. Bump alongside the engine's own go.mod when upgrading.
 const ebitenVersion = "v2.9.9"
 
+// Build targets.
+const (
+	TargetDesktop = "desktop" // native executable for the current OS
+	TargetWeb     = "web"     // WebAssembly build
+)
+
 // Generator creates a self-contained Go module inside a temporary build
 // directory. The module embeds the pure-Go engine source (core, engine, and the
 // Ebitengine platform), the user's components, and the game data, so `go build`
-// produces a single executable with no CGO or Docker involved.
+// produces a single executable (or WebAssembly bundle) with no CGO or Docker.
 type Generator struct {
 	BuildDir string
 	Analysis *ProjectAnalysis
+	Target   string // TargetDesktop or TargetWeb
 }
 
 // Generate creates all necessary build files.
@@ -106,9 +113,9 @@ func (g *Generator) copyProjectData() error {
 	return nil
 }
 
-// generateMainGo writes the Ebitengine entrypoint. The generated program embeds
-// the project data, extracts it to a temp directory at runtime, loads every
-// scene, and hands control to the Ebitengine platform's Run loop.
+// generateMainGo writes the Ebitengine entrypoint for the selected target. The
+// generated program embeds the project data, loads every scene, and hands
+// control to the Ebitengine platform's Run loop.
 func (g *Generator) generateMainGo() error {
 	// Determine which data directories exist so we only embed what's present.
 	var patterns []string
@@ -118,6 +125,16 @@ func (g *Generator) generateMainGo() error {
 		}
 	}
 
+	if g.Target == TargetWeb {
+		return g.generateWebMainGo(patterns)
+	}
+	return g.generateDesktopMainGo(patterns)
+}
+
+// generateDesktopMainGo writes the native entrypoint. It extracts the embedded
+// data to a temp directory and chdirs into it so relative paths (and asset
+// loading via the OS filesystem) work exactly as they do during development.
+func (g *Generator) generateDesktopMainGo(patterns []string) error {
 	embedDirective := ""
 	hasData := len(patterns) > 0
 	if hasData {
@@ -144,7 +161,41 @@ func (g *Generator) generateMainGo() error {
 		HasData:        hasData,
 	}
 
-	tmpl, err := template.New("main").Parse(mainTemplate)
+	return g.renderTemplate(mainTemplateDesktop, data)
+}
+
+// generateWebMainGo writes the WebAssembly entrypoint. It loads scenes and their
+// referenced object files directly from the embedded filesystem (no OS file I/O,
+// which is unavailable in the browser).
+func (g *Generator) generateWebMainGo(patterns []string) error {
+	if len(patterns) == 0 {
+		return fmt.Errorf("web build requires at least one of scenes/, objects/, or assets/")
+	}
+
+	data := struct {
+		ModuleName    string
+		WindowTitle   string
+		WindowWidth   int
+		WindowHeight  int
+		TargetFPS     int
+		InitialScene  string
+		EmbedPatterns string
+	}{
+		ModuleName:    fmt.Sprintf("%s_build", filepath.Base(g.Analysis.ProjectDir)),
+		WindowTitle:   g.Analysis.GameConfig.Window.Title,
+		WindowWidth:   g.Analysis.GameConfig.Window.Width,
+		WindowHeight:  g.Analysis.GameConfig.Window.Height,
+		TargetFPS:     g.Analysis.GameConfig.Game.TargetFPS,
+		InitialScene:  g.Analysis.GameConfig.Game.InitialScene,
+		EmbedPatterns: strings.Join(patterns, " "),
+	}
+
+	return g.renderTemplate(mainTemplateWeb, data)
+}
+
+// renderTemplate renders the given template with data and writes main.go.
+func (g *Generator) renderTemplate(tmplText string, data interface{}) error {
+	tmpl, err := template.New("main").Parse(tmplText)
 	if err != nil {
 		return err
 	}
@@ -163,10 +214,10 @@ func (g *Generator) generateGoMod() error {
 	return os.WriteFile(filepath.Join(g.BuildDir, "go.mod"), []byte(content), 0644)
 }
 
-// mainTemplate is the generated entrypoint. .EmbedDirective is either a
-// "//go:embed <dirs>" line (with trailing newline) or empty, so it must sit
-// directly above the projectData declaration with no blank line between them.
-const mainTemplate = `// GENERATED CODE - DO NOT EDIT
+// mainTemplateDesktop is the generated native entrypoint. .EmbedDirective is
+// either a "//go:embed <dirs>" line (with trailing newline) or empty, so it must
+// sit directly above the projectData declaration with no blank line between them.
+const mainTemplateDesktop = `// GENERATED CODE - DO NOT EDIT
 package main
 
 import (
@@ -285,6 +336,76 @@ func writeFS(fsys fs.FS, src, dst string) error {
 		}
 		return os.WriteFile(target, data, 0644)
 	})
+}
+`
+
+// mainTemplateWeb is the generated WebAssembly entrypoint. It has no OS
+// filesystem calls — scenes and object files are read from the embedded FS.
+const mainTemplateWeb = `// GENERATED CODE - DO NOT EDIT
+package main
+
+import (
+	"embed"
+	"io/fs"
+	"log"
+	"strings"
+
+	"github.com/EnesBaytekin/imge/core"
+	_ "github.com/EnesBaytekin/imge/engine/components"
+	"github.com/EnesBaytekin/imge/platform/ebitengine"
+	_ "{{.ModuleName}}/components"
+)
+
+//go:embed {{.EmbedPatterns}}
+var projectData embed.FS
+
+func main() {
+	platform, err := ebitengine.New()
+	if err != nil {
+		log.Fatalf("failed to create platform: %v", err)
+	}
+	defer platform.Cleanup()
+
+	game := core.NewGameWithConfig(core.Config{
+		WindowWidth:  {{.WindowWidth}},
+		WindowHeight: {{.WindowHeight}},
+		WindowTitle:  "{{.WindowTitle}}",
+		TargetFPS:    {{.TargetFPS}},
+		InitialScene: "{{.InitialScene}}",
+	})
+	game.SetPlatform(platform)
+
+	if err := game.Init(); err != nil {
+		log.Fatalf("failed to initialize game: %v", err)
+	}
+
+	loadScenes(game)
+
+	if err := platform.Run(game); err != nil {
+		log.Fatalf("game error: %v", err)
+	}
+}
+
+// loadScenes loads every .scene file from the embedded filesystem.
+func loadScenes(game *core.Game) {
+	entries, err := fs.ReadDir(projectData, "scenes")
+	if err != nil {
+		log.Printf("warning: no scenes directory found: %v", err)
+		return
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".scene") {
+			continue
+		}
+		name := strings.TrimSuffix(entry.Name(), ".scene")
+		scene := core.NewScene(name)
+		if err := scene.LoadFromFS(projectData, "scenes/"+entry.Name()); err != nil {
+			log.Printf("warning: failed to load scene %q: %v", name, err)
+			continue
+		}
+		game.AddScene(scene)
+	}
 }
 `
 

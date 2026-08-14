@@ -37,18 +37,10 @@ func main() {
 }
 
 func handleBuild() {
-	// Platform is optional and always maps to Ebitengine. "desktop" is the
-	// default; "ebitengine" is accepted as an alias.
-	platform := "desktop"
+	// Target is optional and defaults to a native desktop build.
+	target := build.TargetDesktop
 	if len(os.Args) >= 3 {
-		platform = os.Args[2]
-	}
-
-	switch platform {
-	case "desktop", "ebitengine":
-		// Supported.
-	default:
-		log.Fatalf("Invalid platform %q. Supported: desktop (default), ebitengine", platform)
+		target = normalizeTarget(os.Args[2])
 	}
 
 	projectDir, err := os.Getwd()
@@ -66,10 +58,15 @@ func handleBuild() {
 		outputName = "game.exe"
 	}
 
-	fmt.Printf("Building with Ebitengine (single executable: %s)...\n", outputName)
+	if target == build.TargetWeb {
+		fmt.Println("Building for web (WebAssembly)...")
+	} else {
+		fmt.Printf("Building with Ebitengine (single executable: %s)...\n", outputName)
+	}
 
 	builder := &build.Builder{
 		ProjectDir: projectDir,
+		Target:     target,
 		OutputName: outputName,
 	}
 	if err := builder.Build(); err != nil {
@@ -79,7 +76,32 @@ func handleBuild() {
 	fmt.Println("Build completed successfully!")
 }
 
+// normalizeTarget maps a user-provided target string to a build target.
+func normalizeTarget(s string) string {
+	switch s {
+	case "web", "wasm":
+		return build.TargetWeb
+	case "desktop", "ebitengine":
+		return build.TargetDesktop
+	default:
+		log.Fatalf("Invalid target %q. Supported: desktop (default), web", s)
+		return ""
+	}
+}
+
 func handleRun() {
+	// Determine target (defaults to desktop).
+	target := build.TargetDesktop
+	if len(os.Args) >= 3 {
+		target = normalizeTarget(os.Args[2])
+	}
+
+	// Web builds can't be launched directly — just build and print the serve hint.
+	if target == build.TargetWeb {
+		handleBuild()
+		return
+	}
+
 	// Build first (exits on failure).
 	handleBuild()
 
@@ -473,11 +495,11 @@ func printUsage() {
 	fmt.Println("IMGE Minimal Game Engine CLI Tool")
 	fmt.Println("Usage:")
 	fmt.Println("  imge init                 Initialize a new game project")
-	fmt.Println("  imge build [platform]     Build the game into a single executable")
-	fmt.Println("  imge run [platform]       Build and run the game")
+	fmt.Println("  imge build [target]       Build the game")
+	fmt.Println("  imge run [target]         Build and run the game (desktop only)")
 	fmt.Println("  imge version              Show version")
 	fmt.Println("")
-	fmt.Println("Platforms:")
-	fmt.Println("  desktop     - Ebitengine (pure Go, default)")
-	fmt.Println("  ebitengine  - Alias for desktop")
+	fmt.Println("Targets:")
+	fmt.Println("  desktop     - Native executable (default)")
+	fmt.Println("  web         - WebAssembly bundle (web/)")
 }

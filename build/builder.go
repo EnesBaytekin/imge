@@ -2,7 +2,6 @@ package build
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,12 +11,14 @@ import (
 // Builder executes the build process.
 type Builder struct {
 	ProjectDir string
+	Target     string // TargetDesktop or TargetWeb
 	OutputName string // Final executable name (default "game")
 }
 
 // Build analyzes the project, generates a self-contained Go module that embeds
-// the pure-Go Ebitengine engine, compiles it, and copies the single executable
-// into the project directory.
+// the pure-Go Ebitengine engine, compiles it for the selected target, and copies
+// the result into the project directory (a single executable for desktop, or a
+// web/ bundle of .wasm + index.html + wasm_exec.js for web).
 func (b *Builder) Build() error {
 	analysis, err := AnalyzeProject(b.ProjectDir)
 	if err != nil {
@@ -36,9 +37,22 @@ func (b *Builder) Build() error {
 	generator := &Generator{
 		BuildDir: buildDir,
 		Analysis: analysis,
+		Target:   b.Target,
 	}
 	if err := generator.Generate(); err != nil {
 		return fmt.Errorf("generation failed: %w", err)
+	}
+
+	if b.Target == TargetWeb {
+		return b.buildWeb(buildDir)
+	}
+	return b.buildDesktop(buildDir)
+}
+
+// buildDesktop compiles a native executable and copies it to the project root.
+func (b *Builder) buildDesktop(buildDir string) error {
+	if err := b.goModTidy(buildDir); err != nil {
+		return err
 	}
 
 	outputName := b.OutputName
@@ -46,11 +60,15 @@ func (b *Builder) Build() error {
 		outputName = "game"
 	}
 
-	if err := b.executeGoBuild(buildDir, outputName); err != nil {
+	cmd := exec.Command("go", "build", "-mod=mod", "-o", outputName, ".")
+	cmd.Dir = buildDir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	fmt.Printf("Running: go build -o %s\n", outputName)
+	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("go build failed: %w", err)
 	}
 
-	// Copy the single executable to the project root.
 	src := filepath.Join(buildDir, outputName)
 	dst := filepath.Join(b.ProjectDir, outputName)
 	if err := copyFile(src, dst); err != nil {
@@ -61,8 +79,43 @@ func (b *Builder) Build() error {
 	return nil
 }
 
-// executeGoBuild runs `go mod tidy` and `go build` inside the build directory.
-func (b *Builder) executeGoBuild(buildDir, outputName string) error {
+// buildWeb compiles a WebAssembly bundle into <project>/web/.
+func (b *Builder) buildWeb(buildDir string) error {
+	if err := b.goModTidy(buildDir); err != nil {
+		return err
+	}
+
+	outDir := filepath.Join(b.ProjectDir, "web")
+	if err := os.MkdirAll(outDir, 0755); err != nil {
+		return fmt.Errorf("failed to create web output directory: %w", err)
+	}
+
+	wasmPath := filepath.Join(outDir, "game.wasm")
+	cmd := exec.Command("go", "build", "-mod=mod", "-o", wasmPath, ".")
+	cmd.Dir = buildDir
+	cmd.Env = append(os.Environ(), "GOOS=js", "GOARCH=wasm")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	fmt.Println("Running: GOOS=js GOARCH=wasm go build -o web/game.wasm")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("web build failed: %w", err)
+	}
+
+	if err := b.copyWasmExec(outDir); err != nil {
+		return fmt.Errorf("failed to copy wasm_exec.js: %w", err)
+	}
+	if err := b.writeIndexHTML(outDir); err != nil {
+		return fmt.Errorf("failed to write index.html: %w", err)
+	}
+
+	fmt.Printf("Built web bundle in %s/\n", outDir)
+	fmt.Println("Serve it with:  cd web && python3 -m http.server 8000")
+	fmt.Println("Then open:       http://localhost:8000/")
+	return nil
+}
+
+// goModTidy runs `go mod tidy` inside the build directory.
+func (b *Builder) goModTidy(buildDir string) error {
 	tidyCmd := exec.Command("go", "mod", "tidy")
 	tidyCmd.Dir = buildDir
 	tidyCmd.Stdout = os.Stdout
@@ -71,21 +124,55 @@ func (b *Builder) executeGoBuild(buildDir, outputName string) error {
 	if err := tidyCmd.Run(); err != nil {
 		return fmt.Errorf("go mod tidy failed: %w", err)
 	}
-
-	buildCmd := exec.Command("go", "build", "-mod=mod", "-o", outputName, ".")
-	buildCmd.Dir = buildDir
-	buildCmd.Stdout = os.Stdout
-	var stderrBuf strings.Builder
-	buildCmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
-
-	fmt.Printf("Running: go build -o %s\n", outputName)
-	if err := buildCmd.Run(); err != nil {
-		errOutput := strings.TrimSpace(stderrBuf.String())
-		if errOutput != "" {
-			return fmt.Errorf("go build failed:\n%s", errOutput)
-		}
-		return fmt.Errorf("go build command failed: %w", err)
-	}
-
 	return nil
+}
+
+// copyWasmExec copies the Go wasm runtime helper into the web output directory.
+// The location moved from $GOROOT/misc/wasm to $GOROOT/lib/wasm in Go 1.25, so
+// both are tried.
+func (b *Builder) copyWasmExec(outDir string) error {
+	goroot, err := exec.Command("go", "env", "GOROOT").Output()
+	if err != nil {
+		return err
+	}
+	root := strings.TrimSpace(string(goroot))
+
+	candidates := []string{
+		filepath.Join(root, "lib", "wasm", "wasm_exec.js"),
+		filepath.Join(root, "misc", "wasm", "wasm_exec.js"),
+	}
+	for _, src := range candidates {
+		if _, err := os.Stat(src); err == nil {
+			return copyFile(src, filepath.Join(outDir, "wasm_exec.js"))
+		}
+	}
+	return fmt.Errorf("wasm_exec.js not found under %s (checked lib/wasm and misc/wasm)", root)
+}
+
+// writeIndexHTML writes a minimal loader page for the wasm bundle. The loader
+// fetches game.wasm as bytes and instantiates it manually (rather than using
+// instantiateStreaming) so it works with any static file server regardless of
+// whether it sends the application/wasm MIME type.
+func (b *Builder) writeIndexHTML(outDir string) error {
+	html := `<!doctype html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>IMGE Game</title>
+	<style>html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }</style>
+</head>
+<body>
+	<script src="wasm_exec.js"></script>
+	<script>
+		const go = new Go();
+		fetch("game.wasm")
+			.then((resp) => resp.arrayBuffer())
+			.then((bytes) => WebAssembly.instantiate(bytes, go.importObject))
+			.then((result) => { go.run(result.instance); })
+			.catch((err) => console.error("failed to load game:", err));
+	</script>
+</body>
+</html>
+`
+	return os.WriteFile(filepath.Join(outDir, "index.html"), []byte(html), 0644)
 }
