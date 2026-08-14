@@ -6,7 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
+	"runtime"
 
 	"github.com/EnesBaytekin/imge"
 	"github.com/EnesBaytekin/imge/build"
@@ -37,95 +37,41 @@ func main() {
 }
 
 func handleBuild() {
-	if len(os.Args) < 3 {
-		log.Fatal("Usage: imge build <platform> [--clean]")
-	}
-	platform := os.Args[2]
-
-	// Parse flags
-	cleanBuild := false
-	useDocker := false
-	for _, arg := range os.Args[3:] {
-		if arg == "--clean" {
-			cleanBuild = true
-		} else if arg == "--docker" {
-			useDocker = true
-		}
+	// Platform is optional and always maps to Ebitengine. "desktop" is the
+	// default; "ebitengine" is accepted as an alias.
+	platform := "desktop"
+	if len(os.Args) >= 3 {
+		platform = os.Args[2]
 	}
 
-	if useDocker && platform != "sdl" {
-		log.Fatal("--docker is only supported for sdl platform")
+	switch platform {
+	case "desktop", "ebitengine":
+		// Supported.
+	default:
+		log.Fatalf("Invalid platform %q. Supported: desktop (default), ebitengine", platform)
 	}
 
-	// Validate platform
-	validPlatforms := map[string]bool{
-		"mock":    true,  // Implemented
-		"sdl":     true,  // Being implemented
-		"web":     false, // Not implemented yet
-		"desktop": false, // Not implemented yet
-	}
-
-	if !validPlatforms[platform] {
-		log.Fatalf("Invalid platform: %s. Valid platforms: mock, sdl", platform)
-	}
-
-	// Check if platform is implemented
-	if platform != "mock" && platform != "sdl" {
-		log.Fatalf("Platform %s is not implemented yet", platform)
-	}
-
-	fmt.Printf("Building for platform: %s\n", platform)
-	if cleanBuild {
-		fmt.Println("Clean build enabled (cache will be cleared)")
-	}
-
-	// Get current directory as project directory
 	projectDir, err := os.Getwd()
 	if err != nil {
 		log.Fatalf("Failed to get current directory: %v", err)
 	}
 
-	// Create build directory
-	buildDir := filepath.Join(projectDir, ".imge_build")
-	if cleanBuild {
-		// Clean build directory before starting
-		if err := os.RemoveAll(buildDir); err != nil {
-			log.Fatalf("Failed to clean build directory: %v", err)
-		}
-	}
-	if err := os.MkdirAll(buildDir, 0755); err != nil {
-		log.Fatalf("Failed to create build directory: %v", err)
-	}
-	// Clean up build directory after build if cleanBuild is enabled
-	if cleanBuild {
-		defer func() {
-			// Clean up build directory after build
-			if err := os.RemoveAll(buildDir); err != nil {
-				log.Printf("Warning: Failed to clean build directory: %v", err)
-			}
-		}()
+	// Building requires an existing project with a game.json.
+	if _, err := os.Stat(filepath.Join(projectDir, "game.json")); os.IsNotExist(err) {
+		log.Fatal("No game.json found in this directory. Run `imge init` first.")
 	}
 
-	// Determine output name (game or game.exe)
 	outputName := "game"
-	if platform == "windows" || strings.Contains(platform, "win") {
+	if runtime.GOOS == "windows" {
 		outputName = "game.exe"
 	}
 
-	// Engine code will be fetched from GitHub via go modules
-	// No local engine source needed
-	engineSource := ""
+	fmt.Printf("Building with Ebitengine (single executable: %s)...\n", outputName)
 
-	// Create and execute builder
 	builder := &build.Builder{
-		ProjectDir:   projectDir,
-		BuildDir:     buildDir,
-		Platform:     platform,
-		OutputName:   outputName,
-		EngineSource: engineSource,
-		UseDocker:    useDocker,
+		ProjectDir: projectDir,
+		OutputName: outputName,
 	}
-
 	if err := builder.Build(); err != nil {
 		log.Fatalf("Build failed: %v", err)
 	}
@@ -134,32 +80,28 @@ func handleBuild() {
 }
 
 func handleRun() {
-	if len(os.Args) < 3 {
-		log.Fatal("Usage: imge run <platform>")
-	}
-	platform := os.Args[2]
-
-	fmt.Printf("Building and running for platform: %s\n", platform)
-
-	// Build first (exits on failure)
+	// Build first (exits on failure).
 	handleBuild()
 
-	// Determine executable path
-	outputDir := fmt.Sprintf("imge_build_%s", platform)
-	exeName := "game"
-	if platform == "windows" || strings.Contains(platform, "win") {
-		exeName = "game.exe"
+	outputName := "game"
+	if runtime.GOOS == "windows" {
+		outputName = "game.exe"
 	}
-	exePath := filepath.Join(outputDir, exeName)
 
-	// Verify executable exists
+	projectDir, err := os.Getwd()
+	if err != nil {
+		log.Fatalf("Failed to get current directory: %v", err)
+	}
+	exePath := filepath.Join(projectDir, outputName)
+
+	// Verify the executable was produced.
 	if _, err := os.Stat(exePath); os.IsNotExist(err) {
 		log.Fatalf("Build output not found: %s", exePath)
 	}
 
 	fmt.Printf("Running: %s\n", exePath)
 
-	// Run the executable with the current process's environment
+	// Run the executable with the current process's environment.
 	cmd := exec.Command(exePath)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -521,7 +463,7 @@ func init() {
 
 	fmt.Println("\nProject initialized successfully!")
 	fmt.Println("Next steps:")
-	fmt.Println("  1. Build and run: imge build sdl")
+	fmt.Println("  1. Build and run: imge run")
 	fmt.Println("  2. Move with WASD — enemies chase you")
 	fmt.Println("  3. Edit components/ to customize behavior")
 	fmt.Println("  4. Edit scenes/ and objects/ to change the game world")
@@ -530,13 +472,12 @@ func init() {
 func printUsage() {
 	fmt.Println("IMGE Minimal Game Engine CLI Tool")
 	fmt.Println("Usage:")
-	fmt.Println("  imge build <platform>    Build game for specified platform")
-	fmt.Println("  imge run <platform>      Build and run game")
-	fmt.Println("  imge init                Initialize new game project")
-	fmt.Println("  imge version             Show version")
+	fmt.Println("  imge init                 Initialize a new game project")
+	fmt.Println("  imge build [platform]     Build the game into a single executable")
+	fmt.Println("  imge run [platform]       Build and run the game")
+	fmt.Println("  imge version              Show version")
 	fmt.Println("")
 	fmt.Println("Platforms:")
-	fmt.Println("  mock    - Mock platform (debug output only)")
-	fmt.Println("  sdl     - SDL platform")
-	fmt.Println("  web     - Web platform (not implemented)")
+	fmt.Println("  desktop     - Ebitengine (pure Go, default)")
+	fmt.Println("  ebitengine  - Alias for desktop")
 }

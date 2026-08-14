@@ -1,8 +1,10 @@
 package build
 
 import (
+	"bytes"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,295 +13,353 @@ import (
 	"github.com/EnesBaytekin/imge"
 )
 
-// Generator creates build files in a temporary directory
+// engineModule is the Go module path of the engine. The generated game module
+// references it and points it at the embedded source via a replace directive.
+const engineModule = "github.com/EnesBaytekin/imge"
+
+// ebitenVersion is pinned so game builds resolve a deterministic, known-good
+// Ebitengine release. Bump alongside the engine's own go.mod when upgrading.
+const ebitenVersion = "v2.9.9"
+
+// Generator creates a self-contained Go module inside a temporary build
+// directory. The module embeds the pure-Go engine source (core, engine, and the
+// Ebitengine platform), the user's components, and the game data, so `go build`
+// produces a single executable with no CGO or Docker involved.
 type Generator struct {
-	BuildDir     string
-	Analysis     *ProjectAnalysis
-	Platform     string
-	EngineSource string // Path to engine source code
-	UseDocker    bool   // Building inside Docker (engine is pre-cached in image)
+	BuildDir string
+	Analysis *ProjectAnalysis
 }
 
-// Generate creates all necessary build files
+// Generate creates all necessary build files.
 func (g *Generator) Generate() error {
-	// Create build directory structure
-	if err := g.createDirectories(); err != nil {
-		return fmt.Errorf("failed to create directories: %v", err)
+	if err := g.extractEngine(); err != nil {
+		return fmt.Errorf("failed to extract engine source: %w", err)
 	}
-
-	// Copy engine source code to build directory
-	if err := g.copyEngineCode(); err != nil {
-		return fmt.Errorf("failed to copy engine code: %v", err)
+	if err := g.writeEngineGoMod(); err != nil {
+		return fmt.Errorf("failed to write engine go.mod: %w", err)
 	}
-
-	// Copy user components to build directory
 	if err := g.copyUserComponents(); err != nil {
-		return fmt.Errorf("failed to copy user components: %v", err)
+		return fmt.Errorf("failed to copy user components: %w", err)
 	}
-
-	// Copy project assets (assets/, scenes/, objects/)
-	if err := g.copyProjectAssets(); err != nil {
-		return fmt.Errorf("failed to copy project assets: %v", err)
+	if err := g.copyProjectData(); err != nil {
+		return fmt.Errorf("failed to copy project data: %w", err)
 	}
-
-	// Generate main.go
 	if err := g.generateMainGo(); err != nil {
-		return fmt.Errorf("failed to generate main.go: %v", err)
+		return fmt.Errorf("failed to generate main.go: %w", err)
 	}
-
-	// Generate go.mod
 	if err := g.generateGoMod(); err != nil {
-		return fmt.Errorf("failed to generate go.mod: %v", err)
+		return fmt.Errorf("failed to generate go.mod: %w", err)
 	}
-
 	return nil
 }
 
-func (g *Generator) createDirectories() error {
-	dirs := []string{
-		filepath.Join(g.BuildDir, "core"),
-		filepath.Join(g.BuildDir, "engine", "components"),
-		filepath.Join(g.BuildDir, "core", "math"),
-		filepath.Join(g.BuildDir, "platform", g.Platform),
-		filepath.Join(g.BuildDir, "components"),
-		filepath.Join(g.BuildDir, "assets"),
-		filepath.Join(g.BuildDir, "scenes"),
-		filepath.Join(g.BuildDir, "objects"),
-	}
+// extractEngine copies the embedded pure-Go engine source into <buildDir>/_engine.
+func (g *Generator) extractEngine() error {
+	dst := filepath.Join(g.BuildDir, "_engine")
+	return copyEmbedFS(imge.EngineSource, ".", dst)
+}
 
-	for _, dir := range dirs {
-		if err := os.MkdirAll(dir, 0755); err != nil {
+// writeEngineGoMod writes a minimal go.mod for the embedded engine so the game
+// module's replace directive has a valid module to point at.
+func (g *Generator) writeEngineGoMod() error {
+	content := fmt.Sprintf("module %s\n\ngo 1.24\n\nrequire github.com/hajimehoshi/ebiten/v2 %s\n", engineModule, ebitenVersion)
+	return os.WriteFile(filepath.Join(g.BuildDir, "_engine", "go.mod"), []byte(content), 0644)
+}
+
+// copyUserComponents copies the user's component .go files into the build dir.
+// If the project has no components, a placeholder package is written so the
+// generated main.go's blank import remains valid.
+func (g *Generator) copyUserComponents() error {
+	if len(g.Analysis.ComponentFiles) == 0 {
+		placeholder := filepath.Join(g.BuildDir, "components", "placeholder.go")
+		if err := os.MkdirAll(filepath.Dir(placeholder), 0755); err != nil {
 			return err
 		}
+		return os.WriteFile(placeholder, []byte("// Package components holds user-defined components.\npackage components\n"), 0644)
 	}
 
-	return nil
-}
-
-func (g *Generator) copyEngineCode() error {
-	if g.UseDocker {
-		fmt.Printf("Using IMGE engine %s from Docker image\n", imge.EngineVersion)
-	} else {
-		fmt.Printf("Engine code will be fetched from GitHub during build (version %s)\n", imge.EngineVersion)
-	}
-	return nil
-}
-
-func (g *Generator) copyProjectAssets() error {
-	projectDir := g.Analysis.ProjectDir
-
-	// Copy assets directory if it exists
-	assetsSrc := filepath.Join(projectDir, "assets")
-	if _, err := os.Stat(assetsSrc); !os.IsNotExist(err) {
-		assetsDst := filepath.Join(g.BuildDir, "assets")
-		if err := copyDir(assetsSrc, assetsDst); err != nil {
-			return fmt.Errorf("failed to copy assets: %v", err)
-		}
-	}
-
-	// Copy scenes directory if it exists
-	scenesSrc := filepath.Join(projectDir, "scenes")
-	if _, err := os.Stat(scenesSrc); !os.IsNotExist(err) {
-		scenesDst := filepath.Join(g.BuildDir, "scenes")
-		if err := copyDir(scenesSrc, scenesDst); err != nil {
-			return fmt.Errorf("failed to copy scenes: %v", err)
-		}
-	}
-
-	// Copy objects directory if it exists
-	objectsSrc := filepath.Join(projectDir, "objects")
-	if _, err := os.Stat(objectsSrc); !os.IsNotExist(err) {
-		objectsDst := filepath.Join(g.BuildDir, "objects")
-		if err := copyDir(objectsSrc, objectsDst); err != nil {
-			return fmt.Errorf("failed to copy objects: %v", err)
-		}
-	}
-
-	return nil
-}
-
-func (g *Generator) copyUserComponents() error {
 	for _, compFile := range g.Analysis.ComponentFiles {
 		srcPath := filepath.Join(g.Analysis.ProjectDir, compFile)
 		dstPath := filepath.Join(g.BuildDir, compFile)
-
-		// Create destination directory
-		dstDir := filepath.Dir(dstPath)
-		if err := os.MkdirAll(dstDir, 0755); err != nil {
-			return fmt.Errorf("failed to create component directory %s: %v", dstDir, err)
+		if err := os.MkdirAll(filepath.Dir(dstPath), 0755); err != nil {
+			return fmt.Errorf("failed to create component directory %s: %w", filepath.Dir(dstPath), err)
 		}
-
-		// Copy the file
 		if err := copyFile(srcPath, dstPath); err != nil {
-			return fmt.Errorf("failed to copy component %s: %v", compFile, err)
+			return fmt.Errorf("failed to copy component %s: %w", compFile, err)
 		}
 	}
-
 	return nil
 }
 
-func (g *Generator) generateMainGo() error {
-	mainTemplate := `// GENERATED CODE - DO NOT EDIT
-package main
-
-import (
-	"log"
-	"os"
-	"path/filepath"
-
-	_ "github.com/EnesBaytekin/imge/engine/components"
-	"github.com/EnesBaytekin/imge/core"
-	"github.com/EnesBaytekin/imge/platform/{{.Platform}}"
-	_ "{{.ModuleName}}/components"
-)
-
-func main() {
-	// Get the executable path to locate assets
-	exePath, err := os.Executable()
-	if err != nil {
-		log.Fatalf("Failed to get executable path: %v", err)
-	}
-	exeDir := filepath.Dir(exePath)
-
-	// Create platform
-	platform, err := {{.Platform}}.New()
-	if err != nil {
-		log.Fatalf("Failed to create platform: %v", err)
-	}
-
-	// Create game configuration
-	config := core.Config{
-		WindowWidth:  {{.WindowWidth}},
-		WindowHeight: {{.WindowHeight}},
-		WindowTitle:  "{{.WindowTitle}}",
-		TargetFPS:    {{.TargetFPS}},
-		FixedUpdate:  false,
-		InitialScene: "{{.InitialScene}}",
-	}
-
-	// Create game
-	game := core.NewGameWithConfig(config)
-	game.SetPlatform(platform)
-
-	// Initialize the game
-	if err := game.Init(); err != nil {
-		log.Fatalf("Failed to initialize game: %v", err)
-	}
-
-	// Load initial scene if specified
-	if config.InitialScene != "" {
-		scenePath := filepath.Join(exeDir, "scenes", config.InitialScene + ".scene")
-		scene := core.NewScene(config.InitialScene)
-		if err := scene.LoadFromFile(scenePath); err != nil {
-			log.Printf("Warning: Could not load initial scene: %v", err)
-			log.Println("Starting with empty scene")
+// copyProjectData copies the assets/, scenes/, and objects/ directories (any
+// that exist) into the build dir so they can be embedded into the final binary.
+func (g *Generator) copyProjectData() error {
+	for _, dir := range []string{"assets", "scenes", "objects"} {
+		src := filepath.Join(g.Analysis.ProjectDir, dir)
+		if _, err := os.Stat(src); os.IsNotExist(err) {
+			continue
 		}
-		game.AddScene(scene)
-		game.SetActiveScene(config.InitialScene)
+		if err := copyDir(src, filepath.Join(g.BuildDir, dir)); err != nil {
+			return fmt.Errorf("failed to copy %s: %w", dir, err)
+		}
+	}
+	return nil
+}
+
+// generateMainGo writes the Ebitengine entrypoint. The generated program embeds
+// the project data, extracts it to a temp directory at runtime, loads every
+// scene, and hands control to the Ebitengine platform's Run loop.
+func (g *Generator) generateMainGo() error {
+	// Determine which data directories exist so we only embed what's present.
+	var patterns []string
+	for _, dir := range []string{"assets", "scenes", "objects"} {
+		if dirHasFiles(filepath.Join(g.BuildDir, dir)) {
+			patterns = append(patterns, dir)
+		}
 	}
 
-	// Run the game
-	if err := game.Run(); err != nil {
-		log.Fatalf("Game error: %v", err)
+	embedDirective := ""
+	hasData := len(patterns) > 0
+	if hasData {
+		embedDirective = "//go:embed " + strings.Join(patterns, " ") + "\n"
 	}
-}
-`
+
+	data := struct {
+		ModuleName     string
+		WindowTitle    string
+		WindowWidth    int
+		WindowHeight   int
+		TargetFPS      int
+		InitialScene   string
+		EmbedDirective string
+		HasData        bool
+	}{
+		ModuleName:     fmt.Sprintf("%s_build", filepath.Base(g.Analysis.ProjectDir)),
+		WindowTitle:    g.Analysis.GameConfig.Window.Title,
+		WindowWidth:    g.Analysis.GameConfig.Window.Width,
+		WindowHeight:   g.Analysis.GameConfig.Window.Height,
+		TargetFPS:      g.Analysis.GameConfig.Game.TargetFPS,
+		InitialScene:   g.Analysis.GameConfig.Game.InitialScene,
+		EmbedDirective: embedDirective,
+		HasData:        hasData,
+	}
 
 	tmpl, err := template.New("main").Parse(mainTemplate)
 	if err != nil {
 		return err
 	}
-
-	data := struct {
-		Platform      string
-		GameName      string
-		WindowTitle   string
-		WindowWidth   int
-		WindowHeight  int
-		TargetFPS     int
-		InitialScene  string
-		ModuleName    string
-	}{
-		Platform:      g.Platform,
-		GameName:      g.Analysis.GameConfig.Name,
-		WindowTitle:   g.Analysis.GameConfig.Window.Title,
-		WindowWidth:   g.Analysis.GameConfig.Window.Width,
-		WindowHeight:  g.Analysis.GameConfig.Window.Height,
-		TargetFPS:     g.Analysis.GameConfig.Game.TargetFPS,
-		InitialScene:  g.Analysis.GameConfig.Game.InitialScene,
-		ModuleName:    fmt.Sprintf("%s_build", filepath.Base(g.Analysis.ProjectDir)),
-	}
-
-	mainPath := filepath.Join(g.BuildDir, "main.go")
-	file, err := os.Create(mainPath)
-	if err != nil {
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
 		return err
 	}
-	defer file.Close()
-
-	return tmpl.Execute(file, data)
+	return os.WriteFile(filepath.Join(g.BuildDir, "main.go"), buf.Bytes(), 0644)
 }
 
+// generateGoMod writes the game module's go.mod, pointing the engine module at
+// the extracted source with a replace directive.
 func (g *Generator) generateGoMod() error {
-	// Create go.mod to fetch engine from GitHub
-	// Module name is based on project directory name
-	projectName := filepath.Base(g.Analysis.ProjectDir)
-	modName := fmt.Sprintf("%s_build", projectName)
-
-	modContent := fmt.Sprintf(`module %s
-
-go 1.24
-
-require github.com/EnesBaytekin/imge %s
-`, modName, imge.EngineVersion)
-
-	dstModPath := filepath.Join(g.BuildDir, "go.mod")
-	return os.WriteFile(dstModPath, []byte(modContent), 0644)
+	modName := fmt.Sprintf("%s_build", filepath.Base(g.Analysis.ProjectDir))
+	content := fmt.Sprintf("module %s\n\ngo 1.24\n\nrequire %s v0.0.0\n\nreplace %s => ./_engine\n", modName, engineModule, engineModule)
+	return os.WriteFile(filepath.Join(g.BuildDir, "go.mod"), []byte(content), 0644)
 }
 
-// Helper functions for file copying
+// mainTemplate is the generated entrypoint. .EmbedDirective is either a
+// "//go:embed <dirs>" line (with trailing newline) or empty, so it must sit
+// directly above the projectData declaration with no blank line between them.
+const mainTemplate = `// GENERATED CODE - DO NOT EDIT
+package main
+
+import (
+	"embed"
+	"io/fs"
+	"log"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/EnesBaytekin/imge/core"
+	_ "github.com/EnesBaytekin/imge/engine/components"
+	"github.com/EnesBaytekin/imge/platform/ebitengine"
+	_ "{{.ModuleName}}/components"
+)
+
+{{.EmbedDirective}}var projectData embed.FS
+
+func main() {
+	// Extract embedded game data to a temp directory so all relative paths
+	// (objects/, scenes/, assets/) resolve exactly as they did in the project.
+	dataDir, err := extractProjectData()
+	if err != nil {
+		log.Fatalf("failed to extract project data: %v", err)
+	}
+	defer os.RemoveAll(dataDir)
+
+	if err := os.Chdir(dataDir); err != nil {
+		log.Fatalf("failed to change working directory: %v", err)
+	}
+
+	platform, err := ebitengine.New()
+	if err != nil {
+		log.Fatalf("failed to create platform: %v", err)
+	}
+	defer platform.Cleanup()
+
+	game := core.NewGameWithConfig(core.Config{
+		WindowWidth:  {{.WindowWidth}},
+		WindowHeight: {{.WindowHeight}},
+		WindowTitle:  "{{.WindowTitle}}",
+		TargetFPS:    {{.TargetFPS}},
+		InitialScene: "{{.InitialScene}}",
+	})
+	game.SetPlatform(platform)
+
+	if err := game.Init(); err != nil {
+		log.Fatalf("failed to initialize game: %v", err)
+	}
+
+	loadScenes(game)
+
+	if err := platform.Run(game); err != nil {
+		log.Fatalf("game error: %v", err)
+	}
+}
+
+// loadScenes loads every .scene file under scenes/ so the initial scene (and any
+// scene the game switches to later) is available.
+func loadScenes(game *core.Game) {
+	entries, err := os.ReadDir("scenes")
+	if err != nil {
+		log.Printf("warning: no scenes directory found: %v", err)
+		return
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".scene") {
+			continue
+		}
+		name := strings.TrimSuffix(entry.Name(), ".scene")
+		scene := core.NewScene(name)
+		if err := scene.LoadFromFile(filepath.Join("scenes", entry.Name())); err != nil {
+			log.Printf("warning: failed to load scene %q: %v", name, err)
+			continue
+		}
+		game.AddScene(scene)
+	}
+}
+
+// extractProjectData writes the embedded game data to a fresh temp directory.
+func extractProjectData() (string, error) {
+	dir, err := os.MkdirTemp("", "imge-*")
+	if err != nil {
+		return "", err
+	}
+{{if .HasData}}
+	if err := writeFS(projectData, ".", dir); err != nil {
+		os.RemoveAll(dir)
+		return "", err
+	}
+{{end}}
+	return dir, nil
+}
+
+// writeFS copies every file in fsys from src to dst, preserving relative paths.
+func writeFS(fsys fs.FS, src, dst string) error {
+	return fs.WalkDir(fsys, src, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+			return err
+		}
+		data, err := fs.ReadFile(fsys, path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, 0644)
+	})
+}
+`
+
+// copyEmbedFS copies every file under src in fsys into dst, preserving paths.
+func copyEmbedFS(fsys fs.FS, src, dst string) error {
+	return fs.WalkDir(fsys, src, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+			return err
+		}
+		data, err := fs.ReadFile(fsys, path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, 0644)
+	})
+}
+
+// dirHasFiles reports whether a directory exists and contains at least one file.
+func dirHasFiles(dir string) bool {
+	found := false
+	_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !info.IsDir() {
+			found = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found
+}
+
+// copyDir copies all files in src into dst, preserving relative paths. Test
+// files are skipped so they don't leak into the final binary's module graph.
 func copyDir(src, dst string) error {
 	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-
-		// Skip directories for now, we'll create them as needed
 		if info.IsDir() {
 			return nil
 		}
-
-		// Skip test files
 		if strings.HasSuffix(info.Name(), "_test.go") {
 			return nil
 		}
-
-		// Calculate relative path
 		relPath, err := filepath.Rel(src, path)
 		if err != nil {
 			return err
 		}
-
 		dstPath := filepath.Join(dst, relPath)
-
-		// Create destination directory
-		dstDir := filepath.Dir(dstPath)
-		if err := os.MkdirAll(dstDir, 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(dstPath), 0755); err != nil {
 			return err
 		}
-
-		// Copy file
 		return copyFile(path, dstPath)
 	})
 }
 
+// copyFile copies a single file, preserving its permissions.
 func copyFile(src, dst string) error {
-	// Get source file info for permissions
 	srcInfo, err := os.Stat(src)
 	if err != nil {
 		return err
 	}
-
 	srcFile, err := os.Open(src)
 	if err != nil {
 		return err
@@ -312,11 +372,8 @@ func copyFile(src, dst string) error {
 	}
 	defer dstFile.Close()
 
-	_, err = io.Copy(dstFile, srcFile)
-	if err != nil {
+	if _, err := io.Copy(dstFile, srcFile); err != nil {
 		return err
 	}
-
-	// Preserve source file permissions
 	return os.Chmod(dst, srcInfo.Mode())
 }

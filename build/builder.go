@@ -9,224 +9,83 @@ import (
 	"strings"
 )
 
-// Builder executes the build process
+// Builder executes the build process.
 type Builder struct {
-	ProjectDir   string
-	BuildDir     string
-	Platform     string
-	OutputName   string
-	OutputDir    string // Final output directory (e.g., imge_build_mock)
-	EngineSource string // Path to engine source code
-	UseDocker    bool   // Build inside a Docker container (static SDL linking)
+	ProjectDir string
+	OutputName string // Final executable name (default "game")
 }
 
-// Build executes the full build process
+// Build analyzes the project, generates a self-contained Go module that embeds
+// the pure-Go Ebitengine engine, compiles it, and copies the single executable
+// into the project directory.
 func (b *Builder) Build() error {
-	// Analyze project
 	analysis, err := AnalyzeProject(b.ProjectDir)
 	if err != nil {
-		return fmt.Errorf("project analysis failed: %v", err)
+		return fmt.Errorf("project analysis failed: %w", err)
 	}
 
-	// Set default output directory if not specified
-	if b.OutputDir == "" {
-		b.OutputDir = fmt.Sprintf("imge_build_%s", b.Platform)
+	buildDir := filepath.Join(b.ProjectDir, ".imge_build")
+	if err := os.RemoveAll(buildDir); err != nil {
+		return fmt.Errorf("failed to clean build directory: %w", err)
 	}
+	if err := os.MkdirAll(buildDir, 0755); err != nil {
+		return fmt.Errorf("failed to create build directory: %w", err)
+	}
+	defer os.RemoveAll(buildDir)
 
-	// Create generator
 	generator := &Generator{
-		BuildDir:     b.BuildDir,
-		Analysis:     analysis,
-		Platform:     b.Platform,
-		EngineSource: b.EngineSource,
-		UseDocker:    b.UseDocker,
+		BuildDir: buildDir,
+		Analysis: analysis,
 	}
-
-	// Generate build files
 	if err := generator.Generate(); err != nil {
-		return fmt.Errorf("generation failed: %v", err)
+		return fmt.Errorf("generation failed: %w", err)
 	}
 
-	// Execute go build
-	if err := b.executeGoBuild(); err != nil {
-		return fmt.Errorf("go build failed: %v", err)
+	outputName := b.OutputName
+	if outputName == "" {
+		outputName = "game"
 	}
 
-	// Copy final output (executable + assets) to output directory
-	if err := b.copyFinalOutput(); err != nil {
-		fmt.Printf("Warning: Failed to copy final output: %v\n", err)
+	if err := b.executeGoBuild(buildDir, outputName); err != nil {
+		return fmt.Errorf("go build failed: %w", err)
 	}
 
+	// Copy the single executable to the project root.
+	src := filepath.Join(buildDir, outputName)
+	dst := filepath.Join(b.ProjectDir, outputName)
+	if err := copyFile(src, dst); err != nil {
+		return fmt.Errorf("failed to copy executable: %w", err)
+	}
+
+	fmt.Printf("Built %s\n", dst)
 	return nil
 }
 
-func (b *Builder) executeGoBuild() error {
-	// If Docker mode is enabled, build inside Docker container
-	if b.UseDocker {
-		if b.Platform != "sdl" {
-			return fmt.Errorf("docker build is only supported for sdl platform")
-		}
-		return b.executeDockerBuild()
-	}
-
-	// Determine output path
-	outputPath := b.OutputName
-	if outputPath == "" {
-		outputPath = "game"
-	}
-	if !strings.HasSuffix(outputPath, ".exe") && (b.Platform == "windows" || strings.Contains(b.Platform, "win")) {
-		outputPath += ".exe"
-	}
-
-	// First, run go mod tidy to generate go.sum
+// executeGoBuild runs `go mod tidy` and `go build` inside the build directory.
+func (b *Builder) executeGoBuild(buildDir, outputName string) error {
 	tidyCmd := exec.Command("go", "mod", "tidy")
-	tidyCmd.Dir = b.BuildDir
+	tidyCmd.Dir = buildDir
 	tidyCmd.Stdout = os.Stdout
 	tidyCmd.Stderr = os.Stderr
-
-	fmt.Printf("Running: go mod tidy\n")
+	fmt.Println("Running: go mod tidy")
 	if err := tidyCmd.Run(); err != nil {
-		fmt.Printf("Warning: go mod tidy failed: %v\n", err)
-		// Continue anyway, build might still work
+		return fmt.Errorf("go mod tidy failed: %w", err)
 	}
 
-	// Skip go mod vendor - we'll use module cache instead
-	// vendorCmd := exec.Command("go", "mod", "vendor")
-	// vendorCmd.Dir = b.BuildDir
-	// vendorCmd.Stdout = os.Stdout
-	// vendorCmd.Stderr = os.Stderr
-	// fmt.Printf("Running: go mod vendor\n")
-	// if err := vendorCmd.Run(); err != nil {
-	// 	fmt.Printf("Warning: go mod vendor failed: %v\n", err)
-	// 	// Continue anyway, build might still work
-	// }
-
-	// Build command arguments
-	args := []string{
-		"build",
-	}
-
-	// Add platform-specific build tags
-	if b.Platform == "sdl" {
-		args = append(args, "-tags", "sdl")
-	} else if b.Platform == "mock" {
-		args = append(args, "-tags", "mock")
-	}
-
-	args = append(args,
-		"-mod", "mod",
-		"-o", outputPath,
-		".",
-	)
-
-	// Create command
-	cmd := exec.Command("go", args...)
-	cmd.Dir = b.BuildDir
-	cmd.Stdout = os.Stdout
-
-	// Capture stderr so we can include it in the error message
+	buildCmd := exec.Command("go", "build", "-mod=mod", "-o", outputName, ".")
+	buildCmd.Dir = buildDir
+	buildCmd.Stdout = os.Stdout
 	var stderrBuf strings.Builder
-	cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
+	buildCmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
 
-	// Set CGO_ENABLED=1 for SDL platform (requires CGO)
-	if b.Platform == "sdl" {
-		cmd.Env = append(os.Environ(), "CGO_ENABLED=1")
-	}
-
-	fmt.Printf("Running: go %s\n", strings.Join(args, " "))
-	fmt.Printf("Working directory: %s\n", b.BuildDir)
-
-	// Execute build
-	if err := cmd.Run(); err != nil {
+	fmt.Printf("Running: go build -o %s\n", outputName)
+	if err := buildCmd.Run(); err != nil {
 		errOutput := strings.TrimSpace(stderrBuf.String())
 		if errOutput != "" {
 			return fmt.Errorf("go build failed:\n%s", errOutput)
 		}
-		return fmt.Errorf("go build command failed: %v", err)
-	}
-
-	fmt.Printf("Build successful! Output: %s\n", outputPath)
-	return nil
-}
-
-func (b *Builder) copyFinalOutput() error {
-	// Clean output directory before copying
-	if err := os.RemoveAll(b.OutputDir); err != nil {
-		fmt.Printf("Warning: Failed to clean output directory %s: %v\n", b.OutputDir, err)
-		// Continue anyway
-	}
-	// Create output directory
-	if err := os.MkdirAll(b.OutputDir, 0755); err != nil {
-		return fmt.Errorf("failed to create output directory %s: %v", b.OutputDir, err)
-	}
-
-	// Determine source executable path
-	srcExePath := filepath.Join(b.BuildDir, b.OutputName)
-	if b.OutputName == "" {
-		srcExePath = filepath.Join(b.BuildDir, "game")
-	}
-
-	// Determine destination executable path
-	dstExePath := filepath.Join(b.OutputDir, filepath.Base(srcExePath))
-
-	// Copy executable
-	if err := copyFile(srcExePath, dstExePath); err != nil {
-		return fmt.Errorf("failed to copy executable: %v", err)
-	}
-
-	fmt.Printf("Executable copied to: %s\n", dstExePath)
-
-	// Copy project directories (assets/, scenes/, objects/)
-	dirsToCopy := []string{"assets", "scenes", "objects"}
-	for _, dir := range dirsToCopy {
-		srcDir := filepath.Join(b.ProjectDir, dir)
-		dstDir := filepath.Join(b.OutputDir, dir)
-
-		if _, err := os.Stat(srcDir); os.IsNotExist(err) {
-			continue // Directory doesn't exist, skip
-		}
-
-		if err := copyDir(srcDir, dstDir); err != nil {
-			return fmt.Errorf("failed to copy %s directory: %v", dir, err)
-		}
-		fmt.Printf("Copied %s/ directory to output\n", dir)
+		return fmt.Errorf("go build command failed: %w", err)
 	}
 
 	return nil
-}
-
-func (b *Builder) copyAssets() error {
-	// Source assets directory
-	srcAssetsDir := filepath.Join(b.ProjectDir, "assets")
-	dstAssetsDir := filepath.Join(filepath.Dir(b.OutputName), "assets")
-
-	// Check if source exists
-	if _, err := os.Stat(srcAssetsDir); os.IsNotExist(err) {
-		// No assets to copy
-		return nil
-	}
-
-	// Create destination directory
-	if err := os.MkdirAll(dstAssetsDir, 0755); err != nil {
-		return err
-	}
-
-	// Simple implementation: just create a symlink or copy
-	// For now, we'll create a symlink if possible, otherwise do nothing
-	// In a real implementation, we would copy files or embed them
-
-	fmt.Printf("Assets directory: %s\n", srcAssetsDir)
-	fmt.Printf("Note: Assets are not automatically copied. Place them in the same directory as the executable.\n")
-
-	return nil
-}
-
-// Clean removes the build directory
-func Clean(buildDir string) error {
-	if _, err := os.Stat(buildDir); os.IsNotExist(err) {
-		// Directory doesn't exist, nothing to clean
-		return nil
-	}
-
-	return os.RemoveAll(buildDir)
 }

@@ -10,20 +10,20 @@ import (
 
 // ProjectAnalysis holds information about a game project
 type ProjectAnalysis struct {
-	ProjectDir    string
-	GameConfig    GameConfig
+	ProjectDir     string
+	GameConfig     GameConfig
 	ComponentFiles []string // Paths to component .go files
-	AssetFiles    []string // Paths to asset files
-	SceneFiles    []string // Paths to .scene files
-	ObjectFiles   []string // Paths to .obj files
+	AssetFiles     []string // Paths to asset files
+	SceneFiles     []string // Paths to .scene files
+	ObjectFiles    []string // Paths to .obj files
 }
 
 // GameConfig represents the game.json configuration
 type GameConfig struct {
-	Name    string         `json:"name"`
-	Version string         `json:"version"`
-	Window  WindowConfig  `json:"window"`
-	Game    GameSettings  `json:"game"`
+	Name    string       `json:"name"`
+	Version string       `json:"version"`
+	Window  WindowConfig `json:"window"`
+	Game    GameSettings `json:"game"`
 }
 
 // WindowConfig represents window settings
