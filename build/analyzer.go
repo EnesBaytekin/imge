@@ -137,7 +137,7 @@ func (a *ProjectAnalysis) findComponentFiles(root string) error {
 		}
 		if d.IsDir() {
 			switch d.Name() {
-			case ".git", ".imge_build", "node_modules":
+			case ".git", ".imge_build", "imge_build", "node_modules":
 				return filepath.SkipDir
 			}
 			return nil

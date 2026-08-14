@@ -1,12 +1,12 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 
 	"github.com/EnesBaytekin/imge"
 	"github.com/EnesBaytekin/imge/build"
@@ -29,6 +29,8 @@ func main() {
 		handleInit()
 	case "version":
 		fmt.Printf("imge version %s\n", imge.EngineVersion)
+	case "help", "-h", "--help":
+		printUsage()
 	default:
 		log.Printf("Unknown command: %s", command)
 		printUsage()
@@ -37,43 +39,103 @@ func main() {
 }
 
 func handleBuild() {
-	// Target is optional and defaults to a native desktop build.
-	target := build.TargetDesktop
-	if len(os.Args) >= 3 {
-		target = normalizeTarget(os.Args[2])
+	fs := flag.NewFlagSet("build", flag.ExitOnError)
+	linux := fs.Bool("linux", false, "build for Linux")
+	windows := fs.Bool("windows", false, "build for Windows")
+	macos := fs.Bool("macos", false, "build for macOS")
+	amd64 := fs.Bool("amd64", false, "build for amd64 architecture")
+	arm64 := fs.Bool("arm64", false, "build for arm64 architecture")
+	web := fs.Bool("web", false, "build the web (WASM) bundle")
+	all := fs.Bool("all", false, "build every supported target")
+	fs.Usage = printUsage
+	_ = fs.Parse(os.Args[2:])
+
+	projectDir := requireProjectDir()
+
+	// Resolve the requested desktop platforms (OS x arch) plus whether to build web.
+	var requested []build.Platform
+	var wantWeb bool
+
+	anyOS := *linux || *windows || *macos
+	anyArch := *amd64 || *arm64
+	posWeb := len(fs.Args()) > 0 && normalizeTarget(fs.Args()[0]) == build.TargetWeb
+
+	switch {
+	case *all:
+		requested = platformCombos([]string{"linux", "darwin", "windows"}, []string{"amd64", "arm64"})
+		wantWeb = true
+	case !anyOS && !anyArch && !*web && !posWeb:
+		// Default: native desktop for this machine.
+		requested = []build.Platform{build.HostPlatform()}
+	case !anyOS && !anyArch && (*web || posWeb):
+		wantWeb = true
+	default:
+		var oses, archs []string
+		if anyOS {
+			if *linux {
+				oses = append(oses, "linux")
+			}
+			if *windows {
+				oses = append(oses, "windows")
+			}
+			if *macos {
+				oses = append(oses, "darwin")
+			}
+		} else {
+			oses = []string{"linux", "darwin", "windows"}
+		}
+		if anyArch {
+			if *amd64 {
+				archs = append(archs, "amd64")
+			}
+			if *arm64 {
+				archs = append(archs, "arm64")
+			}
+		} else {
+			archs = []string{"amd64", "arm64"}
+		}
+		requested = platformCombos(oses, archs)
+		wantWeb = *web || posWeb
 	}
 
-	projectDir, err := os.Getwd()
-	if err != nil {
-		log.Fatalf("Failed to get current directory: %v", err)
+	// Build each requested target, skipping ones this host can't produce.
+	built, skipped := 0, 0
+	for _, p := range requested {
+		if err := build.ValidateTarget(p.GOOS, p.GOARCH); err != nil {
+			fmt.Printf("Skipping %s/%s: %v\n", p.GOOS, p.GOARCH, err)
+			skipped++
+			continue
+		}
+		b := &build.Builder{ProjectDir: projectDir, Target: build.TargetDesktop, GOOS: p.GOOS, GOARCH: p.GOARCH}
+		if _, err := b.Build(); err != nil {
+			log.Fatalf("Build failed: %v", err)
+		}
+		built++
+	}
+	if wantWeb {
+		b := &build.Builder{ProjectDir: projectDir, Target: build.TargetWeb}
+		if _, err := b.Build(); err != nil {
+			log.Fatalf("Build failed: %v", err)
+		}
+		built++
 	}
 
-	// Building requires an existing project with a game.json.
-	if _, err := os.Stat(filepath.Join(projectDir, "game.json")); os.IsNotExist(err) {
-		log.Fatal("No game.json found in this directory. Run `imge init` first.")
+	if built == 0 && skipped > 0 {
+		log.Fatal("Nothing was built: none of the requested targets can be built from this host.")
 	}
-
-	outputName := "game"
-	if runtime.GOOS == "windows" {
-		outputName = "game.exe"
-	}
-
-	if target == build.TargetWeb {
-		fmt.Println("Building for web (WebAssembly)...")
-	} else {
-		fmt.Printf("Building with Ebitengine (single executable: %s)...\n", outputName)
-	}
-
-	builder := &build.Builder{
-		ProjectDir: projectDir,
-		Target:     target,
-		OutputName: outputName,
-	}
-	if err := builder.Build(); err != nil {
-		log.Fatalf("Build failed: %v", err)
-	}
-
 	fmt.Println("Build completed successfully!")
+}
+
+// platformCombos returns the cartesian product of the given OSes and
+// architectures as desktop build targets.
+func platformCombos(oses, archs []string) []build.Platform {
+	var ps []build.Platform
+	for _, o := range oses {
+		for _, a := range archs {
+			ps = append(ps, build.Platform{GOOS: o, GOARCH: a})
+		}
+	}
+	return ps
 }
 
 // normalizeTarget maps a user-provided target string to a build target.
@@ -90,41 +152,23 @@ func normalizeTarget(s string) string {
 }
 
 func handleRun() {
-	// Determine target (defaults to desktop).
-	target := build.TargetDesktop
-	if len(os.Args) >= 3 {
-		target = normalizeTarget(os.Args[2])
-	}
-
-	// Web builds can't be launched directly — just build and print the serve hint.
-	if target == build.TargetWeb {
+	// `imge run` builds and runs natively. `imge run web` just builds the bundle.
+	if len(os.Args) >= 3 && (os.Args[2] == "web" || os.Args[2] == "wasm") {
 		handleBuild()
 		return
 	}
 
-	// Build first (exits on failure).
-	handleBuild()
+	projectDir := requireProjectDir()
 
-	outputName := "game"
-	if runtime.GOOS == "windows" {
-		outputName = "game.exe"
-	}
-
-	projectDir, err := os.Getwd()
+	builder := &build.Builder{ProjectDir: projectDir, Target: build.TargetDesktop}
+	outPath, err := builder.Build()
 	if err != nil {
-		log.Fatalf("Failed to get current directory: %v", err)
-	}
-	exePath := filepath.Join(projectDir, outputName)
-
-	// Verify the executable was produced.
-	if _, err := os.Stat(exePath); os.IsNotExist(err) {
-		log.Fatalf("Build output not found: %s", exePath)
+		log.Fatalf("Build failed: %v", err)
 	}
 
-	fmt.Printf("Running: %s\n", exePath)
+	fmt.Printf("Running: %s\n", outPath)
 
-	// Run the executable with the current process's environment.
-	cmd := exec.Command(exePath)
+	cmd := exec.Command(outPath)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
@@ -134,7 +178,29 @@ func handleRun() {
 	}
 }
 
+// requireProjectDir returns the current directory, failing if it isn't a project.
+func requireProjectDir() string {
+	projectDir, err := os.Getwd()
+	if err != nil {
+		log.Fatalf("Failed to get current directory: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, "game.json")); os.IsNotExist(err) {
+		log.Fatal("No game.json found in this directory. Run `imge init` first.")
+	}
+	return projectDir
+}
+
 func handleInit() {
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		log.Fatalf("Failed to read current directory: %v", err)
+	}
+	if len(entries) > 0 {
+		fmt.Fprintln(os.Stderr, "Refusing to initialize: this directory is not empty.")
+		fmt.Fprintln(os.Stderr, "Run `imge init` in an empty directory so it doesn't overwrite existing files.")
+		os.Exit(1)
+	}
+
 	fmt.Println("Initializing new IMGE game project...")
 
 	// Create directory structure
@@ -484,14 +550,32 @@ func init() {
 }
 
 func printUsage() {
-	fmt.Println("IMGE Minimal Game Engine CLI Tool")
+	fmt.Printf("IMGE Minimal Game Engine CLI Tool (version %s)\n", imge.EngineVersion)
 	fmt.Println("Usage:")
-	fmt.Println("  imge init                 Initialize a new game project")
-	fmt.Println("  imge build [target]       Build the game")
-	fmt.Println("  imge run [target]         Build and run the game (desktop only)")
-	fmt.Println("  imge version              Show version")
+	fmt.Println("  imge init                 Initialize a new game project (empty directory only)")
+	fmt.Println("  imge build [flags]        Build the game")
+	fmt.Println("  imge run                  Build and run natively (desktop)")
+	fmt.Println("  imge version              Show engine version")
+	fmt.Println("  imge help                 Show this help")
 	fmt.Println("")
-	fmt.Println("Targets:")
-	fmt.Println("  desktop     - Native executable (default)")
-	fmt.Println("  web         - WebAssembly bundle (web/)")
+	fmt.Println("Build flags (combine freely):")
+	fmt.Println("  --linux --windows --macos   target OS (omit with --arch to target every OS)")
+	fmt.Println("  --amd64 --arm64             target architecture (omit to build both)")
+	fmt.Println("  --web                       build the web (WASM) bundle")
+	fmt.Println("  --all                       build every supported target")
+	fmt.Println("")
+	fmt.Println("Examples:")
+	fmt.Println("  imge build                    native desktop for this machine")
+	fmt.Println("  imge build --windows          Windows amd64 + arm64")
+	fmt.Println("  imge build --windows --amd64  Windows amd64 only")
+	fmt.Println("  imge build --amd64            amd64 for every OS (linux, macos, windows)")
+	fmt.Println("  imge build --web              web bundle only")
+	fmt.Println("  imge build --windows --web    Windows (both archs) + web")
+	fmt.Println("  imge build --all              every buildable target (skips what it can't)")
+	fmt.Println("")
+	fmt.Println("Output goes to imge_build/<name>_<os>-<arch> (web to imge_build/web/).")
+	fmt.Println("Cross-compilation:")
+	fmt.Println("  Windows (amd64/arm64) works from any host (pure Go).")
+	fmt.Println("  macOS and non-native Linux can't be cross-compiled (Ebitengine uses Cgo there);")
+	fmt.Println("  build those natively or via CI (GitHub Actions has macOS + ARM runners).")
 }

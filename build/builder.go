@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -12,25 +13,40 @@ import (
 type Builder struct {
 	ProjectDir string
 	Target     string // TargetDesktop or TargetWeb
-	OutputName string // Final executable name (default "game")
+	GOOS       string // target OS ("" = native host)
+	GOARCH     string // target architecture ("" = native host)
 }
 
 // Build analyzes the project, generates a self-contained Go module that embeds
-// the pure-Go Ebitengine engine, compiles it for the selected target, and copies
-// the result into the project directory (a single executable for desktop, or a
-// web/ bundle of .wasm + index.html + wasm_exec.js for web).
-func (b *Builder) Build() error {
+// the pure-Go Ebitengine engine, compiles it for the selected target, and writes
+// the result into <project>/imge_build/. It returns the built artifact path (the
+// executable for desktop, the bundle directory for web).
+func (b *Builder) Build() (string, error) {
 	analysis, err := AnalyzeProject(b.ProjectDir)
 	if err != nil {
-		return fmt.Errorf("project analysis failed: %w", err)
+		return "", fmt.Errorf("project analysis failed: %w", err)
+	}
+
+	goos := b.GOOS
+	if goos == "" {
+		goos = runtime.GOOS
+	}
+	goarch := b.GOARCH
+	if goarch == "" {
+		goarch = runtime.GOARCH
+	}
+	if b.Target != TargetWeb {
+		if err := ValidateTarget(goos, goarch); err != nil {
+			return "", err
+		}
 	}
 
 	buildDir := filepath.Join(b.ProjectDir, ".imge_build")
 	if err := os.RemoveAll(buildDir); err != nil {
-		return fmt.Errorf("failed to clean build directory: %w", err)
+		return "", fmt.Errorf("failed to clean build directory: %w", err)
 	}
 	if err := os.MkdirAll(buildDir, 0755); err != nil {
-		return fmt.Errorf("failed to create build directory: %w", err)
+		return "", fmt.Errorf("failed to create build directory: %w", err)
 	}
 	defer os.RemoveAll(buildDir)
 
@@ -40,54 +56,62 @@ func (b *Builder) Build() error {
 		Target:   b.Target,
 	}
 	if err := generator.Generate(); err != nil {
-		return fmt.Errorf("generation failed: %w", err)
+		return "", fmt.Errorf("generation failed: %w", err)
 	}
 
 	if b.Target == TargetWeb {
 		return b.buildWeb(buildDir)
 	}
-	return b.buildDesktop(buildDir)
+	return b.buildDesktop(buildDir, analysis, goos, goarch)
 }
 
-// buildDesktop compiles a native executable and copies it to the project root.
-func (b *Builder) buildDesktop(buildDir string) error {
+// buildDesktop compiles a native executable into imge_build/<name>_<os>-<arch>.
+func (b *Builder) buildDesktop(buildDir string, analysis *ProjectAnalysis, goos, goarch string) (string, error) {
 	if err := b.goModTidy(buildDir); err != nil {
-		return err
+		return "", err
 	}
 
-	outputName := b.OutputName
-	if outputName == "" {
-		outputName = "game"
+	outDir := filepath.Join(b.ProjectDir, "imge_build")
+	if err := os.MkdirAll(outDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create output directory: %w", err)
 	}
 
-	cmd := exec.Command("go", "build", "-mod=mod", "-o", outputName, ".")
+	outName := fmt.Sprintf("%s_%s-%s", slugify(analysis.GameConfig.Name), goos, goarch)
+	if goos == "windows" {
+		outName += ".exe"
+	}
+
+	cmd := exec.Command("go", "build", "-mod=mod", "-o", outName, ".")
 	cmd.Dir = buildDir
+	if goos != runtime.GOOS || goarch != runtime.GOARCH {
+		cmd.Env = append(os.Environ(), "GOOS="+goos, "GOARCH="+goarch)
+	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	fmt.Printf("Running: go build -o %s\n", outputName)
+	fmt.Printf("Running: go build -o %s (%s/%s)\n", outName, goos, goarch)
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("go build failed: %w", err)
+		return "", fmt.Errorf("go build failed: %w", err)
 	}
 
-	src := filepath.Join(buildDir, outputName)
-	dst := filepath.Join(b.ProjectDir, outputName)
+	src := filepath.Join(buildDir, outName)
+	dst := filepath.Join(outDir, outName)
 	if err := copyFile(src, dst); err != nil {
-		return fmt.Errorf("failed to copy executable: %w", err)
+		return "", fmt.Errorf("failed to copy executable: %w", err)
 	}
 
 	fmt.Printf("Built %s\n", dst)
-	return nil
+	return dst, nil
 }
 
-// buildWeb compiles a WebAssembly bundle into <project>/web/.
-func (b *Builder) buildWeb(buildDir string) error {
+// buildWeb compiles a WebAssembly bundle into <project>/imge_build/web/.
+func (b *Builder) buildWeb(buildDir string) (string, error) {
 	if err := b.goModTidy(buildDir); err != nil {
-		return err
+		return "", err
 	}
 
-	outDir := filepath.Join(b.ProjectDir, "web")
+	outDir := filepath.Join(b.ProjectDir, "imge_build", "web")
 	if err := os.MkdirAll(outDir, 0755); err != nil {
-		return fmt.Errorf("failed to create web output directory: %w", err)
+		return "", fmt.Errorf("failed to create web output directory: %w", err)
 	}
 
 	wasmPath := filepath.Join(outDir, "game.wasm")
@@ -96,22 +120,22 @@ func (b *Builder) buildWeb(buildDir string) error {
 	cmd.Env = append(os.Environ(), "GOOS=js", "GOARCH=wasm")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	fmt.Println("Running: GOOS=js GOARCH=wasm go build -o web/game.wasm")
+	fmt.Println("Running: GOOS=js GOARCH=wasm go build -o imge_build/web/game.wasm")
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("web build failed: %w", err)
+		return "", fmt.Errorf("web build failed: %w", err)
 	}
 
 	if err := b.copyWasmExec(outDir); err != nil {
-		return fmt.Errorf("failed to copy wasm_exec.js: %w", err)
+		return "", fmt.Errorf("failed to copy wasm_exec.js: %w", err)
 	}
 	if err := b.writeIndexHTML(outDir); err != nil {
-		return fmt.Errorf("failed to write index.html: %w", err)
+		return "", fmt.Errorf("failed to write index.html: %w", err)
 	}
 
 	fmt.Printf("Built web bundle in %s/\n", outDir)
-	fmt.Println("Serve it with:  cd web && python3 -m http.server 8000")
+	fmt.Println("Serve it with:  cd imge_build/web && python3 -m http.server 8000")
 	fmt.Println("Then open:       http://localhost:8000/")
-	return nil
+	return outDir, nil
 }
 
 // goModTidy runs `go mod tidy` inside the build directory.
