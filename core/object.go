@@ -49,6 +49,11 @@ type Object struct {
 
 	// destroyed marks the object for destruction (will be removed at end of frame)
 	destroyed bool
+
+	// componentsInitialized tracks whether Initialize has run for this object's
+	// components. Deferred to the first Scene.Update after the object is added so
+	// Initialize sees a fully-assembled scene.
+	componentsInitialized bool
 }
 
 // ============================================================================
@@ -115,7 +120,8 @@ func (obj *Object) SetName(name string) error {
 
 // AddComponent adds a component to the object.
 // Returns an error if a component with the same name already exists.
-// Initialize is called AFTER SetOwner so the component can access the scene.
+// The component's Initialize() is deferred until the object is in a scene and
+// about to be updated (see initializeComponents).
 func (obj *Object) AddComponent(component Component) error {
 	name := component.GetName()
 	if name == "" {
@@ -126,37 +132,18 @@ func (obj *Object) AddComponent(component Component) error {
 		return fmt.Errorf("component with name '%s' already exists", name)
 	}
 
-	// Set the component's owner first (enables scene access during Initialize)
+	// Set the component's owner.
 	component.SetOwner(obj)
 
-	// Store the component
+	// Store the component and record insertion order.
 	obj.Components[name] = component
-
-	// Initialize after owner is set — component can now access GetSceneFromComponent()
-	if err := component.Initialize(component.GetInitArgs()); err != nil {
-		delete(obj.Components, name)
-		component.SetOwner(nil)
-		return fmt.Errorf("failed to initialize component '%s': %w", name, err)
-	}
-
-	// Record insertion order only after initialization succeeds.
 	obj.componentOrder = append(obj.componentOrder, name)
-
-	// Subscribe to events if the object is already in a scene
-	if obj.Scene != nil && obj.Scene.EventManager != nil {
-		component.SubscribeEvents()
-	}
-
-	// Call OnEnable if the object is active
-	if obj.Active {
-		component.OnEnable()
-	}
 
 	return nil
 }
 
 // AddComponentFromKind creates and adds a component from a kind identifier and args.
-func (obj *Object) AddComponentFromKind(kind string, args []interface{}) error {
+func (obj *Object) AddComponentFromKind(kind string, args map[string]interface{}) error {
 	component, err := CreateComponent(kind, args)
 	if err != nil {
 		return fmt.Errorf("failed to create component from kind %s: %w", kind, err)
@@ -304,8 +291,31 @@ func (obj *Object) GetDepth() float64 {
 // Lifecycle Methods
 // ============================================================================
 
+// initializeComponents runs each component's Initialize() exactly once, after the
+// object is in a fully-loaded scene and before its first Update. It then syncs
+// the component's On() handlers with the scene's event manager and fires OnEnable
+// if the object is active.
+func (obj *Object) initializeComponents() {
+	if obj.componentsInitialized {
+		return
+	}
+	obj.componentsInitialized = true
+
+	for _, component := range obj.orderedComponents() {
+		component.Initialize()
+
+		if obj.Scene != nil && obj.Scene.EventManager != nil {
+			obj.Scene.EventManager.SubscribeAll(component)
+		}
+
+		if obj.Active {
+			component.OnEnable()
+		}
+	}
+}
+
 // Update calls Update on all components in insertion order.
-func (obj *Object) Update(ctx *ComponentContext) {
+func (obj *Object) Update(ctx *Context) {
 	if !obj.Active || obj.destroyed {
 		return
 	}

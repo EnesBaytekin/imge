@@ -51,8 +51,11 @@ you write in `components/`.
 
 - **Objects** (`objects/*.obj`) — JSON: a name, depth, tags, and a list of components.
 - **Scenes** (`scenes/*.scene`) — JSON: a background color and the objects to place.
-- **Components** (`components/*.go`) — Go structs with `Update`/`Draw` methods, registered in
-  `init()`. Built-ins: `@Hitbox`, `@Movement`, `@Image`, `@Sound`.
+- **Components** (`components/*.go`) — Go structs that embed `core.BaseComponent` and write
+  `Initialize`/`Update`/`Draw`. Exported, JSON-tagged fields are "export variables" — their
+  values come from the component's `args` in the object/scene JSON; lowercase fields stay
+  private. Components auto-register (no `init()`). Built-ins: `@Hitbox`, `@Movement`,
+  `@Image`, `@Sound`.
 - **Assets** (`assets/`) — PNG/JPEG images and WAV/MP3/OGG sounds, embedded into the build.
 
 Example — give an object a sprite and a hitbox:
@@ -60,6 +63,22 @@ Example — give an object a sprite and a hitbox:
 ```json
 { "kind": "@Image",  "name": "sprite", "args": { "texture": "player.png", "width": 32, "height": 32 } },
 { "kind": "@Hitbox", "name": "hitbox", "args": { "width": 32, "height": 32 } }
+```
+
+A component is just a struct plus a few methods:
+
+```go
+type Enemy struct {
+    core.BaseComponent
+    Speed float64 `json:"speed"` // export variable
+}
+
+func (c *Enemy) Initialize() { if c.Speed <= 0 { c.Speed = 60 } }
+
+func (c *Enemy) Update(ctx *core.Context) {
+    // ctx.DeltaTime(), ctx.Input, ctx.Scene, core.Get[...] to reach other
+    // components, and c.Emit(name, data) / c.On(name, handler) for events.
+}
 ```
 
 ## Building

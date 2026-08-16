@@ -3,7 +3,9 @@
 package core
 
 import (
+	"encoding/json"
 	"fmt"
+
 	"github.com/EnesBaytekin/imge/core/math"
 )
 
@@ -13,14 +15,19 @@ import (
 
 // Component is the interface that all game components must implement.
 // Both built-in and user-defined components use this same interface.
+//
+// A component's exported, JSON-tagged fields are its "export variables": they are
+// populated from the component's `args` object in .obj/.scene files. Unexported
+// fields stay private to the component (local state).
 type Component interface {
-	// Initialize is called when the component is created from JSON data.
-	// Args can be of any type (string, number, boolean, array, object).
-	Initialize(args []interface{}) error
+	// Initialize is called exactly once, after the object is in a fully-loaded
+	// scene and before its first Update. This is where defaults are set and any
+	// scene-dependent setup happens (c.Scene() is available here).
+	Initialize()
 
 	// Update is called every frame for logic updates.
-	// ctx provides access to engine services (Input, Audio, Time, etc.)
-	Update(ctx *ComponentContext)
+	// ctx provides access to engine services (Input, Audio, Time, Scene, etc.)
+	Update(ctx *Context)
 
 	// Draw is called every frame for rendering.
 	Draw(renderer Renderer)
@@ -45,46 +52,27 @@ type Component interface {
 
 	// GetKind returns the component's kind identifier (file path).
 	// For built-in: "@Hitbox", "@Image", etc.
-	// For user-defined: "scripts/custom.lua", etc.
+	// For user-defined: "components/player.go", etc.
 	GetKind() string
 
 	// SetKind sets the component's kind identifier.
 	SetKind(kind string)
-
-	// Ping emits an event into the scene's event queue.
-	// The event will be delivered to subscribed components' Pong() methods
-	// after all Update() calls complete for this frame.
-	Ping(event Event)
-
-	// Pong receives an event that this component subscribed to.
-	// Components should switch on event.Name to handle different event types.
-	// ctx provides access to engine services for responder logic.
-	Pong(event *Event, ctx *ComponentContext)
-
-	// SetInitArgs stores the initialization arguments for later use.
-	// Called by CreateComponent after factory creation, before AddComponent.
-	SetInitArgs(args []interface{})
-
-	// GetInitArgs returns the stored initialization arguments.
-	GetInitArgs() []interface{}
-
-	// SubscribeEvents is called after the component's owner is set.
-	// Components should use this to register event subscriptions with the
-	// scene's EventManager via scene.EventManager.Subscribe().
-	SubscribeEvents()
 }
 
 // ============================================================================
 // BaseComponent
 // ============================================================================
 
-// BaseComponent provides default implementations for the Component interface.
-// All components should embed BaseComponent to get common functionality.
+// BaseComponent provides default implementations for the Component interface,
+// plus the event helpers (On/Emit) and scene access. All components should embed
+// BaseComponent to get common functionality.
 type BaseComponent struct {
-	owner    *Object
-	name     string
-	kind     string   // component kind (file identifier)
-	initArgs []interface{} // stored init args, passed to Initialize after SetOwner
+	owner *Object
+	name  string
+	kind  string // component kind (file identifier)
+
+	// handlers maps event name -> registered handler functions, populated via On().
+	handlers map[string][]func(any)
 }
 
 // SetOwner sets the parent object that owns this component.
@@ -117,19 +105,26 @@ func (c *BaseComponent) GetKind() string {
 	return c.kind
 }
 
+// Scene returns the scene that contains this component's owner, or nil if the
+// owner isn't in a scene yet.
+func (c *BaseComponent) Scene() *Scene {
+	if c.owner == nil {
+		return nil
+	}
+	return c.owner.Scene
+}
+
+// Initialize is a default empty implementation.
+// Components should override this method if they need initialization or defaults.
+func (c *BaseComponent) Initialize() {}
+
 // Update is a default empty implementation.
 // Components should override this method if they need update logic.
-func (c *BaseComponent) Update(ctx *ComponentContext) {}
+func (c *BaseComponent) Update(ctx *Context) {}
 
 // Draw is a default empty implementation.
 // Components should override this method if they need rendering logic.
 func (c *BaseComponent) Draw(renderer Renderer) {}
-
-// Initialize is a default empty implementation.
-// Components should override this method if they need initialization from JSON args.
-func (c *BaseComponent) Initialize(args []interface{}) error {
-	return nil
-}
 
 // OnEnable is a default empty implementation.
 // Components should override this method if they need activation logic.
@@ -139,50 +134,72 @@ func (c *BaseComponent) OnEnable() {}
 // Components should override this method if they need deactivation logic.
 func (c *BaseComponent) OnDisable() {}
 
-// Ping emits an event into the scene's event queue.
-// The default implementation enqueues the event on this component's scene EventManager.
-func (c *BaseComponent) Ping(event Event) {
-	scene := GetSceneFromComponent(c)
-	if scene == nil || scene.EventManager == nil {
+// ============================================================================
+// Event Helpers
+// ============================================================================
+
+// On registers a handler for an event name. Handlers are typically registered in
+// Initialize, before the first Update. Multiple handlers may be registered for
+// the same name; they run in registration order when the event is delivered.
+//
+//	c.On("damaged", func(data any) {
+//	    amount := data.(float64)
+//	    ...
+//	})
+func (c *BaseComponent) On(name string, handler func(any)) {
+	if c.handlers == nil {
+		c.handlers = make(map[string][]func(any))
+	}
+	c.handlers[name] = append(c.handlers[name], handler)
+}
+
+// Emit broadcasts an event to the scene's event queue. It is delivered to every
+// component that registered a handler for `name` via On(), after all Update()
+// calls for this frame complete.
+//
+//	c.Emit("damaged", 10.0)
+func (c *BaseComponent) Emit(name string, data any) {
+	if c.owner == nil || c.owner.Scene == nil || c.owner.Scene.EventManager == nil {
 		return
 	}
-	event.Sender = c
-	scene.EventManager.Emit(&event)
+	c.owner.Scene.EventManager.Emit(&Event{Name: name, Data: data})
 }
 
-// Pong is the default empty implementation for receiving events.
-// Components MUST override this if they subscribe to any events.
-func (c *BaseComponent) Pong(event *Event, ctx *ComponentContext) {}
-
-// SubscribeEvents is called after the component's owner is set.
-// Default is no-op; components override to register event subscriptions.
-func (c *BaseComponent) SubscribeEvents() {}
-
-// SetInitArgs stores the initialization arguments for later use.
-func (c *BaseComponent) SetInitArgs(args []interface{}) {
-	c.initArgs = args
+// EventNames returns the event names this component has handlers for.
+// Used by the EventManager to sync subscriptions after Initialize.
+func (c *BaseComponent) EventNames() []string {
+	names := make([]string, 0, len(c.handlers))
+	for name := range c.handlers {
+		names = append(names, name)
+	}
+	return names
 }
 
-// GetInitArgs returns the stored initialization arguments.
-func (c *BaseComponent) GetInitArgs() []interface{} {
-	return c.initArgs
+// HandleEvent delivers an event to this component's registered handlers.
+// Used internally by the EventManager.
+func (c *BaseComponent) HandleEvent(event *Event) {
+	for _, handler := range c.handlers[event.Name] {
+		handler(event.Data)
+	}
 }
 
 // ============================================================================
 // Component Factory and Registry
 // ============================================================================
 
-// ComponentFactory is a function that creates a component instance.
-// Used for both built-in and user-defined components.
-type ComponentFactory func(args []interface{}) (Component, error)
+// ComponentFactory is a function that creates a new, zero-valued component
+// instance. Config (args) is injected afterward by json unmarshaling into the
+// component's exported fields.
+type ComponentFactory func() Component
 
 // componentRegistry stores factory functions for all components.
-// Key: component file identifier (e.g., "@Hitbox", "@Image", "scripts/custom.lua")
+// Key: component kind identifier (e.g., "@Hitbox", "components/player.go")
 // Value: factory function that creates the component
 var componentRegistry = make(map[string]ComponentFactory)
 
-// RegisterComponent registers a component factory.
-// This should be called for all components (built-in and user-defined).
+// RegisterComponent registers a component factory. This is called automatically
+// by the generated components/registry.go for every component in the project, so
+// user component files do not need an init() of their own.
 func RegisterComponent(kind string, factory ComponentFactory) {
 	componentRegistry[kind] = factory
 }
@@ -192,27 +209,39 @@ func UnregisterComponent(kind string) {
 	delete(componentRegistry, kind)
 }
 
-// CreateComponent creates a component from a kind identifier and args.
-// Looks up the component factory in the registry.
-// Returns error if the component kind is not registered.
-func CreateComponent(kind string, args []interface{}) (Component, error) {
+// CreateComponent creates a component from a kind identifier and its JSON args.
+// It looks up the factory, constructs the component, then injects the args by
+// unmarshaling them into the component's exported (json-tagged) fields.
+// Returns error if the kind is not registered or the args fail to decode.
+func CreateComponent(kind string, args map[string]interface{}) (Component, error) {
 	factory, exists := componentRegistry[kind]
 	if !exists {
 		return nil, &ComponentError{Kind: kind, Reason: "component kind not registered"}
 	}
 
-	component, err := factory(args)
-	if err != nil {
-		return nil, &ComponentError{Kind: kind, Reason: "factory failed: " + err.Error()}
+	component := factory()
+
+	if len(args) > 0 {
+		data, err := json.Marshal(args)
+		if err != nil {
+			return nil, &ComponentError{Kind: kind, Reason: "failed to encode args: " + err.Error()}
+		}
+		if err := json.Unmarshal(data, component); err != nil {
+			return nil, &ComponentError{Kind: kind, Reason: "failed to decode args: " + err.Error()}
+		}
 	}
 
-	// Set the component's kind
 	component.SetKind(kind)
+	return component, nil
+}
 
-	// Store init args for later initialization in AddComponent
-	// (Initialize is called after SetOwner, not in the factory)
-	component.SetInitArgs(args)
-
+// CreateComponentFromJSON creates a named component from its JSON configuration.
+func CreateComponentFromJSON(kind, name string, args map[string]interface{}) (Component, error) {
+	component, err := CreateComponent(kind, args)
+	if err != nil {
+		return nil, err
+	}
+	component.SetName(name)
 	return component, nil
 }
 
@@ -240,7 +269,28 @@ func (e *ComponentError) Error() string {
 // Helper Functions
 // ============================================================================
 
-// GetTransform is a helper method for components to access their owner's transform.
+// Get returns the first component of type T attached to the same object as
+// `from`. It lets one component reach another component's methods directly:
+//
+//	if movement, ok := core.Get[*MovementComponent](c); ok { ... }
+func Get[T Component](from Component) T {
+	var zero T
+	if from == nil {
+		return zero
+	}
+	owner := from.GetOwner()
+	if owner == nil {
+		return zero
+	}
+	for _, component := range owner.Components {
+		if t, ok := component.(T); ok {
+			return t
+		}
+	}
+	return zero
+}
+
+// GetTransform is a helper for components to access their owner's transform.
 // Returns nil if the component has no owner.
 func GetTransform(component Component) *math.Transform {
 	owner := component.GetOwner()
@@ -250,7 +300,7 @@ func GetTransform(component Component) *math.Transform {
 	return &owner.Transform
 }
 
-// GetPosition is a helper method for components to access their owner's position.
+// GetPosition is a helper for components to access their owner's position.
 // Returns (0, 0) if the component has no owner.
 func GetPosition(component Component) math.Vector2 {
 	owner := component.GetOwner()
@@ -260,7 +310,7 @@ func GetPosition(component Component) math.Vector2 {
 	return owner.Transform.Position
 }
 
-// GetDepth is a helper method for components to access their owner's depth.
+// GetDepth is a helper for components to access their owner's depth.
 // Returns 0 if the component has no owner.
 func GetDepth(component Component) float64 {
 	owner := component.GetOwner()
@@ -270,25 +320,10 @@ func GetDepth(component Component) float64 {
 	return owner.Depth
 }
 
-// CreateComponentFromJSON creates a component from JSON configuration.
-func CreateComponentFromJSON(kind, name string, args map[string]interface{}) (Component, error) {
-	// Convert map to slice for Initialize
-	argSlice := []interface{}{args}
-	component, err := CreateComponent(kind, argSlice)
-	if err != nil {
-		return nil, err
-	}
-	// Set component name
-	component.SetName(name)
-	return component, nil
-}
-
 // ResolveComponentKind resolves a component kind string.
 // If kind starts with '@', it's a built-in component.
 // Currently returns the kind as-is (registration handles mapping).
 func ResolveComponentKind(kind string) string {
-	// For now, just return the kind as-is.
-	// Built-in components should be registered with '@' prefix.
 	return kind
 }
 

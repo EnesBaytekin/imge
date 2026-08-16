@@ -49,8 +49,15 @@ func (g *Generator) Generate() error {
 	if err := g.copyComponents(); err != nil {
 		return fmt.Errorf("failed to copy components: %w", err)
 	}
-	if err := g.validateComponents(); err != nil {
+	kinds, err := g.componentKinds()
+	if err != nil {
 		return err
+	}
+	if err := g.validateComponents(kinds); err != nil {
+		return err
+	}
+	if err := g.generateRegistry(kinds); err != nil {
+		return fmt.Errorf("failed to generate component registry: %w", err)
 	}
 	if err := g.copyProjectData(); err != nil {
 		return fmt.Errorf("failed to copy project data: %w", err)

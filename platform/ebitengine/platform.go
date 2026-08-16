@@ -99,7 +99,7 @@ func (r *runner) Update() error {
 	p := r.platform
 	p.input.Update()
 	p.time.Tick()
-	ctx := &core.ComponentContext{
+	ctx := &core.Context{
 		Input: p.input,
 		Audio: p.audio,
 		Time:  p.time,

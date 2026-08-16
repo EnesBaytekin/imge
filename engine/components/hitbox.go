@@ -11,34 +11,22 @@ import (
 // HitboxComponent is a pure rectangle collider. It stores dimensions and answers
 // collision queries; it does not draw or scan the scene (movement components scan
 // when they move).
+//
+// Export variables (JSON args): width, height.
 type HitboxComponent struct {
 	core.BaseComponent
-	width  float64
-	height float64
+	Width  float64 `json:"width"`
+	Height float64 `json:"height"`
 }
 
-// Initialize parses component configuration from JSON args.
-// Supported args: width, height (default: 32x32).
-func (c *HitboxComponent) Initialize(args []interface{}) error {
-	if len(args) > 0 {
-		if argMap, ok := args[0].(map[string]interface{}); ok {
-			if w, ok := argMap["width"].(float64); ok {
-				c.width = w
-			}
-			if h, ok := argMap["height"].(float64); ok {
-				c.height = h
-			}
-		}
+// Initialize applies defaults.
+func (c *HitboxComponent) Initialize() {
+	if c.Width <= 0 {
+		c.Width = 32
 	}
-
-	if c.width <= 0 {
-		c.width = 32
+	if c.Height <= 0 {
+		c.Height = 32
 	}
-	if c.height <= 0 {
-		c.height = 32
-	}
-
-	return nil
 }
 
 // GetBounds returns the hitbox rectangle in world space, anchored at the owner's
@@ -46,25 +34,25 @@ func (c *HitboxComponent) Initialize(args []interface{}) error {
 func (c *HitboxComponent) GetBounds() math.Rect {
 	owner := c.GetOwner()
 	if owner == nil {
-		return math.NewRect(0, 0, c.width, c.height)
+		return math.NewRect(0, 0, c.Width, c.Height)
 	}
 	return math.NewRect(
 		owner.Transform.Position.X,
 		owner.Transform.Position.Y,
-		c.width,
-		c.height,
+		c.Width,
+		c.Height,
 	)
 }
 
 // SetSize sets the hitbox dimensions.
 func (c *HitboxComponent) SetSize(width, height float64) {
-	c.width = width
-	c.height = height
+	c.Width = width
+	c.Height = height
 }
 
 // GetSize returns the hitbox dimensions.
 func (c *HitboxComponent) GetSize() (width, height float64) {
-	return c.width, c.height
+	return c.Width, c.Height
 }
 
 // CheckCollision reports whether this hitbox overlaps another.
@@ -75,10 +63,4 @@ func (c *HitboxComponent) CheckCollision(other *HitboxComponent) bool {
 // ContainsPoint reports whether a point is inside this hitbox.
 func (c *HitboxComponent) ContainsPoint(point math.Vector2) bool {
 	return c.GetBounds().ContainsPoint(point)
-}
-
-func init() {
-	core.RegisterComponent("@Hitbox", func(args []interface{}) (core.Component, error) {
-		return &HitboxComponent{}, nil
-	})
 }

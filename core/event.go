@@ -1,21 +1,16 @@
 // Package core contains platform-agnostic game engine logic.
-// This file defines the Ping-Pong event system for inter-component communication.
+// This file defines the event system for inter-component communication.
 package core
 
 // ============================================================================
 // Event
 // ============================================================================
 
-// Event represents a message sent between components via the Ping-Pong event system.
-// Components emit events via Ping() and receive them via Pong().
+// Event represents a message sent between components. Components emit events via
+// BaseComponent.Emit(name, data) and receive them via BaseComponent.On(name, handler).
 type Event struct {
 	// Name identifies the event type (e.g., "collision", "player_died").
-	// Receiving components switch on this name in their Pong() method.
 	Name string
-
-	// Sender is the component that emitted this event.
-	// Receiving components can use this to query the sender's owner, position, etc.
-	Sender Component
 
 	// Data holds arbitrary extra information associated with the event.
 	// The interpretation depends on the event Name (user-defined).
@@ -27,16 +22,25 @@ type Event struct {
 // ============================================================================
 
 // EventManager manages event subscriptions and queuing for a scene.
-// Events are emitted by components via Ping(), queued, and processed after
-// all component Update() calls complete for the frame.
+// Events are emitted by components via Emit(), queued, and processed after all
+// component Update() calls complete for the frame.
 type EventManager struct {
 	// queue holds events emitted during the current frame.
 	// Processed and cleared at the end of each frame.
 	queue []*Event
 
 	// subscriptions maps event name -> set of components interested in it.
-	// Components register interest via SubscribeEvents() during initialization.
+	// Populated from each component's On() handlers after Initialize.
 	subscriptions map[string]map[Component]bool
+}
+
+// eventReceiver is the internal interface a component must satisfy to receive
+// events. BaseComponent implements it; the EventManager uses it to discover a
+// component's handler names and deliver events, without polluting the public
+// Component interface with event plumbing.
+type eventReceiver interface {
+	EventNames() []string
+	HandleEvent(*Event)
 }
 
 // NewEventManager creates a new EventManager with empty queue and subscriptions.
@@ -54,6 +58,18 @@ func (em *EventManager) Subscribe(component Component, eventName string) {
 		em.subscriptions[eventName] = make(map[Component]bool)
 	}
 	em.subscriptions[eventName][component] = true
+}
+
+// SubscribeAll registers a component for every event name it has On() handlers
+// for. Called once per component after its Initialize runs.
+func (em *EventManager) SubscribeAll(component Component) {
+	receiver, ok := component.(eventReceiver)
+	if !ok {
+		return
+	}
+	for _, name := range receiver.EventNames() {
+		em.Subscribe(component, name)
+	}
 }
 
 // Unsubscribe removes a component's interest in an event name.
@@ -77,27 +93,26 @@ func (em *EventManager) UnsubscribeAll(component Component) {
 }
 
 // Emit adds an event to the processing queue.
-// Called by components via their Ping() method.
+// Called by components via their Emit() method.
 func (em *EventManager) Emit(event *Event) {
 	em.queue = append(em.queue, event)
 }
 
 // Process delivers all queued events to their subscribers and clears the queue.
-// ctx is passed to each subscriber's Pong method for engine service access.
 // Called once per frame by Scene.Update() after all component Update() calls.
-func (em *EventManager) Process(ctx *ComponentContext) {
-	// Swap the queue so Pong handlers that call Ping() go into a fresh queue
-	// and will be processed next frame (prevents infinite recursion).
+func (em *EventManager) Process() {
+	// Swap the queue so handlers that call Emit() go into a fresh queue and will
+	// be processed next frame (prevents infinite recursion).
 	queue := em.queue
 	em.queue = make([]*Event, 0)
 
 	for _, event := range queue {
-		em.deliver(event, ctx)
+		em.deliver(event)
 	}
 }
 
-// deliver sends one event to all subscribed components' Pong methods.
-func (em *EventManager) deliver(event *Event, ctx *ComponentContext) {
+// deliver sends one event to all subscribed components' handlers.
+func (em *EventManager) deliver(event *Event) {
 	subscribers, exists := em.subscriptions[event.Name]
 	if !exists {
 		return
@@ -106,13 +121,12 @@ func (em *EventManager) deliver(event *Event, ctx *ComponentContext) {
 	for subscriber := range subscribers {
 		// Guard: ensure subscriber is still part of a live, active object.
 		owner := subscriber.GetOwner()
-		if owner == nil || owner.IsDestroyed() {
-			continue
-		}
-		if !owner.Active {
+		if owner == nil || owner.IsDestroyed() || !owner.Active {
 			continue
 		}
 
-		subscriber.Pong(event, ctx)
+		if receiver, ok := subscriber.(eventReceiver); ok {
+			receiver.HandleEvent(event)
+		}
 	}
 }

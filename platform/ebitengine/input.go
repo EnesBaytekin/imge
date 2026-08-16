@@ -8,11 +8,23 @@ import (
 )
 
 // Input implements core.Input using Ebitengine's input API.
+//
+// On web/mobile, Ebitengine does NOT synthesize touch events into mouse
+// events (touches only update its internal touch list), so a game reading only
+// IsMouseButtonPressed / GetMousePosition would be unplayable by touch. To make
+// mouse-based component code work on mobile automatically, the primary touch is
+// mirrored into the mouse state: while a finger is down, the mouse position is
+// the touch position and the left button reads as pressed.
 type Input struct {
 	mousePosition math.Vector2
 	prevMouse     math.Vector2
 	mouseDelta    math.Vector2
 	mouseScroll   math.Vector2
+
+	touchActive       bool
+	touchJustPressed  bool
+	touchJustReleased bool
+	prevTouchActive   bool
 }
 
 func newInput() *Input {
@@ -80,17 +92,27 @@ func (i *Input) IsKeyJustReleased(key core.KeyCode) bool {
 }
 
 // IsMouseButtonPressed reports whether the mouse button is currently held.
+// A held primary touch also counts as a held left button on touch devices.
 func (i *Input) IsMouseButtonPressed(button core.MouseButton) bool {
+	if button == core.MouseButtonLeft && i.touchActive {
+		return true
+	}
 	return ebiten.IsMouseButtonPressed(mouseMap[button])
 }
 
 // IsMouseButtonJustPressed reports whether the mouse button was pressed this frame.
 func (i *Input) IsMouseButtonJustPressed(button core.MouseButton) bool {
+	if button == core.MouseButtonLeft && i.touchJustPressed {
+		return true
+	}
 	return inpututil.IsMouseButtonJustPressed(mouseMap[button])
 }
 
 // IsMouseButtonJustReleased reports whether the mouse button was released this frame.
 func (i *Input) IsMouseButtonJustReleased(button core.MouseButton) bool {
+	if button == core.MouseButtonLeft && i.touchJustReleased {
+		return true
+	}
 	return inpututil.IsMouseButtonJustReleased(mouseMap[button])
 }
 
@@ -111,8 +133,21 @@ func (i *Input) GetMouseScroll() math.Vector2 {
 
 // Update snapshots the mouse state for this frame. Called once per frame by the runner.
 func (i *Input) Update() {
-	x, y := ebiten.CursorPosition()
-	i.mousePosition = math.NewVector2(float64(x), float64(y))
+	// Mirror the primary touch into the mouse so touch-only games work on
+	// mobile/web without any touch-specific code in the components.
+	ids := ebiten.AppendTouchIDs(nil)
+	i.touchActive = len(ids) > 0
+	i.touchJustPressed = i.touchActive && !i.prevTouchActive
+	i.touchJustReleased = !i.touchActive && i.prevTouchActive
+	i.prevTouchActive = i.touchActive
+
+	if i.touchActive {
+		tx, ty := ebiten.TouchPosition(ids[0])
+		i.mousePosition = math.NewVector2(float64(tx), float64(ty))
+	} else {
+		x, y := ebiten.CursorPosition()
+		i.mousePosition = math.NewVector2(float64(x), float64(y))
+	}
 	i.mouseDelta = i.mousePosition.Subtract(i.prevMouse)
 	i.prevMouse = i.mousePosition
 

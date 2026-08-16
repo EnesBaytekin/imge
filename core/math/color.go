@@ -9,8 +9,14 @@ import (
 
 // Color represents a 32-bit RGBA color with 8 bits per channel.
 // This is a common format for graphics APIs and image processing.
+//
+// The json tags let a color be configured from component args as
+// {"r":255,"g":0,"b":0,"a":255}.
 type Color struct {
-	R, G, B, A uint8
+	R uint8 `json:"r"`
+	G uint8 `json:"g"`
+	B uint8 `json:"b"`
+	A uint8 `json:"a"`
 }
 
 // NewColor creates a new color from RGBA values (0-255).

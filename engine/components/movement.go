@@ -12,11 +12,6 @@ type MovementComponent struct {
 	core.BaseComponent
 }
 
-// Initialize is a no-op; @Movement takes no configuration.
-func (c *MovementComponent) Initialize(args []interface{}) error {
-	return nil
-}
-
 // Move attempts to move the owner by (dx, dy). If the owner has an @Hitbox and
 // the destination overlaps another object, the move is blocked and a
 // "blocked_collision" event is emitted with the blocking object as Data.
@@ -30,10 +25,7 @@ func (c *MovementComponent) Move(dx, dy float64) bool {
 	newPos := owner.Transform.Position.Add(math.NewVector2(dx, dy))
 
 	if collisionObj := c.checkCollisionAt(newPos); collisionObj != nil {
-		c.Ping(core.Event{
-			Name: "blocked_collision",
-			Data: collisionObj,
-		})
+		c.Emit("blocked_collision", collisionObj)
 		return false
 	}
 
@@ -98,10 +90,4 @@ func (c *MovementComponent) checkCollisionAt(newPos math.Vector2) *core.Object {
 	}
 
 	return nil
-}
-
-func init() {
-	core.RegisterComponent("@Movement", func(args []interface{}) (core.Component, error) {
-		return &MovementComponent{}, nil
-	})
 }

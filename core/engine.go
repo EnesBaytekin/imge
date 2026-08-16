@@ -170,7 +170,7 @@ func (g *Game) Run() error {
 		g.platform.Update()
 
 		// Create component context with engine services
-		ctx := &ComponentContext{
+		ctx := &Context{
 			Input: g.platform.Input(),
 			Audio: g.platform.Audio(),
 			Time:  g.platform.Time(),
@@ -193,7 +193,7 @@ func (g *Game) Run() error {
 }
 
 // Update updates game logic for the current frame.
-func (g *Game) Update(ctx *ComponentContext) {
+func (g *Game) Update(ctx *Context) {
 	if g.activeScene != nil {
 		g.activeScene.Update(ctx)
 	}

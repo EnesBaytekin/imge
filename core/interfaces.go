@@ -288,13 +288,23 @@ type FileSystem interface {
 // Component Context
 // ============================================================================
 
-// ComponentContext provides access to engine services from within components.
-// Passed to Component.Update() method each frame.
-type ComponentContext struct {
-	Input   Input
-	Audio   Audio
-	Time    Time
-	// Note: Renderer is passed separately to Draw() method
+// Context provides access to engine services from within components.
+// Passed to Component.Update() method each frame. Scene is set to the active
+// scene before updates run; Renderer is passed separately to Draw().
+type Context struct {
+	Input Input
+	Audio Audio
+	Time  Time
+	Scene *Scene
+}
+
+// DeltaTime returns the seconds elapsed since the last frame.
+// Returns 0 if no Time service is available.
+func (c *Context) DeltaTime() float64 {
+	if c.Time == nil {
+		return 0
+	}
+	return c.Time.DeltaTime()
 }
 
 // ============================================================================

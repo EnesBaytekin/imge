@@ -2,82 +2,29 @@ package build
 
 import (
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
-	"github.com/EnesBaytekin/imge"
 	corejson "github.com/EnesBaytekin/imge/core/json"
 )
 
-// registerKindRe matches core.RegisterComponent("kind", ...) calls, capturing the
-// kind string. Kinds are always string literals in practice.
-var registerKindRe = regexp.MustCompile(`RegisterComponent\s*\(\s*"([^"]+)"`)
-
-// extractKinds returns the distinct component kinds registered by a source file.
-func extractKinds(src []byte) []string {
-	seen := make(map[string]bool)
-	var kinds []string
-	for _, m := range registerKindRe.FindAllSubmatch(src, -1) {
-		k := string(m[1])
-		if !seen[k] {
-			seen[k] = true
-			kinds = append(kinds, k)
-		}
-	}
-	return kinds
-}
-
-// validateComponents verifies that (1) every component kind is registered by
-// exactly one source file (built-in or custom) and (2) every kind referenced in
-// .obj/.scene files is actually registered. It runs before compilation so users
-// get a clear error instead of a silent overwrite or a runtime "not registered".
-func (g *Generator) validateComponents() error {
+// validateComponents verifies that (1) every component kind maps to exactly one
+// source file (built-in or custom) and (2) every kind referenced in .obj/.scene
+// files is actually registered. Kinds are derived from each file's component
+// struct (see componentKinds), matching the codegen that produces registry.go, so
+// validation and registration can never disagree.
+func (g *Generator) validateComponents(kinds []componentKind) error {
 	var problems []string
 
 	kindToSource := make(map[string]string)
-
-	addKinds := func(source string, kinds []string) {
-		for _, k := range kinds {
-			if prev, exists := kindToSource[k]; exists {
-				problems = append(problems, fmt.Sprintf(
-					"duplicate component kind %q registered by both %s and %s", k, prev, source))
-				continue
-			}
-			kindToSource[k] = source
-		}
-	}
-
-	// Built-in kinds, read from the embedded engine source.
-	entries, err := fs.ReadDir(imge.EngineSource, "engine/components")
-	if err != nil {
-		return fmt.Errorf("failed to read built-in components: %w", err)
-	}
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") {
+	for _, k := range kinds {
+		if prev, exists := kindToSource[k.kind]; exists {
+			problems = append(problems, fmt.Sprintf(
+				"duplicate component kind %q registered by both %s and %s", k.kind, prev, k.source))
 			continue
 		}
-		data, err := fs.ReadFile(imge.EngineSource, "engine/components/"+entry.Name())
-		if err != nil {
-			return err
-		}
-		addKinds("built-in:"+entry.Name(), extractKinds(data))
-	}
-
-	// User component kinds.
-	for _, compFile := range g.Analysis.ComponentFiles {
-		src, err := os.ReadFile(filepath.Join(g.Analysis.ProjectDir, compFile))
-		if err != nil {
-			return fmt.Errorf("failed to read component %s: %w", compFile, err)
-		}
-		kinds := extractKinds(src)
-		if len(kinds) == 0 {
-			problems = append(problems, fmt.Sprintf(
-				"component file %s registers no component (missing core.RegisterComponent)", compFile))
-		}
-		addKinds(compFile, kinds)
+		kindToSource[k.kind] = k.source
 	}
 
 	// Kinds referenced from .obj and .scene files.

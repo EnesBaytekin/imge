@@ -246,48 +246,37 @@ import (
 	"github.com/EnesBaytekin/imge/core/math"
 )
 
+// SpriteComponent draws a colored rectangle. Exported fields are "export
+// variables": the object file's args inject into them by JSON key.
 type SpriteComponent struct {
 	core.BaseComponent
-	width  float64
-	height float64
-	color  math.Color
+	Width  float64    ` + "`json:\"width\"`" + `
+	Height float64    ` + "`json:\"height\"`" + `
+	Color  math.Color ` + "`json:\"color\"`" + `
 }
 
-func (c *SpriteComponent) Initialize(args []interface{}) error {
-	c.width = 32
-	c.height = 32
-	c.color = math.White
-
-	if len(args) > 0 {
-		if argMap, ok := args[0].(map[string]interface{}); ok {
-			if w, ok := argMap["width"].(float64); ok { c.width = w }
-			if h, ok := argMap["height"].(float64); ok { c.height = h }
-			if colorMap, ok := argMap["color"].(map[string]interface{}); ok {
-				if r, ok := colorMap["r"].(float64); ok { c.color.R = uint8(r) }
-				if g, ok := colorMap["g"].(float64); ok { c.color.G = uint8(g) }
-				if b, ok := colorMap["b"].(float64); ok { c.color.B = uint8(b) }
-				if a, ok := colorMap["a"].(float64); ok { c.color.A = uint8(a) }
-			}
-		}
+// Initialize applies defaults for any args that weren't provided.
+func (c *SpriteComponent) Initialize() {
+	if c.Width <= 0 {
+		c.Width = 32
 	}
-	return nil
+	if c.Height <= 0 {
+		c.Height = 32
+	}
+	if c.Color == (math.Color{}) {
+		c.Color = math.White
+	}
 }
 
 func (c *SpriteComponent) Draw(renderer core.Renderer) {
 	owner := c.GetOwner()
-	if owner == nil { return }
+	if owner == nil {
+		return
+	}
 	renderer.DrawRect(
-		math.NewRect(owner.Transform.Position.X, owner.Transform.Position.Y, c.width, c.height),
-		c.color,
+		math.NewRect(owner.Transform.Position.X, owner.Transform.Position.Y, c.Width, c.Height),
+		c.Color,
 	)
-}
-
-func init() {
-	core.RegisterComponent("components/sprite.go", func(args []interface{}) (core.Component, error) {
-		comp := &SpriteComponent{}
-		if err := comp.Initialize(args); err != nil { return nil, err }
-		return comp, nil
-	})
 }`
 
 	if err := os.WriteFile("components/sprite.go", []byte(spriteComponent), 0644); err != nil {
@@ -303,37 +292,35 @@ import (
 	"github.com/EnesBaytekin/imge/core/math"
 )
 
+// PlayerComponent moves its owner with WASD and flashes red briefly when it
+// collides with an enemy.
 type PlayerComponent struct {
 	core.BaseComponent
 	invincible float64
 }
 
-func (c *PlayerComponent) SubscribeEvents() {
-	scene := core.GetSceneFromComponent(c)
-	if scene != nil && scene.EventManager != nil {
-		scene.EventManager.Subscribe(c, "blocked_collision")
-	}
-}
-
-func (c *PlayerComponent) Pong(event *core.Event, ctx *core.ComponentContext) {
-	if event.Name != "blocked_collision" || c.invincible > 0 { return }
-	otherObj, ok := event.Data.(*core.Object)
-	if !ok || otherObj == nil { return }
-	if otherObj.HasTag("enemy") {
+// Initialize registers a handler for the @Movement component's "blocked_collision"
+// event. Events are delivered with Emit(name, data) / On(name, handler).
+func (c *PlayerComponent) Initialize() {
+	c.On("blocked_collision", func(data any) {
+		if c.invincible > 0 {
+			return
+		}
+		other, ok := data.(*core.Object)
+		if !ok || other == nil || !other.HasTag("enemy") {
+			return
+		}
 		c.invincible = 0.3
-	}
+	})
 }
 
-func (c *PlayerComponent) Update(ctx *core.ComponentContext) {
-	owner := c.GetOwner()
-	if owner == nil { return }
-
+func (c *PlayerComponent) Update(ctx *core.Context) {
 	if c.invincible > 0 {
-		c.invincible -= ctx.Time.DeltaTime()
+		c.invincible -= ctx.DeltaTime()
 	}
 
-	dt := ctx.Time.DeltaTime()
 	speed := 200.0
+	dt := ctx.DeltaTime()
 	var dx, dy float64
 
 	if ctx.Input.IsKeyPressed(core.KeyW) || ctx.Input.IsKeyPressed(core.KeyUp) { dy = -speed * dt }
@@ -341,26 +328,22 @@ func (c *PlayerComponent) Update(ctx *core.ComponentContext) {
 	if ctx.Input.IsKeyPressed(core.KeyA) || ctx.Input.IsKeyPressed(core.KeyLeft) { dx = -speed * dt }
 	if ctx.Input.IsKeyPressed(core.KeyD) || ctx.Input.IsKeyPressed(core.KeyRight) { dx = speed * dt }
 
-	if m, ok := owner.GetComponentByKind("@Movement").(*MovementComponent); ok {
+	if m := core.Get[*MovementComponent](c); m != nil {
 		m.Move(dx, dy)
 	}
 }
 
 func (c *PlayerComponent) Draw(renderer core.Renderer) {
 	owner := c.GetOwner()
-	if owner == nil { return }
+	if owner == nil {
+		return
+	}
 	if c.invincible > 0 && int(c.invincible*60)%4 < 2 {
 		renderer.DrawRectOutline(
 			math.NewRect(owner.Transform.Position.X, owner.Transform.Position.Y, 32, 32),
 			math.NewColor(255, 0, 0, 255), 2,
 		)
 	}
-}
-
-func init() {
-	core.RegisterComponent("components/player.go", func(args []interface{}) (core.Component, error) {
-		return &PlayerComponent{}, nil
-	})
 }`
 
 	if err := os.WriteFile("components/player.go", []byte(playerComponent), 0644); err != nil {
@@ -375,50 +358,46 @@ import (
 	"github.com/EnesBaytekin/imge/core"
 )
 
+// EnemyComponent chases the nearest object tagged "player".
 type EnemyComponent struct {
 	core.BaseComponent
-	speed float64
+	Speed float64 ` + "`json:\"speed\"`" + `
 }
 
-func (c *EnemyComponent) Initialize(args []interface{}) error {
-	c.speed = 60
-	if len(args) > 0 {
-		if argMap, ok := args[0].(map[string]interface{}); ok {
-			if s, ok := argMap["speed"].(float64); ok { c.speed = s }
-		}
+// Initialize applies defaults for any args that weren't provided.
+func (c *EnemyComponent) Initialize() {
+	if c.Speed <= 0 {
+		c.Speed = 60
 	}
-	return nil
 }
 
-func (c *EnemyComponent) Update(ctx *core.ComponentContext) {
+func (c *EnemyComponent) Update(ctx *core.Context) {
 	owner := c.GetOwner()
-	if owner == nil || owner.Scene == nil { return }
+	if owner == nil || owner.Scene == nil {
+		return
+	}
 
 	players := owner.Scene.FindObjectsWithTag("player")
-	if len(players) == 0 { return }
+	if len(players) == 0 {
+		return
+	}
 	player := players[0]
 
-	dt := ctx.Time.DeltaTime()
 	dir := player.Transform.Position.Subtract(owner.Transform.Position)
 	dist := dir.Length()
-	if dist < 2 { return }
+	if dist < 2 {
+		return
+	}
 
 	dir = dir.Divide(dist)
-	moveX := dir.X * c.speed * dt
-	moveY := dir.Y * c.speed * dt
+	dt := ctx.DeltaTime()
+	moveX := dir.X * c.Speed * dt
+	moveY := dir.Y * c.Speed * dt
 
-	if m, ok := owner.GetComponentByKind("@Movement").(*MovementComponent); ok {
+	if m := core.Get[*MovementComponent](c); m != nil {
 		m.Move(moveX, 0)
 		m.Move(0, moveY)
 	}
-}
-
-func init() {
-	core.RegisterComponent("components/enemy.go", func(args []interface{}) (core.Component, error) {
-		comp := &EnemyComponent{}
-		if err := comp.Initialize(args); err != nil { return nil, err }
-		return comp, nil
-	})
 }`
 
 	if err := os.WriteFile("components/enemy.go", []byte(enemyComponent), 0644); err != nil {
