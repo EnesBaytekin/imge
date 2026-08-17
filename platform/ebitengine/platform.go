@@ -21,6 +21,13 @@ type Platform struct {
 	time       *Time
 	window     *Window
 	filesystem *FileSystem
+
+	// logicalWidth/logicalHeight is the game's fixed logical screen size (from
+	// game.json). Layout returns this size so the surface letterboxes the game
+	// inside the actual window/browser, preserving the aspect ratio instead of
+	// stretching to whatever the browser viewport happens to be.
+	logicalWidth  int
+	logicalHeight int
 }
 
 // New creates a new Ebitengine platform instance.
@@ -64,6 +71,8 @@ func (p *Platform) SetAssetFS(fsys fs.FS) {
 // Init configures the Ebitengine window. The underlying window is created by
 // Ebitengine when Run is called.
 func (p *Platform) Init(title string, width, height int) error {
+	p.logicalWidth = width
+	p.logicalHeight = height
 	return p.window.Create(title, width, height)
 }
 
@@ -116,11 +125,19 @@ func (r *runner) Draw(screen *ebiten.Image) {
 	r.game.Draw()
 }
 
-// Layout implements ebiten.Game.Layout. Logical size matches physical size 1:1;
-// pixel-perfect integer scaling can be layered on top later.
+// Layout implements ebiten.Game.Layout. It returns the game's fixed logical
+// size rather than the outside surface size, so Ebitengine scales the frame to
+// fit the actual window/browser while preserving the aspect ratio and
+// letterboxing the extra space. This keeps the web build at the configured
+// window size instead of stretching to the full browser viewport.
 func (r *runner) Layout(outsideWidth, outsideHeight int) (int, int) {
 	p := r.platform
 	p.window.syncSize(outsideWidth, outsideHeight)
-	p.renderer.setViewport(outsideWidth, outsideHeight)
-	return outsideWidth, outsideHeight
+
+	w, h := p.logicalWidth, p.logicalHeight
+	if w <= 0 || h <= 0 {
+		w, h = outsideWidth, outsideHeight
+	}
+	p.renderer.setViewport(w, h)
+	return w, h
 }

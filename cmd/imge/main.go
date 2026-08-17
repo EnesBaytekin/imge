@@ -98,8 +98,11 @@ func handleBuild() {
 		wantWeb = *web || posWeb
 	}
 
-	// Build each requested target, skipping ones this host can't produce.
-	built, skipped := 0, 0
+	// Build each requested target, continuing past failures so one broken target
+	// (e.g. a native Linux build on a host missing X11 dev headers) doesn't abort
+	// the rest of an --all run. Targets this host fundamentally can't produce are
+	// "skipped"; targets we attempted but that errored are "failed".
+	built, skipped, failed := 0, 0, 0
 	for _, p := range requested {
 		if err := build.ValidateTarget(p.GOOS, p.GOARCH); err != nil {
 			fmt.Printf("Skipping %s/%s: %v\n", p.GOOS, p.GOARCH, err)
@@ -108,22 +111,26 @@ func handleBuild() {
 		}
 		b := &build.Builder{ProjectDir: projectDir, Target: build.TargetDesktop, GOOS: p.GOOS, GOARCH: p.GOARCH}
 		if _, err := b.Build(); err != nil {
-			log.Fatalf("Build failed: %v", err)
+			fmt.Printf("Failed to build %s/%s: %v\n", p.GOOS, p.GOARCH, err)
+			failed++
+			continue
 		}
 		built++
 	}
 	if wantWeb {
 		b := &build.Builder{ProjectDir: projectDir, Target: build.TargetWeb}
 		if _, err := b.Build(); err != nil {
-			log.Fatalf("Build failed: %v", err)
+			fmt.Printf("Failed to build web: %v\n", err)
+			failed++
+		} else {
+			built++
 		}
-		built++
 	}
 
-	if built == 0 && skipped > 0 {
-		log.Fatal("Nothing was built: none of the requested targets can be built from this host.")
+	fmt.Printf("\nBuild summary: %d built, %d skipped, %d failed.\n", built, skipped, failed)
+	if built == 0 {
+		log.Fatal("Nothing was built: none of the requested targets succeeded.")
 	}
-	fmt.Println("Build completed successfully!")
 }
 
 // platformCombos returns the cartesian product of the given OSes and
