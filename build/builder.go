@@ -67,6 +67,14 @@ func (b *Builder) Build() (string, error) {
 
 // buildDesktop compiles a native executable into imge_build/<name>_<os>-<arch>.
 func (b *Builder) buildDesktop(buildDir string, analysis *ProjectAnalysis, goos, goarch string) (string, error) {
+	// A native Linux build needs X11/GL/ALSA dev headers and pkg-config; fail
+	// fast with a clear message before `go build` dumps a compiler error.
+	if goos == "linux" && goarch == runtime.GOARCH {
+		if err := checkLinuxNativeDeps(); err != nil {
+			return "", err
+		}
+	}
+
 	if err := b.goModTidy(buildDir); err != nil {
 		return "", err
 	}
