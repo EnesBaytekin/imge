@@ -8,17 +8,20 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/EnesBaytekin/imge"
 )
 
-// componentKind associates a registered component kind with its Go type name and
-// the source it came from (a built-in file or a project-relative path).
+// componentKind associates a registered component kind with its Go type name, the
+// source it came from (a built-in file or a project-relative path), and the kinds
+// the component declares it needs via Requires().
 type componentKind struct {
 	kind     string
 	typeName string
 	source   string
+	requires []string
 }
 
 // findComponentTypeName parses a component source file and returns the name of
@@ -62,6 +65,37 @@ func findComponentTypeName(src []byte) (string, error) {
 	default:
 		return "", fmt.Errorf("multiple component structs found: %v", found)
 	}
+}
+
+// findRequires parses a component source file and returns the string literals in
+// its `Requires() []string` method, if any. Components use this to declare the
+// kinds they depend on (e.g. @Animator requires "@Sprite").
+func findRequires(src []byte) []string {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "component.go", src, 0)
+	if err != nil {
+		return nil
+	}
+
+	var requires []string
+	ast.Inspect(f, func(n ast.Node) bool {
+		fn, ok := n.(*ast.FuncDecl)
+		if !ok || fn.Name.Name != "Requires" || fn.Body == nil {
+			return true
+		}
+		ast.Inspect(fn.Body, func(n2 ast.Node) bool {
+			lit, ok := n2.(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				return true
+			}
+			if s, err := strconv.Unquote(lit.Value); err == nil {
+				requires = append(requires, s)
+			}
+			return true
+		})
+		return true
+	})
+	return requires
 }
 
 // embedsBaseComponent reports whether a struct has an embedded core.BaseComponent
@@ -112,6 +146,7 @@ func (g *Generator) componentKinds() ([]componentKind, error) {
 			kind:     builtinKind(typeName),
 			typeName: typeName,
 			source:   "built-in:" + entry.Name(),
+			requires: findRequires(data),
 		})
 	}
 
@@ -129,6 +164,7 @@ func (g *Generator) componentKinds() ([]componentKind, error) {
 			kind:     filepath.ToSlash(compFile),
 			typeName: typeName,
 			source:   compFile,
+			requires: findRequires(src),
 		})
 	}
 

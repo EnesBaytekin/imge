@@ -51,12 +51,21 @@ type Component interface {
 	SetName(name string)
 
 	// GetKind returns the component's kind identifier (file path).
-	// For built-in: "@Hitbox", "@Image", etc.
+	// For built-in: "@Collider", "@Mover", etc.
 	// For user-defined: "components/player.go", etc.
 	GetKind() string
 
 	// SetKind sets the component's kind identifier.
 	SetKind(kind string)
+}
+
+// Dependable is an optional interface a component may implement to declare the
+// component kinds it needs to function (e.g. @Animator requires @Sprite). The
+// declaration is informational: the build tool reads it to warn when an object
+// uses a component without also giving it the components it declares it needs.
+type Dependable interface {
+	// Requires returns the component kinds this component depends on.
+	Requires() []string
 }
 
 // ============================================================================
@@ -193,7 +202,7 @@ func (c *BaseComponent) HandleEvent(event *Event) {
 type ComponentFactory func() Component
 
 // componentRegistry stores factory functions for all components.
-// Key: component kind identifier (e.g., "@Hitbox", "components/player.go")
+// Key: component kind identifier (e.g., "@Collider", "components/player.go")
 // Value: factory function that creates the component
 var componentRegistry = make(map[string]ComponentFactory)
 
@@ -269,23 +278,52 @@ func (e *ComponentError) Error() string {
 // Helper Functions
 // ============================================================================
 
-// Get returns the first component of type T attached to the same object as
-// `from`. It lets one component reach another component's methods directly:
+// GetFrom returns the first component of type T attached to obj, in insertion
+// order. It lets a component reach a sibling component's methods directly:
 //
-//	if movement, ok := core.Get[*MovementComponent](c); ok { ... }
-func Get[T Component](from Component) T {
+//	if collider := core.GetFrom[*Collider](owner); collider != nil { ... }
+//
+// It returns the zero value of T (a nil pointer for pointer types) when obj is
+// nil or has no component of that type.
+func GetFrom[T Component](obj *Object) T {
 	var zero T
-	if from == nil {
+	if obj == nil {
 		return zero
 	}
-	owner := from.GetOwner()
-	if owner == nil {
-		return zero
-	}
-	for _, component := range owner.Components {
+	for _, component := range obj.orderedComponents() {
 		if t, ok := component.(T); ok {
 			return t
 		}
+	}
+	return zero
+}
+
+// GetAllFrom returns every component of type T attached to obj, in insertion
+// order. Returns nil if obj is nil or has no component of that type.
+func GetAllFrom[T Component](obj *Object) []T {
+	if obj == nil {
+		return nil
+	}
+	var result []T
+	for _, component := range obj.orderedComponents() {
+		if t, ok := component.(T); ok {
+			result = append(result, t)
+		}
+	}
+	return result
+}
+
+// GetFromNamed returns the component of type T attached to obj with the given
+// name, or the zero value of T if no such component exists (or it is of a
+// different type). Unlike GetFrom, this is a direct O(1) name lookup and ignores
+// insertion order.
+func GetFromNamed[T Component](obj *Object, name string) T {
+	var zero T
+	if obj == nil {
+		return zero
+	}
+	if component, ok := obj.Components[name].(T); ok {
+		return component
 	}
 	return zero
 }

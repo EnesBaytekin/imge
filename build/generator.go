@@ -53,7 +53,11 @@ func (g *Generator) Generate() error {
 	if err != nil {
 		return err
 	}
-	if err := g.validateComponents(kinds); err != nil {
+	warnings, err := g.validateComponents(kinds)
+	for _, w := range warnings {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", w)
+	}
+	if err != nil {
 		return err
 	}
 	if err := g.generateRegistry(kinds); err != nil {

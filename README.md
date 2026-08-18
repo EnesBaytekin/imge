@@ -54,15 +54,17 @@ you write in `components/`.
 - **Components** (`components/*.go`) — Go structs that embed `core.BaseComponent` and write
   `Initialize`/`Update`/`Draw`. Exported, JSON-tagged fields are "export variables" — their
   values come from the component's `args` in the object/scene JSON; lowercase fields stay
-  private. Components auto-register (no `init()`). Built-ins: `@Hitbox`, `@Movement`,
-  `@Image`, `@Sound`.
+  private. Components auto-register (no `init()`). Built-ins include `@Collider`,
+  `@Mover`, `@Velocity`, `@Gravity`, `@Friction`, `@Sprite`, `@Animator`, `@Sound`,
+  and behavior components like `@PlayerController`, `@Chase`, `@Health` (see
+  `docs/components.md`).
 - **Assets** (`assets/`) — PNG/JPEG images and WAV/MP3/OGG sounds, embedded into the build.
 
 Example — give an object a sprite and a hitbox:
 
 ```json
-{ "kind": "@Image",  "name": "sprite", "args": { "texture": "player.png", "width": 32, "height": 32 } },
-{ "kind": "@Hitbox", "name": "hitbox", "args": { "width": 32, "height": 32 } }
+{ "kind": "@Sprite",  "name": "sprite", "args": { "texture": "player.png", "width": 32, "height": 32 } },
+{ "kind": "@Collider", "name": "hitbox", "args": { "width": 32, "height": 32 } }
 ```
 
 A component is just a struct plus a few methods:
@@ -76,7 +78,7 @@ type Enemy struct {
 func (c *Enemy) Initialize() { if c.Speed <= 0 { c.Speed = 60 } }
 
 func (c *Enemy) Update(ctx *core.Context) {
-    // ctx.DeltaTime(), ctx.Input, ctx.Scene, core.Get[...] to reach other
+    // ctx.DeltaTime(), ctx.Input, ctx.Scene, core.GetFrom[...] to reach other
     // components, and c.Emit(name, data) / c.On(name, handler) for events.
 }
 ```

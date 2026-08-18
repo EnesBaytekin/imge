@@ -158,11 +158,11 @@ func (obj *Object) GetComponent(name string) Component {
 	return obj.Components[name]
 }
 
-// GetComponentByKind retrieves the first component matching the given kind (O(n) search).
-// Returns nil if no component of that kind exists.
-// Kind is the component identifier (e.g., "@Hitbox", "@Movement", "components/sprite.go").
+// GetComponentByKind retrieves the first component matching the given kind, in
+// insertion order (O(n) search). Returns nil if no component of that kind exists.
+// Kind is the component identifier (e.g., "@Collider", "@Mover", "components/sprite.go").
 func (obj *Object) GetComponentByKind(kind string) Component {
-	for _, component := range obj.Components {
+	for _, component := range obj.orderedComponents() {
 		if component.GetKind() == kind {
 			return component
 		}
@@ -170,10 +170,11 @@ func (obj *Object) GetComponentByKind(kind string) Component {
 	return nil
 }
 
-// GetComponentsByKind retrieves all components of a specific kind (O(n) search).
+// GetComponentsByKind retrieves all components of a specific kind, in insertion
+// order (O(n) search).
 func (obj *Object) GetComponentsByKind(kind string) []Component {
 	var result []Component
-	for _, component := range obj.Components {
+	for _, component := range obj.orderedComponents() {
 		if component.GetKind() == kind {
 			result = append(result, component)
 		}

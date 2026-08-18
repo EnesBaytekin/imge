@@ -245,7 +245,7 @@ func handleInit() {
 	}
 	fmt.Println("Created file: game.json")
 
-	// Create sprite component — colored rectangle renderer
+	// Create rect component — colored rectangle renderer
 	spriteComponent := `package components
 
 import (
@@ -253,9 +253,9 @@ import (
 	"github.com/EnesBaytekin/imge/core/math"
 )
 
-// SpriteComponent draws a colored rectangle. Exported fields are "export
+// RectComponent draws a colored rectangle. Exported fields are "export
 // variables": the object file's args inject into them by JSON key.
-type SpriteComponent struct {
+type RectComponent struct {
 	core.BaseComponent
 	Width  float64    ` + "`json:\"width\"`" + `
 	Height float64    ` + "`json:\"height\"`" + `
@@ -263,7 +263,7 @@ type SpriteComponent struct {
 }
 
 // Initialize applies defaults for any args that weren't provided.
-func (c *SpriteComponent) Initialize() {
+func (c *RectComponent) Initialize() {
 	if c.Width <= 0 {
 		c.Width = 32
 	}
@@ -275,7 +275,7 @@ func (c *SpriteComponent) Initialize() {
 	}
 }
 
-func (c *SpriteComponent) Draw(renderer core.Renderer) {
+func (c *RectComponent) Draw(renderer core.Renderer) {
 	owner := c.GetOwner()
 	if owner == nil {
 		return
@@ -286,12 +286,12 @@ func (c *SpriteComponent) Draw(renderer core.Renderer) {
 	)
 }`
 
-	if err := os.WriteFile("components/sprite.go", []byte(spriteComponent), 0644); err != nil {
-		log.Fatalf("Failed to create components/sprite.go: %v", err)
+	if err := os.WriteFile("components/rect.go", []byte(spriteComponent), 0644); err != nil {
+		log.Fatalf("Failed to create components/rect.go: %v", err)
 	}
-	fmt.Println("Created file: components/sprite.go")
+	fmt.Println("Created file: components/rect.go")
 
-	// Create player component — WASD + @Movement + enemy collision detection
+	// Create player component — WASD + @Mover + enemy collision detection
 	playerComponent := `package components
 
 import (
@@ -306,7 +306,7 @@ type PlayerComponent struct {
 	invincible float64
 }
 
-// Initialize registers a handler for the @Movement component's "blocked_collision"
+// Initialize registers a handler for the @Mover component's "blocked_collision"
 // event. Events are delivered with Emit(name, data) / On(name, handler).
 func (c *PlayerComponent) Initialize() {
 	c.On("blocked_collision", func(data any) {
@@ -335,7 +335,7 @@ func (c *PlayerComponent) Update(ctx *core.Context) {
 	if ctx.Input.IsKeyPressed(core.KeyA) || ctx.Input.IsKeyPressed(core.KeyLeft) { dx = -speed * dt }
 	if ctx.Input.IsKeyPressed(core.KeyD) || ctx.Input.IsKeyPressed(core.KeyRight) { dx = speed * dt }
 
-	if m := core.Get[*MovementComponent](c); m != nil {
+	if m := core.GetFrom[*Mover](c.GetOwner()); m != nil {
 		m.Move(dx, dy)
 	}
 }
@@ -401,7 +401,7 @@ func (c *EnemyComponent) Update(ctx *core.Context) {
 	moveX := dir.X * c.Speed * dt
 	moveY := dir.Y * c.Speed * dt
 
-	if m := core.Get[*MovementComponent](c); m != nil {
+	if m := core.GetFrom[*Mover](c.GetOwner()); m != nil {
 		m.Move(moveX, 0)
 		m.Move(0, moveY)
 	}
@@ -443,13 +443,13 @@ func (c *EnemyComponent) Update(ctx *core.Context) {
 	}
 	fmt.Println("Created file: scenes/main.scene")
 
-	// Create player object — uses built-in @Hitbox, @Movement + user components
+	// Create player object — uses built-in @Collider, @Mover + user components
 	samplePlayerObj := `{
   "name": "Player",
   "depth": 1,
   "components": [
     {
-      "kind": "@Hitbox",
+      "kind": "@Collider",
       "name": "hitbox",
       "args": {
         "width": 32,
@@ -457,12 +457,12 @@ func (c *EnemyComponent) Update(ctx *core.Context) {
       }
     },
     {
-      "kind": "@Movement",
+      "kind": "@Mover",
       "name": "movement",
       "args": {}
     },
     {
-      "kind": "components/sprite.go",
+      "kind": "components/rect.go",
       "name": "sprite",
       "args": {
         "width": 32,
@@ -484,13 +484,13 @@ func (c *EnemyComponent) Update(ctx *core.Context) {
 	}
 	fmt.Println("Created file: objects/player.obj")
 
-	// Create enemy object — uses built-in @Hitbox, @Movement + user components
+	// Create enemy object — uses built-in @Collider, @Mover + user components
 	sampleEnemyObj := `{
   "name": "Enemy",
   "depth": 0,
   "components": [
     {
-      "kind": "@Hitbox",
+      "kind": "@Collider",
       "name": "hitbox",
       "args": {
         "width": 32,
@@ -498,12 +498,12 @@ func (c *EnemyComponent) Update(ctx *core.Context) {
       }
     },
     {
-      "kind": "@Movement",
+      "kind": "@Mover",
       "name": "movement",
       "args": {}
     },
     {
-      "kind": "components/sprite.go",
+      "kind": "components/rect.go",
       "name": "sprite",
       "args": {
         "width": 32,

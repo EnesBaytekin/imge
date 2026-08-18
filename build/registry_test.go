@@ -86,10 +86,11 @@ type foo struct {
 
 func TestBuiltinKind(t *testing.T) {
 	cases := map[string]string{
-		"HitboxComponent":   "@Hitbox",
-		"MovementComponent": "@Movement",
-		"ImageComponent":    "@Image",
-		"SoundComponent":    "@Sound",
+		"Collider":     "@Collider",
+		"Mover":        "@Mover",
+		"Sprite":       "@Sprite",
+		"Sound":        "@Sound",
+		"FooComponent": "@Foo", // a trailing "Component" suffix is still stripped
 	}
 	for in, want := range cases {
 		if got := builtinKind(in); got != want {
@@ -107,7 +108,7 @@ func TestGenerateRegistry(t *testing.T) {
 
 	g := &Generator{BuildDir: dir}
 	kinds := []componentKind{
-		{kind: "@Hitbox", typeName: "HitboxComponent", source: "built-in:hitbox.go"},
+		{kind: "@Collider", typeName: "Collider", source: "built-in:collider.go"},
 		{kind: "components/player.go", typeName: "PlayerComponent", source: "components/player.go"},
 	}
 	if err := g.generateRegistry(kinds); err != nil {
@@ -121,7 +122,7 @@ func TestGenerateRegistry(t *testing.T) {
 	content := string(data)
 	for _, want := range []string{
 		"package components",
-		`core.RegisterComponent("@Hitbox", func() core.Component { return &HitboxComponent{} })`,
+		`core.RegisterComponent("@Collider", func() core.Component { return &Collider{} })`,
 		`core.RegisterComponent("components/player.go", func() core.Component { return &PlayerComponent{} })`,
 	} {
 		if !strings.Contains(content, want) {
@@ -170,10 +171,24 @@ type PlayerComponent struct {
 	}
 
 	for _, want := range []struct{ kind, typeName string }{
-		{"@Hitbox", "HitboxComponent"},
-		{"@Movement", "MovementComponent"},
-		{"@Image", "ImageComponent"},
-		{"@Sound", "SoundComponent"},
+		{"@Animator", "Animator"},
+		{"@Bounce", "Bounce"},
+		{"@Chase", "Chase"},
+		{"@Collider", "Collider"},
+		{"@Damage", "Damage"},
+		{"@Follow", "Follow"},
+		{"@Friction", "Friction"},
+		{"@Gravity", "Gravity"},
+		{"@Health", "Health"},
+		{"@Mover", "Mover"},
+		{"@Patrol", "Patrol"},
+		{"@PlayerController", "PlayerController"},
+		{"@Sound", "Sound"},
+		{"@Spin", "Spin"},
+		{"@Sprite", "Sprite"},
+		{"@TimedDespawn", "TimedDespawn"},
+		{"@Velocity", "Velocity"},
+		{"@Wander", "Wander"},
 		{"components/player.go", "PlayerComponent"},
 	} {
 		if got[want.kind] != want.typeName {

@@ -141,13 +141,26 @@ func (r *Renderer) DrawTexture(textureID string, src math.Rect, position math.Ve
 	cx := w / 2
 	cy := h / 2
 
+	// Negative scale is used for flips. Mirror around the drawn image's center so a
+	// flipped sprite keeps the same bounding box (top-left at `position`) instead
+	// of flipping around its top-left corner, which would shift it by one full
+	// drawn width/height.
+	px := position.X
+	py := position.Y
+	if scale.X < 0 {
+		px -= scale.X * w // scale.X is negative, so this adds the drawn width
+	}
+	if scale.Y < 0 {
+		py -= scale.Y * h
+	}
+
 	opts := &ebiten.DrawImageOptions{}
 	// Anchor the (sub-)image at its center, apply scale and rotation, then place
 	// its top-left corner at `position`.
 	opts.GeoM.Translate(-cx, -cy)
 	opts.GeoM.Scale(scale.X, scale.Y)
 	opts.GeoM.Rotate(rotation)
-	opts.GeoM.Translate(position.X+cx*scale.X, position.Y+cy*scale.Y)
+	opts.GeoM.Translate(px+cx*scale.X, py+cy*scale.Y)
 	opts.ColorScale.ScaleWithColor(toRGBA(tint))
 
 	r.target.DrawImage(drawImg, opts)
