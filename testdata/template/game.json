@@ -1,0 +1,13 @@
+{
+  "name": "IMGE Platformer Demo",
+  "version": "1.0.0",
+  "window": {
+    "title": "IMGE Platformer Demo",
+    "width": 800,
+    "height": 600
+  },
+  "game": {
+    "target_fps": 60,
+    "initial_scene": "main"
+  }
+}

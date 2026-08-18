@@ -198,6 +198,18 @@ func requireProjectDir() string {
 }
 
 func handleInit() {
+	// An optional positional argument selects the sample template. `imge init`
+	// alone scaffolds a blank project; `imge init sample` scaffolds the demo.
+	sample := false
+	if len(os.Args) >= 3 {
+		switch os.Args[2] {
+		case "sample", "demo", "example":
+			sample = true
+		default:
+			log.Fatalf("Unknown init template %q. Use `imge init` (blank) or `imge init sample`.", os.Args[2])
+		}
+	}
+
 	entries, err := os.ReadDir(".")
 	if err != nil {
 		log.Fatalf("Failed to read current directory: %v", err)
@@ -208,337 +220,35 @@ func handleInit() {
 		os.Exit(1)
 	}
 
+	if sample {
+		fmt.Println("Initializing sample platformer project...")
+		if err := imge.ExtractSampleTemplate("."); err != nil {
+			log.Fatalf("Failed to create project files: %v", err)
+		}
+		fmt.Println("\nSample project initialized successfully!")
+		fmt.Println("Next steps:")
+		fmt.Println("  1. Build and run: imge run")
+		fmt.Println("  2. Move with A/D (or ←/→), jump with Space — break crates, collect the gold")
+		fmt.Println("  3. Study components/ to learn how custom components work")
+		return
+	}
+
 	fmt.Println("Initializing new IMGE game project...")
-
-	// Create directory structure
-	dirs := []string{
-		"components",
-		"assets",
-		"scenes",
-		"objects",
+	if err := imge.ExtractBlankTemplate("."); err != nil {
+		log.Fatalf("Failed to create project files: %v", err)
 	}
-
-	for _, dir := range dirs {
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			log.Fatalf("Failed to create directory %s: %v", dir, err)
-		}
-		fmt.Printf("Created directory: %s/\n", dir)
-	}
-
-	// Create game.json
-	gameJSON := `{
-  "name": "My Game",
-  "version": "1.0.0",
-  "window": {
-    "title": "My IMGE Game",
-    "width": 800,
-    "height": 600
-  },
-  "game": {
-    "target_fps": 60,
-    "initial_scene": "main"
-  }
-}`
-
-	if err := os.WriteFile("game.json", []byte(gameJSON), 0644); err != nil {
-		log.Fatalf("Failed to create game.json: %v", err)
-	}
-	fmt.Println("Created file: game.json")
-
-	// Create rect component — colored rectangle renderer
-	spriteComponent := `package components
-
-import (
-	"github.com/EnesBaytekin/imge/core"
-	"github.com/EnesBaytekin/imge/core/math"
-)
-
-// RectComponent draws a colored rectangle. Exported fields are "export
-// variables": the object file's args inject into them by JSON key.
-type RectComponent struct {
-	core.BaseComponent
-	Width  float64    ` + "`json:\"width\"`" + `
-	Height float64    ` + "`json:\"height\"`" + `
-	Color  math.Color ` + "`json:\"color\"`" + `
-}
-
-// Initialize applies defaults for any args that weren't provided.
-func (c *RectComponent) Initialize() {
-	if c.Width <= 0 {
-		c.Width = 32
-	}
-	if c.Height <= 0 {
-		c.Height = 32
-	}
-	if c.Color == (math.Color{}) {
-		c.Color = math.White
-	}
-}
-
-func (c *RectComponent) Draw(renderer core.Renderer) {
-	owner := c.GetOwner()
-	if owner == nil {
-		return
-	}
-	renderer.DrawRect(
-		math.NewRect(owner.Transform.Position.X, owner.Transform.Position.Y, c.Width, c.Height),
-		c.Color,
-	)
-}`
-
-	if err := os.WriteFile("components/rect.go", []byte(spriteComponent), 0644); err != nil {
-		log.Fatalf("Failed to create components/rect.go: %v", err)
-	}
-	fmt.Println("Created file: components/rect.go")
-
-	// Create player component — WASD + @Mover + enemy collision detection
-	playerComponent := `package components
-
-import (
-	"github.com/EnesBaytekin/imge/core"
-	"github.com/EnesBaytekin/imge/core/math"
-)
-
-// PlayerComponent moves its owner with WASD and flashes red briefly when it
-// collides with an enemy.
-type PlayerComponent struct {
-	core.BaseComponent
-	invincible float64
-}
-
-// Initialize registers a handler for the @Mover component's "blocked_collision"
-// event. Events are delivered with Emit(name, data) / On(name, handler).
-func (c *PlayerComponent) Initialize() {
-	c.On("blocked_collision", func(data any) {
-		if c.invincible > 0 {
-			return
-		}
-		other, ok := data.(*core.Object)
-		if !ok || other == nil || !other.HasTag("enemy") {
-			return
-		}
-		c.invincible = 0.3
-	})
-}
-
-func (c *PlayerComponent) Update(ctx *core.Context) {
-	if c.invincible > 0 {
-		c.invincible -= ctx.DeltaTime()
-	}
-
-	speed := 200.0
-	dt := ctx.DeltaTime()
-	var dx, dy float64
-
-	if ctx.Input.IsKeyPressed(core.KeyW) || ctx.Input.IsKeyPressed(core.KeyUp) { dy = -speed * dt }
-	if ctx.Input.IsKeyPressed(core.KeyS) || ctx.Input.IsKeyPressed(core.KeyDown) { dy = speed * dt }
-	if ctx.Input.IsKeyPressed(core.KeyA) || ctx.Input.IsKeyPressed(core.KeyLeft) { dx = -speed * dt }
-	if ctx.Input.IsKeyPressed(core.KeyD) || ctx.Input.IsKeyPressed(core.KeyRight) { dx = speed * dt }
-
-	if m := core.GetFrom[*Mover](c.GetOwner()); m != nil {
-		m.Move(dx, dy)
-	}
-}
-
-func (c *PlayerComponent) Draw(renderer core.Renderer) {
-	owner := c.GetOwner()
-	if owner == nil {
-		return
-	}
-	if c.invincible > 0 && int(c.invincible*60)%4 < 2 {
-		renderer.DrawRectOutline(
-			math.NewRect(owner.Transform.Position.X, owner.Transform.Position.Y, 32, 32),
-			math.NewColor(255, 0, 0, 255), 2,
-		)
-	}
-}`
-
-	if err := os.WriteFile("components/player.go", []byte(playerComponent), 0644); err != nil {
-		log.Fatalf("Failed to create components/player.go: %v", err)
-	}
-	fmt.Println("Created file: components/player.go")
-
-	// Create enemy component — chases the player
-	enemyComponent := `package components
-
-import (
-	"github.com/EnesBaytekin/imge/core"
-)
-
-// EnemyComponent chases the nearest object tagged "player".
-type EnemyComponent struct {
-	core.BaseComponent
-	Speed float64 ` + "`json:\"speed\"`" + `
-}
-
-// Initialize applies defaults for any args that weren't provided.
-func (c *EnemyComponent) Initialize() {
-	if c.Speed <= 0 {
-		c.Speed = 60
-	}
-}
-
-func (c *EnemyComponent) Update(ctx *core.Context) {
-	owner := c.GetOwner()
-	if owner == nil || owner.Scene == nil {
-		return
-	}
-
-	players := owner.Scene.FindObjectsWithTag("player")
-	if len(players) == 0 {
-		return
-	}
-	player := players[0]
-
-	dir := player.Transform.Position.Subtract(owner.Transform.Position)
-	dist := dir.Length()
-	if dist < 2 {
-		return
-	}
-
-	dir = dir.Divide(dist)
-	dt := ctx.DeltaTime()
-	moveX := dir.X * c.Speed * dt
-	moveY := dir.Y * c.Speed * dt
-
-	if m := core.GetFrom[*Mover](c.GetOwner()); m != nil {
-		m.Move(moveX, 0)
-		m.Move(0, moveY)
-	}
-}`
-
-	if err := os.WriteFile("components/enemy.go", []byte(enemyComponent), 0644); err != nil {
-		log.Fatalf("Failed to create components/enemy.go: %v", err)
-	}
-	fmt.Println("Created file: components/enemy.go")
-
-	// Create sample scene
-	sampleScene := `{
-  "name": "main",
-  "background_color": "#000000",
-  "objects": [
-    {
-      "file": "objects/player.obj",
-      "transform": {
-        "position": { "x": 200, "y": 300 }
-      }
-    },
-    {
-      "file": "objects/enemy.obj",
-      "transform": {
-        "position": { "x": 500, "y": 200 }
-      }
-    },
-    {
-      "file": "objects/enemy.obj",
-      "transform": {
-        "position": { "x": 400, "y": 400 }
-      }
-    }
-  ]
-}`
-
-	if err := os.WriteFile("scenes/main.scene", []byte(sampleScene), 0644); err != nil {
-		log.Fatalf("Failed to create scenes/main.scene: %v", err)
-	}
-	fmt.Println("Created file: scenes/main.scene")
-
-	// Create player object — uses built-in @Collider, @Mover + user components
-	samplePlayerObj := `{
-  "name": "Player",
-  "depth": 1,
-  "components": [
-    {
-      "kind": "@Collider",
-      "name": "hitbox",
-      "args": {
-        "width": 32,
-        "height": 32
-      }
-    },
-    {
-      "kind": "@Mover",
-      "name": "movement",
-      "args": {}
-    },
-    {
-      "kind": "components/rect.go",
-      "name": "sprite",
-      "args": {
-        "width": 32,
-        "height": 32,
-        "color": { "r": 0, "g": 255, "b": 0, "a": 255 }
-      }
-    },
-    {
-      "kind": "components/player.go",
-      "name": "player",
-      "args": {}
-    }
-  ],
-  "tags": ["player"]
-}`
-
-	if err := os.WriteFile("objects/player.obj", []byte(samplePlayerObj), 0644); err != nil {
-		log.Fatalf("Failed to create objects/player.obj: %v", err)
-	}
-	fmt.Println("Created file: objects/player.obj")
-
-	// Create enemy object — uses built-in @Collider, @Mover + user components
-	sampleEnemyObj := `{
-  "name": "Enemy",
-  "depth": 0,
-  "components": [
-    {
-      "kind": "@Collider",
-      "name": "hitbox",
-      "args": {
-        "width": 32,
-        "height": 32
-      }
-    },
-    {
-      "kind": "@Mover",
-      "name": "movement",
-      "args": {}
-    },
-    {
-      "kind": "components/rect.go",
-      "name": "sprite",
-      "args": {
-        "width": 32,
-        "height": 32,
-        "color": { "r": 255, "g": 50, "b": 50, "a": 255 }
-      }
-    },
-    {
-      "kind": "components/enemy.go",
-      "name": "enemy",
-      "args": {
-        "speed": 60
-      }
-    }
-  ],
-  "tags": ["enemy"]
-}`
-
-	if err := os.WriteFile("objects/enemy.obj", []byte(sampleEnemyObj), 0644); err != nil {
-		log.Fatalf("Failed to create objects/enemy.obj: %v", err)
-	}
-	fmt.Println("Created file: objects/enemy.obj")
-
 	fmt.Println("\nProject initialized successfully!")
 	fmt.Println("Next steps:")
 	fmt.Println("  1. Build and run: imge run")
-	fmt.Println("  2. Move with WASD — enemies chase you")
-	fmt.Println("  3. Edit components/ to customize behavior")
-	fmt.Println("  4. Edit scenes/ and objects/ to change the game world")
+	fmt.Println("  2. Add objects to scenes/main.scene (see README.md for the format)")
+	fmt.Println("  3. Define custom behavior in components/")
 }
 
 func printUsage() {
 	fmt.Printf("IMGE Minimal Game Engine CLI Tool (version %s)\n", imge.EngineVersion)
 	fmt.Println("Usage:")
-	fmt.Println("  imge init                 Initialize a new game project (empty directory only)")
+	fmt.Println("  imge init                 Initialize a blank game project (empty directory only)")
+	fmt.Println("  imge init sample          Initialize the sample platformer demo")
 	fmt.Println("  imge build [flags]        Build the game")
 	fmt.Println("  imge run                  Build and run natively (desktop)")
 	fmt.Println("  imge version              Show engine version")

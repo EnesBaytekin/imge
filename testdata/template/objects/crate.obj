@@ -1,0 +1,26 @@
+{
+  "name": "Crate",
+  "depth": 2,
+  "tags": ["crate"],
+  "components": [
+    {
+      "kind": "@Sprite",
+      "name": "sprite",
+      "args": { "texture": "crate.png", "width": 24, "height": 24 }
+    },
+    {
+      "kind": "@Collider",
+      "name": "hitbox",
+      "args": { "width": 24, "height": 24, "mode": "pushable", "collidesWith": ["player", "platform", "wall", "crate"] }
+    },
+    { "kind": "@Mover", "name": "mover", "args": {} },
+    { "kind": "@Velocity", "name": "velocity", "args": {} },
+    {
+      "kind": "@Gravity",
+      "name": "gravity",
+      "args": { "acceleration": { "x": 0, "y": 980 }, "maxSpeed": 700 }
+    },
+    { "kind": "@Health", "name": "health", "args": { "max": 1 } },
+    { "kind": "components/crate.go", "name": "crate", "args": {} }
+  ]
+}

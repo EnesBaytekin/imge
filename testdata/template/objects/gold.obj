@@ -1,0 +1,23 @@
+{
+  "name": "Gold",
+  "depth": 5,
+  "tags": ["gold"],
+  "components": [
+    {
+      "kind": "@Sprite",
+      "name": "sprite",
+      "args": { "texture": "coin.png", "width": 20, "height": 20 }
+    },
+    { "kind": "@Spin", "name": "spin", "args": { "speed": 3 } },
+    {
+      "kind": "@Collider",
+      "name": "hitbox",
+      "args": { "width": 20, "height": 20, "mode": "trigger", "collidesWith": ["player"] }
+    },
+    {
+      "kind": "components/gold.go",
+      "name": "gold",
+      "args": { "amplitude": 5, "speed": 3 }
+    }
+  ]
+}
