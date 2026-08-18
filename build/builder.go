@@ -2,6 +2,7 @@ package build
 
 import (
 	"fmt"
+	"html"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -60,7 +61,7 @@ func (b *Builder) Build() (string, error) {
 	}
 
 	if b.Target == TargetWeb {
-		return b.buildWeb(buildDir)
+		return b.buildWeb(buildDir, analysis)
 	}
 	return b.buildDesktop(buildDir, analysis, goos, goarch)
 }
@@ -112,7 +113,7 @@ func (b *Builder) buildDesktop(buildDir string, analysis *ProjectAnalysis, goos,
 }
 
 // buildWeb compiles a WebAssembly bundle into <project>/imge_build/web/.
-func (b *Builder) buildWeb(buildDir string) (string, error) {
+func (b *Builder) buildWeb(buildDir string, analysis *ProjectAnalysis) (string, error) {
 	if err := b.goModTidy(buildDir); err != nil {
 		return "", err
 	}
@@ -136,7 +137,7 @@ func (b *Builder) buildWeb(buildDir string) (string, error) {
 	if err := b.copyWasmExec(outDir); err != nil {
 		return "", fmt.Errorf("failed to copy wasm_exec.js: %w", err)
 	}
-	if err := b.writeIndexHTML(outDir); err != nil {
+	if err := b.writeIndexHTML(outDir, analysis.GameConfig.Window.Title); err != nil {
 		return "", fmt.Errorf("failed to write index.html: %w", err)
 	}
 
@@ -181,30 +182,66 @@ func (b *Builder) copyWasmExec(outDir string) error {
 	return fmt.Errorf("wasm_exec.js not found under %s (checked lib/wasm and misc/wasm)", root)
 }
 
-// writeIndexHTML writes a minimal loader page for the wasm bundle. The loader
-// fetches game.wasm as bytes and instantiates it manually (rather than using
-// instantiateStreaming) so it works with any static file server regardless of
-// whether it sends the application/wasm MIME type.
-func (b *Builder) writeIndexHTML(outDir string) error {
-	html := `<!doctype html>
+// writeIndexHTML writes a loader page for the wasm bundle. A full-screen spinner
+// is shown immediately (before any script runs) so the player sees the game is
+// loading while the browser downloads and compiles game.wasm; it's removed once
+// instantiation succeeds, or replaced with an error message on failure. The
+// loader fetches game.wasm as bytes and instantiates it manually (rather than
+// using instantiateStreaming) so it works with any static file server regardless
+// of whether it sends the application/wasm MIME type.
+func (b *Builder) writeIndexHTML(outDir, title string) error {
+	page := `<!doctype html>
 <html>
 <head>
 	<meta charset="utf-8">
-	<title>IMGE Game</title>
-	<style>html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }</style>
+	<title>` + html.EscapeString(title) + `</title>
+	<style>
+		html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+		#loading {
+			position: fixed; inset: 0; z-index: 10;
+			display: flex; flex-direction: column; gap: 16px;
+			align-items: center; justify-content: center;
+			background: #000; color: #888;
+			font-family: system-ui, sans-serif; font-size: 14px;
+		}
+		.spinner {
+			width: 44px; height: 44px;
+			border: 4px solid rgba(255,255,255,0.15);
+			border-top-color: #fff;
+			border-radius: 50%;
+			animation: spin 0.8s linear infinite;
+		}
+		@keyframes spin { to { transform: rotate(360deg); } }
+	</style>
 </head>
 <body>
+	<div id="loading"><div class="spinner"></div><div>Loading…</div></div>
 	<script src="wasm_exec.js"></script>
 	<script>
 		const go = new Go();
+		const loading = document.getElementById("loading");
+		const removeLoading = () => { if (loading) loading.remove(); };
+		const showError = (msg) => {
+			removeLoading();
+			const el = document.createElement("div");
+			el.style.cssText = "position:fixed;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-family:system-ui,sans-serif;text-align:center;padding:2rem;background:#000;";
+			el.textContent = msg;
+			document.body.appendChild(el);
+		};
 		fetch("game.wasm")
 			.then((resp) => resp.arrayBuffer())
 			.then((bytes) => WebAssembly.instantiate(bytes, go.importObject))
-			.then((result) => { go.run(result.instance); })
-			.catch((err) => console.error("failed to load game:", err));
+			.then((result) => {
+				removeLoading();
+				go.run(result.instance);
+			})
+			.catch((err) => {
+				showError("Failed to load game: " + err);
+				console.error("failed to load game:", err);
+			});
 	</script>
 </body>
 </html>
 `
-	return os.WriteFile(filepath.Join(outDir, "index.html"), []byte(html), 0644)
+	return os.WriteFile(filepath.Join(outDir, "index.html"), []byte(page), 0644)
 }
