@@ -25,11 +25,14 @@ sprite and gives it a solid collider:
   "tags": ["platform"],
   "transform": { "position": { "x": 100, "y": 300 } },
   "components": [
-    { "kind": "@Sprite",   "args": { "texture": "assets/box.png", "width": 32, "height": 32 } },
-    { "kind": "@Collider", "args": { "width": 32, "height": 32, "mode": "solid" } }
+    { "kind": "@Sprite",   "name": "sprite", "args": { "texture": "assets/box.png", "width": 32, "height": 32 } },
+    { "kind": "@Collider", "name": "body",   "args": { "width": 32, "height": 32, "mode": "solid" } }
   ]
 }
 ```
+
+Every component needs a `name` (unique within the object) — it's how components
+address each other (e.g. an `@Animator` targets a sprite by name).
 
 Built-in components are named `@Name` (`@Sprite`, `@Collider`, `@Mover`,
 `@Velocity`, `@Gravity`, `@Friction`, `@Animator`, `@Health`, `@Damage`,

@@ -60,6 +60,9 @@ func (g *Generator) Generate() error {
 	if err != nil {
 		return err
 	}
+	if err := g.validateFileReferences(); err != nil {
+		return err
+	}
 	if err := g.generateRegistry(kinds); err != nil {
 		return fmt.Errorf("failed to generate component registry: %w", err)
 	}

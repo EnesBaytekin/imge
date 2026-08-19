@@ -3,11 +3,21 @@ package build
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
 	corejson "github.com/EnesBaytekin/imge/core/json"
 )
+
+// fileReferenceArgs are component `args` keys whose string value is a
+// project-root-relative file path that must exist at build time. The built-ins
+// that reference files are @Sprite (`texture`) and @Sound (`sound`). Scene objects
+// additionally reference a template file via `file`, handled separately.
+var fileReferenceArgs = map[string]bool{
+	"texture": true,
+	"sound":   true,
+}
 
 // validateComponents verifies that (1) every component kind maps to exactly one
 // source file, (2) no two components share a Go type name (which would collide
@@ -100,6 +110,99 @@ func (g *Generator) validateComponents(kinds []componentKind) ([]string, error) 
 		return warnings, fmt.Errorf("component validation failed:\n  - %s", strings.Join(problems, "\n  - "))
 	}
 	return warnings, nil
+}
+
+// validateFileReferences verifies that every file referenced from scene/object
+// JSON — a scene object's `file` template, or an @Sprite `texture` / @Sound
+// `sound` arg — actually exists in the project. A missing file (e.g. a typo in an
+// asset path) should fail the build loudly instead of embedding a game that
+// silently warns at runtime.
+func (g *Generator) validateFileReferences() error {
+	// The set of every file the build will embed: assets, scenes, and templates.
+	// File references are project-root-relative, matching these paths.
+	known := make(map[string]bool)
+	add := func(p string) {
+		known[path.Clean(filepath.ToSlash(p))] = true
+	}
+	for _, f := range g.Analysis.AssetFiles {
+		add(f)
+	}
+	for _, f := range g.Analysis.SceneFiles {
+		add(f)
+	}
+	for _, f := range g.Analysis.ObjectFiles {
+		add(f)
+	}
+
+	var problems []string
+	check := func(key, ref, where string) {
+		if ref == "" {
+			return
+		}
+		if !known[path.Clean(filepath.ToSlash(ref))] {
+			problems = append(problems, fmt.Sprintf(
+				"%s: %s %q not found in the project (add the file or fix the path)", where, key, ref))
+		}
+	}
+
+	// Object templates (.obj) — validate each component's file-reference args.
+	for _, objFile := range g.Analysis.ObjectFiles {
+		data, err := os.ReadFile(filepath.Join(g.Analysis.ProjectDir, objFile))
+		if err != nil {
+			return err
+		}
+		cfg, err := corejson.ParseObjectConfig(data)
+		if err != nil {
+			return fmt.Errorf("failed to parse %s: %w", objFile, err)
+		}
+		for _, comp := range cfg.Components {
+			checkComponentFileRefs(comp, objFile, check)
+		}
+	}
+
+	// Scenes (.scene) — validate object template `file` references and component
+	// file-reference args, both inline and on referenced templates.
+	for _, sceneFile := range g.Analysis.SceneFiles {
+		data, err := os.ReadFile(filepath.Join(g.Analysis.ProjectDir, sceneFile))
+		if err != nil {
+			return err
+		}
+		cfg, err := corejson.ParseSceneConfig(data)
+		if err != nil {
+			return fmt.Errorf("failed to parse %s: %w", sceneFile, err)
+		}
+		for _, obj := range cfg.Objects {
+			where := sceneFile
+			if obj.Name != "" {
+				where = filepath.Join(sceneFile, obj.Name)
+			}
+			if obj.File != "" {
+				check("file", obj.File, where)
+			}
+			for _, comp := range obj.Components {
+				checkComponentFileRefs(comp, where, check)
+			}
+		}
+	}
+
+	if len(problems) > 0 {
+		return fmt.Errorf("file validation failed:\n  - %s", strings.Join(problems, "\n  - "))
+	}
+	return nil
+}
+
+// checkComponentFileRefs calls check for each file-reference arg on a component.
+func checkComponentFileRefs(comp corejson.ComponentInstanceConfig, where string, check func(key, ref, where string)) {
+	for key, val := range comp.Args {
+		if !fileReferenceArgs[key] {
+			continue
+		}
+		ref, ok := val.(string)
+		if !ok {
+			continue
+		}
+		check(key, ref, where)
+	}
 }
 
 // checkObjectDeps warns when an object's component list includes a component that
