@@ -40,6 +40,11 @@ type Renderer interface {
 	// Returns (0, 0) if the texture cannot be loaded.
 	GetTextureSize(textureID string) (width, height float64)
 
+	// SetCamera applies a world-to-screen camera transform to subsequent draw
+	// calls. (cx, cy) is the view center in world coordinates and zoom is the scale
+	// factor (1 = 1:1). A zoom <= 0 disables the transform (raw screen space).
+	SetCamera(cx, cy, zoom float64)
+
 	// Present presents the rendered frame to the screen (swap buffers).
 	Present()
 
@@ -296,6 +301,7 @@ type Context struct {
 	Audio Audio
 	Time  Time
 	Scene *Scene
+	Game  *Game
 }
 
 // DeltaTime returns the seconds elapsed since the last frame.

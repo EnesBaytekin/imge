@@ -15,6 +15,10 @@ type Event struct {
 	// Data holds arbitrary extra information associated with the event.
 	// The interpretation depends on the event Name (user-defined).
 	Data interface{}
+
+	// Source is the component that emitted the event, or nil for engine-generated
+	// events. Listeners can filter by it (e.g. a @StateMachine's "from" scope).
+	Source Component
 }
 
 // ============================================================================

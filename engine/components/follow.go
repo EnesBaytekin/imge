@@ -12,8 +12,8 @@ import (
 type Follow struct {
 	core.BaseComponent
 
-	TargetTag string      `json:"targetTag"`
-	Lerp      float64     `json:"lerp"` // smoothing factor per frame (0..1)
+	TargetTag string       `json:"target_tag"`
+	Lerp      float64      `json:"lerp"` // smoothing factor per frame (0..1)
 	Offset    math.Vector2 `json:"offset"`
 }
 

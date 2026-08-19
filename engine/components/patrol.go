@@ -14,7 +14,7 @@ type Patrol struct {
 
 	Points   []math.Vector2 `json:"points"`
 	Speed    float64        `json:"speed"`
-	PingPong bool           `json:"pingPong"`
+	PingPong bool           `json:"ping_pong"`
 
 	index int
 	dir   int

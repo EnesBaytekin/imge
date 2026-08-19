@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 
 	corejson "github.com/EnesBaytekin/imge/core/json"
 	"github.com/EnesBaytekin/imge/core/math"
@@ -41,6 +42,10 @@ type Object struct {
 	// Depth determines drawing order (higher depth = drawn last/on top)
 	Depth float64
 
+	// UI marks the object as screen-space: its position is in screen pixels, it
+	// ignores the camera, and it draws after all world objects.
+	UI bool
+
 	// Active controls whether the object is updated and drawn
 	Active bool
 
@@ -64,16 +69,16 @@ type Object struct {
 // Note: ID must be set by the scene when adding the object.
 func NewObject(name string) *Object {
 	return &Object{
-		ID:         0, // Will be set by scene
-		Name:       name,
+		ID:             0, // Will be set by scene
+		Name:           name,
 		Components:     make(map[string]Component),
 		componentOrder: make([]string, 0),
 		Tags:           make(map[string]bool),
-		Transform:  math.NewTransform(),
-		Depth:      0,
-		Active:     true,
-		Scene:      nil,
-		destroyed:  false,
+		Transform:      math.NewTransform(),
+		Depth:          0,
+		Active:         true,
+		Scene:          nil,
+		destroyed:      false,
 	}
 }
 
@@ -326,15 +331,36 @@ func (obj *Object) Update(ctx *Context) {
 	}
 }
 
-// Draw calls Draw on all components in insertion order.
+// Draw calls Draw on all components, ordered by draw layer (ascending; equal
+// layers keep insertion order).
 func (obj *Object) Draw(renderer Renderer) {
 	if !obj.Active || obj.destroyed {
 		return
 	}
 
-	for _, component := range obj.orderedComponents() {
+	for _, component := range obj.drawComponents() {
 		component.Draw(renderer)
 	}
+}
+
+// drawComponents returns the object's components in draw order: sorted by draw
+// layer (ascending), stable so equal layers keep insertion order. Update order is
+// unaffected — this ordering applies only to drawing.
+func (obj *Object) drawComponents() []Component {
+	comps := obj.orderedComponents()
+	sort.SliceStable(comps, func(i, j int) bool {
+		return drawLayer(comps[i]) < drawLayer(comps[j])
+	})
+	return comps
+}
+
+// drawLayer returns a component's draw layer, defaulting to 0 for components that
+// don't declare one.
+func drawLayer(c Component) int {
+	if p, ok := c.(DrawLayerProvider); ok {
+		return p.GetDrawLayer()
+	}
+	return 0
 }
 
 // SetActive enables or disables the object. Toggling fires OnEnable/OnDisable on
@@ -419,6 +445,7 @@ func LoadObjectFromJSON(data []byte) (*Object, error) {
 	}
 
 	obj := NewObject(config.Name)
+	obj.UI = config.UI
 
 	// Set depth if specified
 	if config.Depth != 0 {

@@ -38,11 +38,18 @@ type Scene struct {
 	// nextObjectID is the next available unique object ID
 	nextObjectID uint64
 
+	// frame counts update cycles, incremented once per Scene.Update.
+	frame uint64
+
 	// Name is the scene's identifier
 	Name string
 
 	// BackgroundColor is the clear color used each frame before objects draw.
 	BackgroundColor math.Color
+
+	// Camera transforms world coordinates to screen coordinates when drawing. Nil
+	// means no transform (world = screen).
+	Camera *Camera
 
 	// Active controls whether the scene is updated and drawn
 	Active bool
@@ -304,6 +311,13 @@ func (s *Scene) GetSortedObjects() []*Object {
 	return result
 }
 
+// FrameNumber returns the number of update cycles that have begun (1-based). It
+// increments once per Scene.Update, so components can use it to detect "this
+// frame" conditions (e.g. a @StateMachine's JustEntered).
+func (s *Scene) FrameNumber() uint64 {
+	return s.frame
+}
+
 // ============================================================================
 // Lifecycle Methods
 // ============================================================================
@@ -317,6 +331,7 @@ func (s *Scene) Update(ctx *Context) {
 		return
 	}
 
+	s.frame++
 	ctx.Scene = s
 
 	for _, obj := range s.Objects {
@@ -329,6 +344,11 @@ func (s *Scene) Update(ctx *Context) {
 		}
 	}
 
+	// Advance the camera toward its follow target after objects move.
+	if s.Camera != nil {
+		s.Camera.Tick()
+	}
+
 	// Deliver queued events to subscribed components.
 	s.EventManager.Process()
 
@@ -336,7 +356,9 @@ func (s *Scene) Update(ctx *Context) {
 	s.removeDestroyedObjects()
 }
 
-// Draw calls Draw on all active objects in the scene, sorted by depth.
+// Draw calls Draw on all active objects in the scene, sorted by depth. World
+// objects (UI=false) draw under the camera transform; UI objects draw afterward
+// in screen space (no camera), so they always sit on top of the world.
 func (s *Scene) Draw(renderer Renderer) {
 	if !s.Active {
 		return
@@ -345,9 +367,26 @@ func (s *Scene) Draw(renderer Renderer) {
 	// Ensure sorted list is up-to-date
 	s.updateSortedObjects()
 
+	if s.Camera != nil {
+		vw, vh := renderer.GetViewportSize()
+		s.Camera.setViewport(float64(vw), float64(vh))
+		renderer.SetCamera(s.Camera.X, s.Camera.Y, s.Camera.Zoom)
+	} else {
+		renderer.SetCamera(0, 0, 0)
+	}
+
 	for _, id := range s.SortedObjects {
 		obj := s.Objects[id]
-		if obj != nil && obj.Active && !obj.IsDestroyed() {
+		if obj != nil && obj.Active && !obj.IsDestroyed() && !obj.UI {
+			obj.Draw(renderer)
+		}
+	}
+
+	// UI objects draw in raw screen space, on top of the world.
+	renderer.SetCamera(0, 0, 0)
+	for _, id := range s.SortedObjects {
+		obj := s.Objects[id]
+		if obj != nil && obj.Active && !obj.IsDestroyed() && obj.UI {
 			obj.Draw(renderer)
 		}
 	}
@@ -425,6 +464,17 @@ func (s *Scene) loadFromJSON(data []byte, fsys fs.FS) error {
 			s.BackgroundColor = c
 		}
 	}
+	if config.Camera != nil {
+		s.Camera = NewCamera()
+		s.Camera.X = config.Camera.X
+		s.Camera.Y = config.Camera.Y
+		if config.Camera.Zoom > 0 {
+			s.Camera.Zoom = config.Camera.Zoom
+		}
+		s.Camera.Smoothing = config.Camera.Smoothing
+		s.Camera.LockX = config.Camera.LockX
+		s.Camera.LockY = config.Camera.LockY
+	}
 
 	// Load objects from config
 	for _, objConfig := range config.Objects {
@@ -475,6 +525,7 @@ func createObjectFromSceneObject(objConfig corejson.SceneObject, fsys fs.FS) (*O
 		if objConfigFile.Depth != 0 {
 			obj.SetDepth(objConfigFile.Depth)
 		}
+		obj.UI = objConfigFile.UI || objConfig.UI
 
 		// Add components from template
 		for _, compConfig := range objConfigFile.Components {
@@ -518,6 +569,7 @@ func createObjectFromSceneObject(objConfig corejson.SceneObject, fsys fs.FS) (*O
 	}
 
 	obj = NewObject(objConfig.Name)
+	obj.UI = objConfig.UI
 
 	// Add components
 	for _, compConfig := range objConfig.Components {

@@ -13,8 +13,8 @@ type Chase struct {
 	core.BaseComponent
 
 	Speed        float64 `json:"speed"`
-	TargetTag    string  `json:"targetTag"`
-	StopDistance float64 `json:"stopDistance"`
+	TargetTag    string  `json:"target_tag"`
+	StopDistance float64 `json:"stop_distance"`
 }
 
 // Initialize applies defaults.

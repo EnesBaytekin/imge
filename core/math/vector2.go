@@ -9,7 +9,8 @@ import (
 // Vector2 represents a 2D vector with X and Y coordinates.
 // We use float64 for precision in game calculations.
 type Vector2 struct {
-	X, Y float64
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
 }
 
 // NewVector2 creates a new Vector2 with the given coordinates.

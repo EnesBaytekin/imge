@@ -39,11 +39,11 @@ type Collider struct {
 
 	// PushFactor scales how far a pushable collider slides when pushed
 	// (0 = immovable, 1 = full; default 1).
-	PushFactor float64 `json:"pushFactor"`
+	PushFactor float64 `json:"push_factor"`
 
 	// CollidesWith lists object tags this collider interacts with. Empty means it
 	// interacts with every object.
-	CollidesWith []string `json:"collidesWith"`
+	CollidesWith []string `json:"collides_with"`
 
 	// overlaps tracks the objects currently overlapping this collider.
 	overlaps map[uint64]*core.Object

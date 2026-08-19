@@ -2,124 +2,147 @@ package components
 
 import (
 	"github.com/EnesBaytekin/imge/core"
-	"github.com/EnesBaytekin/imge/core/math"
 )
 
-// Animation is a named clip: a sequence of frames into the sprite's texture. A
-// clip either lists explicit frame rects, or describes a horizontal strip via
-// frameWidth/frameHeight/frameCount starting at the texture origin.
-type Animation struct {
-	Name       string       `json:"name"`
-	FrameW     float64      `json:"frameWidth"`
-	FrameH     float64      `json:"frameHeight"`
-	FrameCount int          `json:"frameCount"`
-	FPS        float64      `json:"fps"`
-	Loop       bool         `json:"loop"`
-	Frames     []math.Rect  `json:"frames"` // explicit frames (override the strip)
+// Clip describes an animation clip: which sprite it draws into, at what frame
+// rate, and whether it loops. The clip's identifier is the target sprite's
+// component name (the "sprite" field), so clips are keyed directly by the sprite
+// they animate.
+type Clip struct {
+	Sprite string  `json:"sprite"`
+	FPS    float64 `json:"fps"`
+	Loop   bool    `json:"loop"`
 }
 
-// Animator plays named animation clips by setting the @Sprite's source region
-// each frame. It requires the owner to have a @Sprite to draw into.
+// Animator plays named clips by driving the frame of the sprite each clip targets.
+// It owns the visibility and flip of every sprite it manages (the sprites named in
+// its clips): exactly one managed sprite is visible at a time, and all managed
+// sprites mirror the animator's flip_x/flip_y. Sprites not named in any clip are
+// left untouched.
 //
-// Export variables (JSON args): clips, default.
+// When a non-looping clip finishes, it emits "animation_finished" with the sprite
+// name as Data.
+//
+// Export variables (JSON args): clips [{sprite, fps, loop}], default, flip_x,
+// flip_y.
 type Animator struct {
 	core.BaseComponent
 
-	Clips   []Animation `json:"clips"`
-	Default string      `json:"default"` // clip name to play on start
+	Clips   []Clip `json:"clips"`
+	Default string `json:"default"`
+	FlipX   bool   `json:"flip_x"`
+	FlipY   bool   `json:"flip_y"`
 
-	clips   map[string]Animation
-	current *Animation
+	clips   map[string]Clip
+	sprites map[string]*Sprite
+	current string
 	frame   int
 	timer   float64
 	playing bool
-	sprite  *Sprite
 }
 
 // Requires declares the component this one needs to function.
 func (a *Animator) Requires() []string { return []string{"@Sprite"} }
 
-// Initialize normalizes clips, resolves the sprite, and starts the default clip.
+// Initialize resolves the target sprites and auto-plays the default clip.
 func (a *Animator) Initialize() {
-	a.clips = make(map[string]Animation, len(a.Clips))
+	owner := a.GetOwner()
+
+	a.clips = make(map[string]Clip, len(a.Clips))
+	a.sprites = make(map[string]*Sprite, len(a.Clips))
 	for _, clip := range a.Clips {
 		if clip.FPS <= 0 {
 			clip.FPS = 12
 		}
-		if len(clip.Frames) > 0 {
-			clip.FrameCount = len(clip.Frames)
+		a.clips[clip.Sprite] = clip
+		if sp := core.GetFromNamed[*Sprite](owner, clip.Sprite); sp != nil {
+			a.sprites[clip.Sprite] = sp
 		}
-		a.clips[clip.Name] = clip
 	}
 
-	a.sprite = core.GetFrom[*Sprite](a.GetOwner())
+	a.applyFlip()
 
 	if a.Default != "" {
 		a.Play(a.Default)
 	} else if len(a.Clips) > 0 {
-		a.Play(a.Clips[0].Name)
+		a.Play(a.Clips[0].Sprite)
 	}
 }
 
-// Update advances the current clip and updates the sprite's source region.
+// Update advances the current clip and writes the frame to its sprite.
 func (a *Animator) Update(ctx *core.Context) {
-	if !a.playing || a.current == nil {
+	if !a.playing || a.current == "" {
 		return
 	}
-	if a.current.FPS <= 0 || a.current.FrameCount <= 1 {
+	clip := a.clips[a.current]
+	sprite := a.sprites[a.current]
+	if clip.FPS <= 0 || sprite == nil {
+		return
+	}
+
+	frameCount := sprite.FrameCount()
+	if frameCount <= 1 {
 		return
 	}
 
 	a.timer += ctx.DeltaTime()
-	frameDuration := 1.0 / a.current.FPS
+	frameDuration := 1.0 / clip.FPS
 
+	finished := false
 	for a.timer >= frameDuration {
 		a.timer -= frameDuration
 		a.frame++
 
-		if a.frame >= a.current.FrameCount {
-			if a.current.Loop {
+		if a.frame >= frameCount {
+			if clip.Loop {
 				a.frame = 0
 			} else {
-				a.frame = a.current.FrameCount - 1
+				a.frame = frameCount - 1
 				a.playing = false
+				finished = true
 				break
 			}
 		}
 	}
 
 	a.applyFrame()
+	if finished {
+		a.Emit("animation_finished", a.current)
+	}
 }
 
-// applyFrame writes the current frame's source rect into the sprite.
+// applyFrame writes the current frame into the current sprite.
 func (a *Animator) applyFrame() {
-	if a.sprite == nil || a.current == nil {
-		return
+	if sprite := a.sprites[a.current]; sprite != nil {
+		sprite.SetFrame(a.frame)
 	}
+}
 
-	if len(a.current.Frames) > 0 {
-		a.sprite.SetSourceRect(a.current.Frames[a.frame])
-		return
+// updateVisibility shows exactly the current sprite and hides the rest.
+func (a *Animator) updateVisibility() {
+	for name, sprite := range a.sprites {
+		sprite.SetVisible(name == a.current)
 	}
+}
 
-	col := a.frame
-	a.sprite.SetSourceRect(math.NewRect(
-		float64(col)*a.current.FrameW, 0,
-		a.current.FrameW, a.current.FrameH,
-	))
+// applyFlip mirrors the animator's flip onto every managed sprite.
+func (a *Animator) applyFlip() {
+	for _, sprite := range a.sprites {
+		sprite.SetFlipX(a.FlipX)
+		sprite.SetFlipY(a.FlipY)
+	}
 }
 
 // Play starts the named clip from its first frame.
 func (a *Animator) Play(name string) {
-	clip, ok := a.clips[name]
-	if !ok {
+	if _, ok := a.clips[name]; !ok {
 		return
 	}
-	cp := clip
-	a.current = &cp
+	a.current = name
 	a.frame = 0
 	a.timer = 0
 	a.playing = true
+	a.updateVisibility()
 	a.applyFrame()
 }
 
@@ -133,3 +156,21 @@ func (a *Animator) Stop() {
 
 // IsPlaying reports whether a clip is currently playing.
 func (a *Animator) IsPlaying() bool { return a.playing }
+
+// CurrentSprite returns the name of the sprite currently playing ("" when none).
+func (a *Animator) CurrentSprite() string { return a.current }
+
+// Frame returns the current frame index.
+func (a *Animator) Frame() int { return a.frame }
+
+// SetFlipX sets horizontal flipping and applies it to the managed sprites.
+func (a *Animator) SetFlipX(flip bool) {
+	a.FlipX = flip
+	a.applyFlip()
+}
+
+// SetFlipY sets vertical flipping and applies it to the managed sprites.
+func (a *Animator) SetFlipY(flip bool) {
+	a.FlipY = flip
+	a.applyFlip()
+}

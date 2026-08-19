@@ -16,7 +16,7 @@ type Wander struct {
 	core.BaseComponent
 
 	Speed          float64 `json:"speed"`
-	ChangeInterval float64 `json:"changeInterval"`
+	ChangeInterval float64 `json:"change_interval"`
 
 	direction math.Vector2
 	timer     float64

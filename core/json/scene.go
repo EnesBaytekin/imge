@@ -10,9 +10,21 @@ import (
 
 // SceneConfig represents a scene definition (.scene file).
 type SceneConfig struct {
-	Name          string          `json:"name"`
+	Name            string        `json:"name"`
 	BackgroundColor string        `json:"background_color,omitempty"`
-	Objects       []SceneObject   `json:"objects"`
+	Camera          *CameraConfig `json:"camera,omitempty"`
+	Objects         []SceneObject `json:"objects"`
+}
+
+// CameraConfig represents the initial camera settings in a scene file. X/Y are
+// the view center in world coordinates; zoom is the scale factor (1 = 1:1).
+type CameraConfig struct {
+	X         float64 `json:"x"`
+	Y         float64 `json:"y"`
+	Zoom      float64 `json:"zoom"`
+	Smoothing float64 `json:"smoothing"`
+	LockX     bool    `json:"lock_x"`
+	LockY     bool    `json:"lock_y"`
 }
 
 // SceneObject represents an object in a scene, either inline or referenced from a file.
@@ -21,10 +33,11 @@ type SceneObject struct {
 	File string `json:"file,omitempty"`
 
 	// Inline object definition (optional, used if File is empty)
-	Name       string                 `json:"name,omitempty"`
-	Transform  *TransformConfig       `json:"transform,omitempty"`
-	Depth      float64                `json:"depth,omitempty"`
-	Tags       []string               `json:"tags,omitempty"`
+	Name       string                    `json:"name,omitempty"`
+	Transform  *TransformConfig          `json:"transform,omitempty"`
+	Depth      float64                   `json:"depth,omitempty"`
+	UI         bool                      `json:"ui,omitempty"`
+	Tags       []string                  `json:"tags,omitempty"`
 	Components []ComponentInstanceConfig `json:"components,omitempty"`
 }
 

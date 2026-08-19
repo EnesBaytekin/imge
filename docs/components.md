@@ -1,140 +1,213 @@
-# Built-in Components (Faz 2)
+# Built-in Components
 
 IMGE ships a small library of **built-in components**. They are not special — they
-use exactly the same `core.Component` interface as user components. At build time
+implement the same `core.Component` interface as user components, and at build time
 they are merged into the project's single `components` package, so any component
 (built-in or custom) can reach any other component's concrete methods directly.
 
-## One component type, two jobs
+Every component's configurable fields are its **export variables**: JSON-tagged
+fields populated from the component's `args` object in `.obj`/`.scene` files. All
+args are **snake_case**.
 
-There is a single `Component` interface. How a component *behaves* is a label, not
-a type distinction:
+## The component model
 
-- **Capability** — a component that mostly *exposes methods and data* for other
-  components to drive (e.g. `@Mover`, `@Velocity`, `@Sprite`). It does little or
-  nothing on its own each frame.
-- **Behavior** — a component that *changes the scene on its own* each frame
-  (e.g. `@Chase`, `@Gravity`, `@Spin`), typically by calling a capability's methods.
+- **Kind** — `@Name` for built-ins (e.g. `@Sprite`), a file path for user
+  components (`components/player.go`).
+- **Lifecycle** — `Initialize()` once after the scene is fully assembled, then
+  `Update(ctx)` every frame, then `Draw(renderer)`. Draw order within an object is
+  by `draw_layer` (a field every component inherits via `BaseComponent`; lower
+  draws first, equal keeps insertion order).
+- **Accessing siblings** — `core.GetFrom[*T](owner)` (first by insertion order),
+  `core.GetAllFrom[*T](owner)`, `core.GetFromNamed[*T](owner, name)`. All return a
+  nil pointer when nothing matches; nil-check.
+- **Requires** — optional `Requires() []string` declares the kinds a component
+  needs (informational; the build tool warns about missing ones).
+- **Events** — `Emit(name, data)` broadcasts to every component that subscribed via
+  `On(name, handler)`, delivered after all `Update` calls finish. Events carry a
+  `Source` (the emitting component); the `@StateMachine` filters transitions by it.
 
-The distinction is documentation, not a second interface.
+## Quick reference
 
-## Naming & kinds
+| Kind | Purpose |
+|------|---------|
+| `@Sprite` | Draws a texture (or a frame of a sprite sheet) at the owner transform |
+| `@Animator` | Plays named clips by driving a `@Sprite`'s frame, visibility and flip |
+| `@Spin` | Rotates the owner over time |
+| `@Mover` | Collision-aware movement (the capability other components drive) |
+| `@Velocity` | Per-axis velocity state, integrated through `@Mover` each frame |
+| `@Gravity` | Applies acceleration (default gravity) to `@Velocity` |
+| `@Friction` | Damps `@Velocity` toward zero on an axis |
+| `@Bounce` | Constant velocity that reflects off blocked collisions |
+| `@PlayerController` | WASD / arrow keys → movement (arcade/overhead) |
+| `@Chase` | Moves toward the nearest tagged object |
+| `@Follow` | Smoothly lerps toward a tagged object + offset |
+| `@Patrol` | Walks a list of waypoints (loop or ping-pong) |
+| `@Wander` | Moves in a random direction, re-rolled on an interval |
+| `@Collider` | Rectangle shape; solid/pushable/trigger, overlap tracking |
+| `@Health` | HP pool; emits `damaged` / `died` |
+| `@Damage` | Applies damage to overlapping tagged targets |
+| `@StateMachine` | Named states + event-driven transitions |
+| `@Sound` | One-shot sound effect or looping music |
+| `@TimedDespawn` | Destroys the owner after N seconds |
 
-Built-in types are named **without** a `Component` suffix (`Collider`, not
-`ColliderComponent`). The kind identifier strips the suffix when present, so both
-`Collider` and a hypothetical `FooComponent` map to `@Collider` / `@Foo`:
+## Rendering
 
-```go
-func builtinKind(typeName string) string { return "@" + strings.TrimSuffix(typeName, "Component") }
-```
+### `@Sprite`
+Draws `texture` at the owner's transform. Frame slicing is derived from the
+texture size — no frame count is configured.
 
-User components keep their file path as kind (`components/player.go`).
+- Args: `texture`, `frame_width`, `frame_height`, `frame`, `width`, `height`,
+  `flip_x`, `flip_y`, `tint`, `offset {x,y}`, `visible`.
+- `frame_width = 0` → whole texture is one frame. `frame_width > 0` and
+  `frame_height = 0` → a single horizontal strip. Both `> 0` → a grid cut
+  row-by-row. `FrameCount()` is always computed from the texture size.
+- `width`/`height` are the display size (0 = natural frame size).
+- Methods: `SetFrame`, `SetTexture`, `SetTint`, `SetFlipX/Y`, `SetVisible`,
+  `SetOffset`, `IsVisible`, `FrameCount`.
 
-## Accessing other components
+### `@Animator`
+Owns the animation state of the sprites named in its clips: it drives their frame,
+makes exactly one visible at a time, and mirrors its own flip onto all of them.
+Sprites not named in a clip are left untouched.
 
-A component reaches a sibling component (on the same owner object) by type and,
-optionally, by name. There is **no** `core.Get(from Component)`; lookups take the
-object directly and are deterministic (insertion order):
+- Args: `clips [{sprite, fps, loop}]`, `default`, `flip_x`, `flip_y`.
+- A clip's id is the **name** of the `@Sprite` it animates (`sprite` field).
+- Emits `animation_finished` (data = sprite name) when a non-looping clip ends.
+- Requires `@Sprite`. Methods: `Play`, `Stop`, `IsPlaying`, `SetFlipX/Y`.
 
-```go
-collider := core.GetFrom[*Collider](owner)        // first Collider, insertion order
-sprites  := core.GetAllFrom[*Sprite](owner)       // every Sprite
-hud      := core.GetFromNamed[*Health](owner, "playerHealth") // by name
-```
+### `@Spin`
+- Args: `speed` (radians per second). Adds `speed * dt` to owner rotation.
 
-`GetFrom` returns the zero value (a `nil` pointer for pointer types) when nothing
-matches — callers nil-check.
+## Movement
 
-## Dependencies
+The pattern: **behavior components compute a displacement and hand it to `@Mover`
+for collision resolution.** Without a `@Mover`, they move the position directly
+(teleport, no collision).
 
-A component may declare the kinds it needs by implementing the optional
-`Dependable` interface. It is informational: the build tool reads it to warn when
-an object uses a component without the components it declares it needs.
+### `@Mover` (capability)
+- No args. Methods: `Teleport(x, y)`, `Move(dx, dy)`, `MoveTowards(target, dist)`.
+- Resolves collisions per axis (slides along walls); solids block, pushables are
+  pushed, triggers ignored. Emits `blocked_collision` (data = blocking object) when
+  blocked.
 
-```go
-func (a *Animator) Requires() []string { return []string{"@Sprite"} }
-```
+### `@Velocity` (capability)
+- Args: `vx`, `vy` (initial). Integrates velocity through `@Mover` each frame, and
+  zeroes an axis when the mover blocks it.
+- Methods: `SetVelocity`, `Velocity`, `AddVelocity`.
 
-## The built-in set
+### `@Gravity`
+- Args: `acceleration {x,y}` (default `{0, 980}`), `max_speed` (0 = no cap).
+- Adds `acceleration * dt` to `@Velocity`, clamped to `max_speed`. Requires
+  `@Velocity`.
 
-### Capabilities
+### `@Friction`
+- Args: `amount` (px/s reduction), `axes` (`"x"`, `"y"`, or `"both"`).
+- Damps `@Velocity` toward zero. Requires `@Velocity`.
 
-| Kind        | Type       | Purpose |
-|-------------|------------|---------|
-| `@Collider` | `Collider` | Rectangle shape, movement mode, tag-filtered overlap tracking |
-| `@Mover`    | `Mover`    | Collision-aware movement (`Teleport`, `Move`, `MoveTowards`) |
-| `@Velocity` | `Velocity` | Per-axis velocity state; integrates through `@Mover` |
-| `@Gravity`  | `Gravity`  | Vector acceleration + max speed applied to `@Velocity` |
-| `@Friction` | `Friction` | Per-axis linear velocity damping |
-| `@Sprite`   | `Sprite`   | Draws a texture / texture region at the owner transform |
-| `@Animator` | `Animator` | Named frame clips, drives `@Sprite`'s source rect |
-| `@Sound`    | `Sound`    | One-shot sound or looping music |
+### `@Bounce`
+- Args: `vx`, `vy`. Moves at constant velocity; reflects the blocked axis and emits
+  `bounce` (data = surface normal `Vector2`).
 
-### Behaviors
+### `@PlayerController`
+- Args: `speed`. WASD / arrows → `@Mover`. Arcade/overhead movement; for
+  velocity-based platformer feel, write a custom component that sets `@Velocity`.
 
-| Kind               | Type               | Purpose |
-|--------------------|--------------------|---------|
-| `@PlayerController`| `PlayerController` | WASD / arrow keys → `@Mover` |
-| `@Chase`           | `Chase`            | Move toward the nearest tagged target |
-| `@Follow`          | `Follow`           | Lerp toward a tagged target + offset |
-| `@Patrol`          | `Patrol`           | Walk a list of waypoints (loop or ping-pong) |
-| `@Wander`          | `Wander`           | Random direction, re-rolled on an interval |
-| `@Bounce`          | `Bounce`           | Constant velocity that reflects off collisions |
-| `@Spin`            | `Spin`             | Rotate the owner over time |
-| `@TimedDespawn`    | `TimedDespawn`     | Destroy the owner after N seconds |
-| `@Health`          | `Health`           | HP pool; emits `damaged` / `died` |
-| `@Damage`          | `Damage`           | Applies damage to overlapping tagged targets |
+### `@Chase`
+- Args: `speed`, `target_tag`, `stop_distance`. Moves toward the nearest object
+  with `target_tag`, stopping within `stop_distance`.
 
-## The collision model
+### `@Follow`
+- Args: `target_tag`, `lerp`, `offset {x,y}`. Lerps position toward the first
+  tagged object + offset. No collision.
 
-`@Collider` is the shape. Its `mode` decides how movement resolves against it:
+### `@Patrol`
+- Args: `points [{x,y}…]`, `speed`, `ping_pong`. Walks between waypoints, looping
+  (or ping-ponging) through them.
 
-- **`solid`** — blocks movers outright (walls, ground).
-- **`pushable`** — a mover pushes it; `pushFactor` scales how far it slides
-  (`0` = immovable, `1` = full, default `1`).
-- **`trigger`** — never blocks or gets pushed; it only *detects* overlaps.
+### `@Wander`
+- Args: `speed`, `change_interval`. Random direction, re-rolled every
+  `change_interval` seconds.
 
-`@Mover.Move` resolves each axis independently (slide-along-walls), so a diagonal
-move that hits a wall still glides along the open axis. Push chains are allowed up
-to a small recursion depth. When a move is blocked, `@Mover` emits
-`blocked_collision` with the blocking object as data.
+## Collision & combat
 
-`collidesWith` is an optional list of object tags. Empty means "collide with
-everything"; otherwise the collider only interacts with objects carrying one of
-those tags (resolved in O(1) via the scene's tag index).
+### `@Collider`
+- Args: `width`, `height`, `mode`, `push_factor`, `collides_with []`.
+- `mode`: `solid` (blocks), `pushable` (pushed by movers; `push_factor` scales the
+  slide, 0 = immovable, 1 = full), `trigger` (detects only).
+- `collides_with` lists tags to interact with (empty = everything).
+- Tracks overlaps each frame and emits `collision_enter` / `collision_exit`
+  (data = other object). `GetOverlaps()` returns the current overlapping objects.
 
-`@Collider` tracks overlaps each frame and emits `collision_enter` /
-`collision_exit` (data = the other object), which is how "entered an area" /
-"left an area" is detected. `GetOverlaps()` returns the current overlapping
-objects.
+### `@Health`
+- Args: `max` (default 100). `Damage(amount)` / `Heal(amount)`.
+- Emits `damaged` (data = amount) or `died` (data = owner). `IsDead()`, `Current()`.
 
-## Events
+### `@Damage`
+- Args: `amount`, `target_tags []`, `cooldown`. Applies damage to overlapping
+  objects that have `@Health`, filtered by `target_tags`, once per `cooldown`
+  seconds. Requires `@Collider`.
 
-Events are scene-global by name: `Emit(name, data)` is delivered to **every**
-component that subscribed via `On(name, handler)` after all `Update` calls finish.
-Context (who/what caused it) travels in `data` — e.g. `blocked_collision` carries
-the blocking object, `damaged` carries the amount.
+## Logic
 
-## An example
+### `@StateMachine`
+A component-level state machine. The machine is in one named state at a time; each
+state lists the transitions that may leave it.
 
-```json
-{
-  "kind": "@Collider", "name": "body", "args": { "width": 32, "height": 32, "mode": "pushable" }
-},
-{
-  "kind": "@Mover", "name": "mover", "args": {}
-}
-```
+- Args: `initial`, `states [{name, transitions [{event, from, to, delay}]}]`.
+- A transition fires when its `event` occurs while the machine is in that state:
+  - `from = ""` → manual only, reached via `Trigger(event)`.
+  - `from = "component"` → the named component **on the same object**.
+  - `from = "object.component"` → the named component on the named object.
+  - `from = "scene"` → any component (source ignored).
+  - `delay` → seconds to wait before the transition (0 = immediate).
+- Emits `state_entered` (data = new state) and `state_exited` (data = previous
+  state) on every change.
+- Methods: `Trigger(event)`, `SetState(name)`, `Current()`, `Previous()`,
+  `TimeInState()`, `JustEntered()`.
 
-```go
-// custom controller: read input, move through the collider-aware @Mover
-func (c *Player) Update(ctx *core.Context) {
-	owner := c.GetOwner()
-	dx := 0.0
-	if ctx.Input.IsKeyPressed(core.KeyA) { dx = -1 }
-	if ctx.Input.IsKeyPressed(core.KeyD) { dx = 1 }
-	if m := core.GetFrom[*Mover](owner); m != nil {
-		m.Move(dx*c.Speed*ctx.DeltaTime(), 0)
-	}
-}
-```
+## Audio & misc
+
+### `@Sound`
+- Args: `sound`, `volume` (0–1), `loop`, `play_on_start`.
+- `play_on_start` auto-plays on the first frame; otherwise drive via
+  `Play(ctx)` / `Stop(ctx)`.
+
+### `@TimedDespawn`
+- Args: `lifetime` (seconds). Destroys the owner after `lifetime`.
+
+## Events reference
+
+| Event | Emitted by | Data |
+|-------|-----------|------|
+| `blocked_collision` | `@Mover` | blocking object |
+| `bounce` | `@Bounce` | surface normal `Vector2` |
+| `collision_enter` / `collision_exit` | `@Collider` | the other object |
+| `damaged` / `died` | `@Health` | amount / owner |
+| `animation_finished` | `@Animator` | sprite name |
+| `state_entered` / `state_exited` | `@StateMachine` | state name |
+
+## How they combine
+
+- **Movement stack** — `@PlayerController` (or `@Chase`/`@Patrol`/`@Wander`) +
+  `@Mover` + `@Collider` = collision-aware motion. `@Velocity` + `@Gravity` +
+  `@Friction` is the platformer alternative: they mutate `@Velocity`, which
+  integrates through `@Mover`.
+- **Animation** — `@Sprite` + `@Animator`: the animator drives the sprite's frame,
+  visibility and flip; give one object several sprites and an animator to swap
+  between them.
+- **Combat** — `@Collider` (trigger or solid) + `@Health` + `@Damage`: `@Damage`
+  reads its collider's overlaps and calls `Health.Damage`, which emits `damaged` /
+  `died` for anything else to react to.
+- **State machine** — `@StateMachine` listens to the events above: e.g. transition
+  on `animation_finished` (from `@Animator`) or `died` (from `@Health`), and emit
+  `state_entered`/`state_exited` so other components can react to state changes
+  without polling.
+
+## Scene-level (not components)
+
+- **Camera** — `scene.camera {x, y, zoom, smoothing, lock_x, lock_y}`. `x`/`y` are
+  the view center in world coordinates; `zoom` is the scale factor (center
+  anchored). `smoothing` lerps toward a follow target (0 = snap). Drive it from a
+  custom component via `scene.Camera.Follow(obj)`.
+- **`ui` flag** — an object with `"ui": true` is drawn in screen space (pixels),
+  ignores the camera, and draws on top of all world objects.

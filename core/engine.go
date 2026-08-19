@@ -51,6 +51,11 @@ type Game struct {
 	scenes      map[string]*Scene
 	activeScene *Scene
 
+	// pendingScene queues a scene switch to apply at the start of the next frame
+	// (see SwitchScene), so a scene's objects never draw before their Initialize
+	// has run.
+	pendingScene string
+
 	// Game state
 	running    bool
 	initialized bool
@@ -118,6 +123,19 @@ func (g *Game) SetActiveScene(name string) bool {
 	}
 
 	g.activeScene = scene
+	return true
+}
+
+// SwitchScene queues a scene change to take effect at the start of the next
+// frame. Deferring avoids drawing the new scene before its objects' Initialize()
+// has run (which is what would happen with an immediate SetActiveScene from
+// inside a component's Update). Components reach this via ctx.Game.SwitchScene.
+// Returns false if the scene doesn't exist.
+func (g *Game) SwitchScene(name string) bool {
+	if _, exists := g.scenes[name]; !exists {
+		return false
+	}
+	g.pendingScene = name
 	return true
 }
 
@@ -194,6 +212,18 @@ func (g *Game) Run() error {
 
 // Update updates game logic for the current frame.
 func (g *Game) Update(ctx *Context) {
+	// Expose the game to components so they can switch scenes.
+	ctx.Game = g
+
+	// Apply a queued scene switch before this frame's update so the new scene's
+	// objects initialize before they are ever drawn.
+	if g.pendingScene != "" {
+		if scene, ok := g.scenes[g.pendingScene]; ok {
+			g.activeScene = scene
+		}
+		g.pendingScene = ""
+	}
+
 	if g.activeScene != nil {
 		g.activeScene.Update(ctx)
 	}

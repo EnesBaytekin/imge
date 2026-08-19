@@ -68,6 +68,13 @@ type Dependable interface {
 	Requires() []string
 }
 
+// DrawLayerProvider is an optional interface a component may implement to declare
+// its draw order within its object. BaseComponent implements it via DrawLayer and
+// GetDrawLayer, so any component embedding BaseComponent gets this for free.
+type DrawLayerProvider interface {
+	GetDrawLayer() int
+}
+
 // ============================================================================
 // BaseComponent
 // ============================================================================
@@ -79,6 +86,11 @@ type BaseComponent struct {
 	owner *Object
 	name  string
 	kind  string // component kind (file identifier)
+
+	// DrawLayer orders this component's Draw relative to the object's other
+	// components. Lower layers draw first (behind); equal layers keep insertion
+	// order. Populated from the "draw_layer" JSON arg.
+	DrawLayer int `json:"draw_layer"`
 
 	// handlers maps event name -> registered handler functions, populated via On().
 	handlers map[string][]func(any)
@@ -112,6 +124,11 @@ func (c *BaseComponent) SetKind(kind string) {
 // GetKind returns the component's kind identifier.
 func (c *BaseComponent) GetKind() string {
 	return c.kind
+}
+
+// GetDrawLayer returns the component's draw layer (see DrawLayer).
+func (c *BaseComponent) GetDrawLayer() int {
+	return c.DrawLayer
 }
 
 // Scene returns the scene that contains this component's owner, or nil if the
@@ -171,7 +188,7 @@ func (c *BaseComponent) Emit(name string, data any) {
 	if c.owner == nil || c.owner.Scene == nil || c.owner.Scene.EventManager == nil {
 		return
 	}
-	c.owner.Scene.EventManager.Emit(&Event{Name: name, Data: data})
+	c.owner.Scene.EventManager.Emit(&Event{Name: name, Data: data, Source: c})
 }
 
 // EventNames returns the event names this component has handlers for.

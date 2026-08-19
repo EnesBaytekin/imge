@@ -13,7 +13,7 @@ type Damage struct {
 	core.BaseComponent
 
 	Amount     int      `json:"amount"`
-	TargetTags []string `json:"targetTags"`
+	TargetTags []string `json:"target_tags"`
 	Cooldown   float64  `json:"cooldown"`
 
 	timer float64

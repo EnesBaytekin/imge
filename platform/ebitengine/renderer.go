@@ -22,6 +22,10 @@ type Renderer struct {
 	missing        map[string]bool // textures we already warned about
 	viewportWidth  int
 	viewportHeight int
+	camX           float64 // camera view center (world coords)
+	camY           float64
+	camZoom        float64
+	camActive      bool
 	assetFS        fs.FS // embedded assets (web); nil means use the OS filesystem
 }
 
@@ -39,6 +43,40 @@ func (r *Renderer) begin(target *ebiten.Image) {
 
 func (r *Renderer) setViewport(w, h int) {
 	r.viewportWidth, r.viewportHeight = w, h
+}
+
+// SetCamera applies a world-to-screen camera transform to subsequent draw calls.
+// (cx, cy) is the view center in world coordinates and zoom is the scale factor.
+// A zoom <= 0 disables the transform (raw screen space).
+func (r *Renderer) SetCamera(cx, cy, zoom float64) {
+	if zoom <= 0 {
+		r.camActive = false
+		r.camZoom = 1
+		return
+	}
+	r.camActive = true
+	r.camX = cx
+	r.camY = cy
+	r.camZoom = zoom
+}
+
+// screenPos maps a world point to screen coordinates under the current camera.
+func (r *Renderer) screenPos(p math.Vector2) math.Vector2 {
+	if !r.camActive {
+		return p
+	}
+	return math.NewVector2(
+		(p.X-r.camX)*r.camZoom+float64(r.viewportWidth)/2,
+		(p.Y-r.camY)*r.camZoom+float64(r.viewportHeight)/2,
+	)
+}
+
+// zoom returns the current camera zoom (1 when no camera is active).
+func (r *Renderer) zoom() float64 {
+	if r.camActive {
+		return r.camZoom
+	}
+	return 1
 }
 
 // SetAssetFS sets the filesystem textures are loaded from. Web builds pass their
@@ -64,9 +102,11 @@ func (r *Renderer) DrawRect(rect math.Rect, c math.Color) {
 	if r.target == nil {
 		return
 	}
+	p := r.screenPos(rect.Position)
+	z := r.zoom()
 	vector.DrawFilledRect(r.target,
-		float32(rect.X()), float32(rect.Y()),
-		float32(rect.Width()), float32(rect.Height()),
+		float32(p.X), float32(p.Y),
+		float32(rect.Width()*z), float32(rect.Height()*z),
 		toRGBA(c), false)
 }
 
@@ -75,10 +115,12 @@ func (r *Renderer) DrawRectOutline(rect math.Rect, c math.Color, thickness float
 	if r.target == nil {
 		return
 	}
+	p := r.screenPos(rect.Position)
+	z := r.zoom()
 	vector.StrokeRect(r.target,
-		float32(rect.X()), float32(rect.Y()),
-		float32(rect.Width()), float32(rect.Height()),
-		float32(thickness), toRGBA(c), false)
+		float32(p.X), float32(p.Y),
+		float32(rect.Width()*z), float32(rect.Height()*z),
+		float32(thickness*z), toRGBA(c), false)
 }
 
 // DrawCircle draws a filled circle.
@@ -86,8 +128,10 @@ func (r *Renderer) DrawCircle(center math.Vector2, radius float64, c math.Color)
 	if r.target == nil {
 		return
 	}
+	p := r.screenPos(center)
+	z := r.zoom()
 	vector.DrawFilledCircle(r.target,
-		float32(center.X), float32(center.Y), float32(radius),
+		float32(p.X), float32(p.Y), float32(radius*z),
 		toRGBA(c), false)
 }
 
@@ -96,9 +140,11 @@ func (r *Renderer) DrawCircleOutline(center math.Vector2, radius float64, c math
 	if r.target == nil {
 		return
 	}
+	p := r.screenPos(center)
+	z := r.zoom()
 	vector.StrokeCircle(r.target,
-		float32(center.X), float32(center.Y), float32(radius),
-		float32(thickness), toRGBA(c), false)
+		float32(p.X), float32(p.Y), float32(radius*z),
+		float32(thickness*z), toRGBA(c), false)
 }
 
 // DrawLine draws a line between two points.
@@ -106,10 +152,13 @@ func (r *Renderer) DrawLine(start, end math.Vector2, c math.Color, thickness flo
 	if r.target == nil {
 		return
 	}
+	s := r.screenPos(start)
+	e := r.screenPos(end)
+	z := r.zoom()
 	vector.StrokeLine(r.target,
-		float32(start.X), float32(start.Y),
-		float32(end.X), float32(end.Y),
-		float32(thickness), toRGBA(c), false)
+		float32(s.X), float32(s.Y),
+		float32(e.X), float32(e.Y),
+		float32(thickness*z), toRGBA(c), false)
 }
 
 // DrawTexture draws a texture (or a sub-region of it) at the given position with
@@ -138,29 +187,36 @@ func (r *Renderer) DrawTexture(textureID string, src math.Rect, position math.Ve
 		w, h = float64(b.Dx()), float64(b.Dy())
 	}
 
+	// Apply the camera: world position -> screen position, world scale -> screen
+	// scale. Rotation is unchanged (uniform zoom preserves angles).
+	pos := r.screenPos(position)
+	z := r.zoom()
+	sx := scale.X * z
+	sy := scale.Y * z
+
 	cx := w / 2
 	cy := h / 2
 
 	// Negative scale is used for flips. Mirror around the drawn image's center so a
-	// flipped sprite keeps the same bounding box (top-left at `position`) instead
-	// of flipping around its top-left corner, which would shift it by one full
-	// drawn width/height.
-	px := position.X
-	py := position.Y
-	if scale.X < 0 {
-		px -= scale.X * w // scale.X is negative, so this adds the drawn width
+	// flipped sprite keeps the same bounding box (top-left at `pos`) instead of
+	// flipping around its top-left corner, which would shift it by one full drawn
+	// width/height.
+	px := pos.X
+	py := pos.Y
+	if sx < 0 {
+		px -= sx * w // sx is negative, so this adds the drawn width
 	}
-	if scale.Y < 0 {
-		py -= scale.Y * h
+	if sy < 0 {
+		py -= sy * h
 	}
 
 	opts := &ebiten.DrawImageOptions{}
 	// Anchor the (sub-)image at its center, apply scale and rotation, then place
-	// its top-left corner at `position`.
+	// its top-left corner at `pos`.
 	opts.GeoM.Translate(-cx, -cy)
-	opts.GeoM.Scale(scale.X, scale.Y)
+	opts.GeoM.Scale(sx, sy)
 	opts.GeoM.Rotate(rotation)
-	opts.GeoM.Translate(px+cx*scale.X, py+cy*scale.Y)
+	opts.GeoM.Translate(px+cx*sx, py+cy*sy)
 	opts.ColorScale.ScaleWithColor(toRGBA(tint))
 
 	r.target.DrawImage(drawImg, opts)

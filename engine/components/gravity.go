@@ -13,7 +13,7 @@ type Gravity struct {
 	core.BaseComponent
 
 	Acceleration math.Vector2 `json:"acceleration"`
-	MaxSpeed     float64      `json:"maxSpeed"`
+	MaxSpeed     float64      `json:"max_speed"`
 
 	velocity *Velocity
 }
