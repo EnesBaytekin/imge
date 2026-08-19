@@ -36,7 +36,7 @@ imge run       # build and launch — move with WASD, enemies chase you
 
 ```
 mygame/
-├── game.json      # window title/size, FPS, initial scene
+├── game.imge      # window title/size, FPS, initial scene
 ├── components/    # your Go components (any nesting depth)
 ├── scenes/        # scene definitions (.scene)
 ├── objects/       # object templates (.obj)
@@ -63,7 +63,7 @@ you write in `components/`.
 Example — give an object a sprite and a hitbox:
 
 ```json
-{ "kind": "@Sprite",  "name": "sprite", "args": { "texture": "player.png", "width": 32, "height": 32 } },
+{ "kind": "@Sprite",  "name": "sprite", "args": { "texture": "assets/player.png", "width": 32, "height": 32 } },
 { "kind": "@Collider", "name": "hitbox", "args": { "width": 32, "height": 32 } }
 ```
 

@@ -23,7 +23,7 @@ type Platform struct {
 	filesystem *FileSystem
 
 	// logicalWidth/logicalHeight is the game's fixed logical screen size (from
-	// game.json). Layout returns this size so the surface letterboxes the game
+	// game.imge). Layout returns this size so the surface letterboxes the game
 	// inside the actual window/browser, preserving the aspect ratio instead of
 	// stretching to whatever the browser viewport happens to be.
 	logicalWidth  int

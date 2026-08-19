@@ -37,7 +37,7 @@ func (c *CrateComponent) breakOpen() {
 		return
 	}
 	if c.ctx != nil {
-		c.ctx.Audio.PlaySound("crate.wav", 0.9, 1.0)
+		c.ctx.Audio.PlaySound("assets/crate.wav", 0.9, 1.0)
 	}
 
 	x := owner.Transform.Position.X
@@ -56,10 +56,10 @@ func spawnGold(scene *core.Scene, x, y float64) {
 
 	gold := &GoldComponent{Amplitude: 5, Speed: 3}
 	gold.SetName("gold")
-	gold.SetKind("components/gold.go")
+	gold.SetKind("GoldComponent")
 	_ = obj.AddComponent(gold)
 
-	spr := &Sprite{Texture: "coin.png", Width: 20, Height: 20}
+	spr := &Sprite{Texture: "assets/coin.png", Width: 20, Height: 20}
 	spr.SetName("sprite")
 	spr.SetKind("@Sprite")
 	_ = obj.AddComponent(spr)
@@ -83,7 +83,7 @@ func spawnPoof(scene *core.Scene, x, y float64) {
 	obj.SetDepth(6)
 	obj.SetPosition(x, y)
 
-	spr := &Sprite{Texture: "orb.png", Width: 20, Height: 20}
+	spr := &Sprite{Texture: "assets/orb.png", Width: 20, Height: 20}
 	spr.SetName("sprite")
 	spr.SetKind("@Sprite")
 	_ = obj.AddComponent(spr)

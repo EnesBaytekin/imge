@@ -6,7 +6,7 @@ the standard project layout, ready for you to drop in objects and components.
 ## Project layout
 
 ```
-game.json             window / FPS / initial scene
+game.imge             window / FPS / initial scene
 scenes/main.scene     the starting scene (add objects here)
 objects/              reusable object templates (*.obj)
 components/           custom component scripts (Go)
@@ -25,7 +25,7 @@ sprite and gives it a solid collider:
   "tags": ["platform"],
   "transform": { "position": { "x": 100, "y": 300 } },
   "components": [
-    { "kind": "@Sprite",   "args": { "texture": "box.png", "width": 32, "height": 32 } },
+    { "kind": "@Sprite",   "args": { "texture": "assets/box.png", "width": 32, "height": 32 } },
     { "kind": "@Collider", "args": { "width": 32, "height": 32, "mode": "solid" } }
   ]
 }
@@ -34,8 +34,8 @@ sprite and gives it a solid collider:
 Built-in components are named `@Name` (`@Sprite`, `@Collider`, `@Mover`,
 `@Velocity`, `@Gravity`, `@Friction`, `@Animator`, `@Health`, `@Damage`,
 `@Spin`, `@Chase`, `@Patrol`, `@Wander`, `@Bounce`, `@Follow`, `@Sound`, …).
-A component in `components/` gets a `kind` equal to its project-relative path
-(e.g. `components/player.go`).
+A component in `components/` gets a `kind` equal to its Go struct type name
+(e.g. a struct `FooComponent` is referenced as `"kind": "FooComponent"`).
 
 ## Writing a custom component
 

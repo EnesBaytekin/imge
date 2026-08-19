@@ -150,7 +150,10 @@ func (g *Generator) componentKinds() ([]componentKind, error) {
 		})
 	}
 
-	// User components, from disk.
+	// User components, from disk. Their kind is the Go struct type name: every
+	// component — built-in and custom — is merged into one `components` package,
+	// so type names are already unique. Referencing the type (not the file path)
+	// keeps the JSON stable if the file is later moved or renamed.
 	for _, compFile := range g.Analysis.ComponentFiles {
 		src, err := os.ReadFile(filepath.Join(g.Analysis.ProjectDir, compFile))
 		if err != nil {
@@ -161,7 +164,7 @@ func (g *Generator) componentKinds() ([]componentKind, error) {
 			return nil, fmt.Errorf("component file %s: %w", compFile, err)
 		}
 		kinds = append(kinds, componentKind{
-			kind:     filepath.ToSlash(compFile),
+			kind:     typeName,
 			typeName: typeName,
 			source:   compFile,
 			requires: findRequires(src),

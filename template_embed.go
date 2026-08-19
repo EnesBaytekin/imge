@@ -16,7 +16,7 @@ import (
 var SampleTemplate embed.FS
 
 // BlankTemplate embeds the minimal starter project that `imge init` (no
-// argument) writes into an empty directory: a game.json, one empty scene, and a
+// argument) writes into an empty directory: a game.imge, one empty scene, and a
 // README, so a developer can start defining objects without writing any JSON
 // scaffolding from scratch.
 //
@@ -28,7 +28,7 @@ var BlankTemplate embed.FS
 // merged into a game's single components package at build time.
 
 // ExtractSampleTemplate writes the embedded sample project into dst, preserving
-// its layout (components/, scenes/, objects/, assets/, game.json, README.md).
+// its layout (components/, scenes/, objects/, assets/, game.imge, README.md).
 func ExtractSampleTemplate(dst string) error {
 	return extractTemplate(SampleTemplate, "testdata/template", dst)
 }

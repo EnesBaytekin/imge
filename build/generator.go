@@ -148,47 +148,63 @@ func flattenComponentName(rel string) string {
 	return strings.ReplaceAll(dir, "/", "_") + "_" + base
 }
 
-// copyProjectData copies the assets/, scenes/, and objects/ directories (any
-// that exist) into the build dir so they can be embedded into the final binary.
+// copyProjectData copies the entire project tree (minus source and build output)
+// into <buildDir>/project/ so it can be embedded as a single unit. Embedding the
+// whole project — rather than only assets/, scenes/, and objects/ — is what lets
+// developers organize data files anywhere under the project root and reference
+// them by their root-relative path.
 func (g *Generator) copyProjectData() error {
-	for _, dir := range []string{"assets", "scenes", "objects"} {
-		src := filepath.Join(g.Analysis.ProjectDir, dir)
-		if _, err := os.Stat(src); os.IsNotExist(err) {
-			continue
-		}
-		if err := copyDir(src, filepath.Join(g.BuildDir, dir)); err != nil {
-			return fmt.Errorf("failed to copy %s: %w", dir, err)
-		}
+	dst := filepath.Join(g.BuildDir, "project")
+	if err := os.MkdirAll(dst, 0755); err != nil {
+		return err
 	}
-	return nil
+
+	return filepath.WalkDir(g.Analysis.ProjectDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case ".git", ".imge_build", "imge_build", "node_modules":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		// Component source is compiled into the binary, not embedded as data.
+		if strings.HasSuffix(d.Name(), ".go") {
+			return nil
+		}
+
+		relPath, err := filepath.Rel(g.Analysis.ProjectDir, path)
+		if err != nil {
+			return err
+		}
+		dstPath := filepath.Join(dst, relPath)
+		if err := os.MkdirAll(filepath.Dir(dstPath), 0755); err != nil {
+			return err
+		}
+		return copyFile(path, dstPath)
+	})
 }
 
 // generateMainGo writes the Ebitengine entrypoint for the selected target. The
 // generated program embeds the project data, loads every scene, and hands
 // control to the Ebitengine platform's Run loop.
 func (g *Generator) generateMainGo() error {
-	// Determine which data directories exist so we only embed what's present.
-	var patterns []string
-	for _, dir := range []string{"assets", "scenes", "objects"} {
-		if dirHasFiles(filepath.Join(g.BuildDir, dir)) {
-			patterns = append(patterns, dir)
-		}
-	}
-
+	hasData := dirHasFiles(filepath.Join(g.BuildDir, "project"))
 	if g.Target == TargetWeb {
-		return g.generateWebMainGo(patterns)
+		return g.generateWebMainGo(hasData)
 	}
-	return g.generateDesktopMainGo(patterns)
+	return g.generateDesktopMainGo(hasData)
 }
 
 // generateDesktopMainGo writes the native entrypoint. It extracts the embedded
-// data to a temp directory and chdirs into it so relative paths (and asset
+// data to a temp directory and chdirs into it so root-relative paths (and asset
 // loading via the OS filesystem) work exactly as they do during development.
-func (g *Generator) generateDesktopMainGo(patterns []string) error {
+func (g *Generator) generateDesktopMainGo(hasData bool) error {
 	embedDirective := ""
-	hasData := len(patterns) > 0
 	if hasData {
-		embedDirective = "//go:embed " + strings.Join(patterns, " ") + "\n"
+		embedDirective = "//go:embed all:project\n"
 	}
 
 	data := struct {
@@ -217,9 +233,9 @@ func (g *Generator) generateDesktopMainGo(patterns []string) error {
 // generateWebMainGo writes the WebAssembly entrypoint. It loads scenes and their
 // referenced object files directly from the embedded filesystem (no OS file I/O,
 // which is unavailable in the browser).
-func (g *Generator) generateWebMainGo(patterns []string) error {
-	if len(patterns) == 0 {
-		return fmt.Errorf("web build requires at least one of scenes/, objects/, or assets/")
+func (g *Generator) generateWebMainGo(hasData bool) error {
+	if !hasData {
+		return fmt.Errorf("web build requires project data (scenes, objects, or assets)")
 	}
 
 	data := struct {
@@ -229,7 +245,7 @@ func (g *Generator) generateWebMainGo(patterns []string) error {
 		WindowHeight  int
 		TargetFPS     int
 		InitialScene  string
-		EmbedPatterns string
+		HasData       bool
 	}{
 		ModuleName:    fmt.Sprintf("%s_build", filepath.Base(g.Analysis.ProjectDir)),
 		WindowTitle:   g.Analysis.GameConfig.Window.Title,
@@ -237,7 +253,7 @@ func (g *Generator) generateWebMainGo(patterns []string) error {
 		WindowHeight:  g.Analysis.GameConfig.Window.Height,
 		TargetFPS:     g.Analysis.GameConfig.Game.TargetFPS,
 		InitialScene:  g.Analysis.GameConfig.Game.InitialScene,
-		EmbedPatterns: strings.Join(patterns, " "),
+		HasData:       hasData,
 	}
 
 	return g.renderTemplate(mainTemplateWeb, data)
@@ -286,8 +302,9 @@ import (
 {{.EmbedDirective}}var projectData embed.FS
 
 func main() {
-	// Extract embedded game data to a temp directory so all relative paths
-	// (objects/, scenes/, assets/) resolve exactly as they did in the project.
+	// Extract embedded game data to a temp directory so every root-relative path
+	// (objects, scenes, assets, or any free-form layout) resolves exactly as it
+	// did in the project.
 	dataDir, err := extractProjectData()
 	if err != nil {
 		log.Fatalf("failed to extract project data: %v", err)
@@ -324,27 +341,26 @@ func main() {
 	}
 }
 
-// loadScenes loads every .scene file under scenes/ so the initial scene (and any
-// scene the game switches to later) is available.
+// loadScenes walks the extracted project root and loads every .scene file found,
+// at any depth, so the initial scene (and any scene the game switches to later)
+// is available.
 func loadScenes(game *core.Game) {
-	entries, err := os.ReadDir("scenes")
-	if err != nil {
-		log.Printf("warning: no scenes directory found: %v", err)
-		return
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".scene") {
-			continue
+	_ = filepath.WalkDir(".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
 		}
-		name := strings.TrimSuffix(entry.Name(), ".scene")
+		if d.IsDir() || !strings.HasSuffix(d.Name(), ".scene") {
+			return nil
+		}
+		name := strings.TrimSuffix(d.Name(), ".scene")
 		scene := core.NewScene(name)
-		if err := scene.LoadFromFile(filepath.Join("scenes", entry.Name())); err != nil {
-			log.Printf("warning: failed to load scene %q: %v", name, err)
-			continue
+		if err := scene.LoadFromFile(p); err != nil {
+			log.Printf("warning: failed to load scene %q: %v", p, err)
+			return nil
 		}
 		game.AddScene(scene)
-	}
+		return nil
+	})
 }
 
 // extractProjectData writes the embedded game data to a fresh temp directory.
@@ -354,7 +370,7 @@ func extractProjectData() (string, error) {
 		return "", err
 	}
 {{if .HasData}}
-	if err := writeFS(projectData, ".", dir); err != nil {
+	if err := writeFS(projectData, "project", dir); err != nil {
 		os.RemoveAll(dir)
 		return "", err
 	}
@@ -404,7 +420,7 @@ import (
 	_ "{{.ModuleName}}/components"
 )
 
-//go:embed {{.EmbedPatterns}}
+//go:embed all:project
 var projectData embed.FS
 
 func main() {
@@ -414,9 +430,16 @@ func main() {
 	}
 	defer platform.Cleanup()
 
+	// Re-root the embedded FS to the project/ prefix so every path is
+	// project-relative, matching the OS filesystem on desktop builds.
+	projectFS, err := fs.Sub(projectData, "project")
+	if err != nil {
+		log.Fatalf("failed to resolve embedded project data: %v", err)
+	}
+
 	// Load textures and audio from the embedded filesystem (no OS file I/O in
 	// the browser).
-	platform.SetAssetFS(projectData)
+	platform.SetAssetFS(projectFS)
 
 	game := core.NewGameWithConfig(core.Config{
 		WindowWidth:  {{.WindowWidth}},
@@ -431,33 +454,33 @@ func main() {
 		log.Fatalf("failed to initialize game: %v", err)
 	}
 
-	loadScenes(game)
+	loadScenes(game, projectFS)
 
 	if err := platform.Run(game); err != nil {
 		log.Fatalf("game error: %v", err)
 	}
 }
 
-// loadScenes loads every .scene file from the embedded filesystem.
-func loadScenes(game *core.Game) {
-	entries, err := fs.ReadDir(projectData, "scenes")
-	if err != nil {
-		log.Printf("warning: no scenes directory found: %v", err)
-		return
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".scene") {
-			continue
+// loadScenes walks the embedded project FS and loads every .scene file found, at
+// any depth, so the initial scene (and any scene the game switches to later) is
+// available.
+func loadScenes(game *core.Game, projectFS fs.FS) {
+	_ = fs.WalkDir(projectFS, ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
 		}
-		name := strings.TrimSuffix(entry.Name(), ".scene")
+		if d.IsDir() || !strings.HasSuffix(d.Name(), ".scene") {
+			return nil
+		}
+		name := strings.TrimSuffix(d.Name(), ".scene")
 		scene := core.NewScene(name)
-		if err := scene.LoadFromFS(projectData, "scenes/"+entry.Name()); err != nil {
-			log.Printf("warning: failed to load scene %q: %v", name, err)
-			continue
+		if err := scene.LoadFromFS(projectFS, p); err != nil {
+			log.Printf("warning: failed to load scene %q: %v", p, err)
+			return nil
 		}
 		game.AddScene(scene)
-	}
+		return nil
+	})
 }
 `
 
@@ -500,31 +523,6 @@ func dirHasFiles(dir string) bool {
 		return nil
 	})
 	return found
-}
-
-// copyDir copies all files in src into dst, preserving relative paths. Test
-// files are skipped so they don't leak into the final binary's module graph.
-func copyDir(src, dst string) error {
-	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() {
-			return nil
-		}
-		if strings.HasSuffix(info.Name(), "_test.go") {
-			return nil
-		}
-		relPath, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
-		dstPath := filepath.Join(dst, relPath)
-		if err := os.MkdirAll(filepath.Dir(dstPath), 0755); err != nil {
-			return err
-		}
-		return copyFile(path, dstPath)
-	})
 }
 
 // copyFile copies a single file, preserving its permissions.

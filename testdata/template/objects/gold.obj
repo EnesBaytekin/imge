@@ -6,7 +6,7 @@
     {
       "kind": "@Sprite",
       "name": "sprite",
-      "args": { "texture": "coin.png", "width": 20, "height": 20 }
+      "args": { "texture": "assets/coin.png", "width": 20, "height": 20 }
     },
     { "kind": "@Spin", "name": "spin", "args": { "speed": 3 } },
     {
@@ -15,7 +15,7 @@
       "args": { "width": 20, "height": 20, "mode": "trigger", "collidesWith": ["player"] }
     },
     {
-      "kind": "components/gold.go",
+      "kind": "GoldComponent",
       "name": "gold",
       "args": { "amplitude": 5, "speed": 3 }
     }

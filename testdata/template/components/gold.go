@@ -65,7 +65,7 @@ func (c *GoldComponent) Update(ctx *core.Context) {
 
 func (c *GoldComponent) collect() {
 	if c.ctx != nil {
-		c.ctx.Audio.PlaySound("pickup.wav", 0.8, 1.0)
+		c.ctx.Audio.PlaySound("assets/pickup.wav", 0.8, 1.0)
 	}
 	c.Emit("gold_collected", c.GetOwner())
 	if owner := c.GetOwner(); owner != nil {

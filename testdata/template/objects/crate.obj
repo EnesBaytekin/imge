@@ -6,7 +6,7 @@
     {
       "kind": "@Sprite",
       "name": "sprite",
-      "args": { "texture": "crate.png", "width": 24, "height": 24 }
+      "args": { "texture": "assets/crate.png", "width": 24, "height": 24 }
     },
     {
       "kind": "@Collider",
@@ -21,6 +21,6 @@
       "args": { "acceleration": { "x": 0, "y": 980 }, "maxSpeed": 700 }
     },
     { "kind": "@Health", "name": "health", "args": { "max": 1 } },
-    { "kind": "components/crate.go", "name": "crate", "args": {} }
+    { "kind": "CrateComponent", "name": "crate", "args": {} }
   ]
 }

@@ -1,6 +1,6 @@
 {
   "name": "IMGE Platformer Demo",
-  "version": "1.0.0",
+  "format_version": 1,
   "window": {
     "title": "IMGE Platformer Demo",
     "width": 800,

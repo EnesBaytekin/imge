@@ -1,5 +1,7 @@
 # Built-in Components
 
+> ← [Documentation index](README.md) · [Custom components](custom-components.md) · [Events](events.md)
+
 IMGE ships a small library of **built-in components**. They are not special — they
 implement the same `core.Component` interface as user components, and at build time
 they are merged into the project's single `components` package, so any component
@@ -11,8 +13,8 @@ args are **snake_case**.
 
 ## The component model
 
-- **Kind** — `@Name` for built-ins (e.g. `@Sprite`), a file path for user
-  components (`components/player.go`).
+- **Kind** — `@Name` for built-ins (e.g. `@Sprite`), the struct type name for user
+  components (e.g. `PlayerComponent`).
 - **Lifecycle** — `Initialize()` once after the scene is fully assembled, then
   `Update(ctx)` every frame, then `Draw(renderer)`. Draw order within an object is
   by `draw_layer` (a field every component inherits via `BaseComponent`; lower
@@ -131,12 +133,16 @@ for collision resolution.** Without a `@Mover`, they move the position directly
 ## Collision & combat
 
 ### `@Collider`
-- Args: `width`, `height`, `mode`, `push_factor`, `collides_with []`.
+- Args: `width`, `height`, `offset {x,y}`, `mode`, `push_factor`, `collides_with []`.
 - `mode`: `solid` (blocks), `pushable` (pushed by movers; `push_factor` scales the
   slide, 0 = immovable, 1 = full), `trigger` (detects only).
+- `offset` shifts the rectangle relative to the owner's position (top-left corner).
+  Use it when the sprite and hitbox have different origins.
 - `collides_with` lists tags to interact with (empty = everything).
 - Tracks overlaps each frame and emits `collision_enter` / `collision_exit`
-  (data = other object). `GetOverlaps()` returns the current overlapping objects.
+  (data = other object).
+- Methods: `GetBounds`, `SetSize`, `SetOffset`, `GetSize`, `CheckOverlap`,
+  `ContainsPoint`, `GetOverlaps` (sorted by ID).
 
 ### `@Health`
 - Args: `max` (default 100). `Damage(amount)` / `Heal(amount)`.
@@ -211,3 +217,11 @@ state lists the transitions that may leave it.
   custom component via `scene.Camera.Follow(obj)`.
 - **`ui` flag** — an object with `"ui": true` is drawn in screen space (pixels),
   ignores the camera, and draws on top of all world objects.
+
+## Related
+
+- [Events](events.md) — the `Emit`/`On` model and the full event table.
+- [Custom components](custom-components.md) — how these are all just the same
+  `core.Component` interface you implement yourself.
+- [JSON format](json-format.md) — the exact `args` key names (snake_case) for the
+  tables above.

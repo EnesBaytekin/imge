@@ -1,6 +1,6 @@
 {
   "name": "My Game",
-  "version": "1.0.0",
+  "format_version": 1,
   "window": {
     "title": "My IMGE Game",
     "width": 800,

@@ -60,8 +60,9 @@ func (a *Audio) SetAssetFS(fsys fs.FS) {
 }
 
 // load decodes an audio file and caches its PCM data. soundID is used as both
-// the cache key and the asset path, resolved from the working directory or
-// assets/ (or the embedded filesystem on web).
+// the cache key and the asset path, resolved exactly as written (project-root-
+// relative; no assets/ fallback) — from the embedded filesystem on web, or the
+// OS filesystem on desktop.
 func (a *Audio) load(cache map[string]*sound, soundID string) error {
 	if _, ok := cache[soundID]; ok {
 		return nil

@@ -27,12 +27,18 @@ const (
 // currently overlap it (emitting "collision_enter"/"collision_exit"), and — via
 // its Mode — tells movers how to resolve against it.
 //
-// Export variables (JSON args): width, height, mode, pushFactor, collidesWith.
+// Export variables (JSON args): width, height, offset {x,y}, mode, pushFactor,
+// collidesWith.
 type Collider struct {
 	core.BaseComponent
 
 	Width  float64 `json:"width"`
 	Height float64 `json:"height"`
+
+	// Offset shifts the collider rectangle relative to the owner's position
+	// (top-left corner). Use it when the sprite and hitbox have different
+	// origins — e.g. the sprite is centered but the collider should be.
+	Offset math.Vector2 `json:"offset"`
 
 	// Mode controls how movement resolves against this collider.
 	Mode ColliderMode `json:"mode"`
@@ -97,15 +103,15 @@ func (c *Collider) Update(ctx *core.Context) {
 }
 
 // GetBounds returns the collider rectangle in world space, anchored at the
-// owner's position (top-left corner).
+// owner's position plus Offset (top-left corner).
 func (c *Collider) GetBounds() math.Rect {
 	owner := c.GetOwner()
 	if owner == nil {
-		return math.NewRect(0, 0, c.Width, c.Height)
+		return math.NewRect(c.Offset.X, c.Offset.Y, c.Width, c.Height)
 	}
 	return math.NewRect(
-		owner.Transform.Position.X,
-		owner.Transform.Position.Y,
+		owner.Transform.Position.X+c.Offset.X,
+		owner.Transform.Position.Y+c.Offset.Y,
 		c.Width,
 		c.Height,
 	)
@@ -115,6 +121,12 @@ func (c *Collider) GetBounds() math.Rect {
 func (c *Collider) SetSize(width, height float64) {
 	c.Width = width
 	c.Height = height
+}
+
+// SetOffset sets the offset added to the owner's position before computing the
+// collider bounds.
+func (c *Collider) SetOffset(x, y float64) {
+	c.Offset = math.NewVector2(x, y)
 }
 
 // GetSize returns the collider dimensions.

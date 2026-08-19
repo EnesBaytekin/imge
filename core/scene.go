@@ -458,7 +458,9 @@ func (s *Scene) loadFromJSON(data []byte, fsys fs.FS) error {
 		return fmt.Errorf("failed to parse scene JSON: %w", err)
 	}
 
-	s.Name = config.Name
+	if config.Name != "" {
+		s.Name = config.Name
+	}
 	if config.BackgroundColor != "" {
 		if c, err := math.ParseHex(config.BackgroundColor); err == nil {
 			s.BackgroundColor = c

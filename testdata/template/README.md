@@ -3,7 +3,7 @@
 A small pixel-art platformer that exercises as much of IMGE's built-in component
 library as possible, plus a handful of custom components. It doubles as a
 playground for the engine's Faz 1 component API (export variables, events,
-`Requires()` dependency declarations, and the `@Builtin` / `components/*.go`
+`Requires()` dependency declarations, and the `@Builtin` / struct-type-name
 kind system).
 
 ## Controls
@@ -29,7 +29,7 @@ hurt you; if your hearts run out you respawn at the start.
 ## Project layout
 
 ```
-game.json               window / FPS / initial scene
+game.imge               window / FPS / initial scene
 assets/                 PNG sprite sheets + WAV sounds
 scenes/main.scene       the whole level (inline objects + file refs)
 objects/crate.obj       reusable "crate" template

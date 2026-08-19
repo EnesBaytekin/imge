@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"path/filepath"
 
 	"github.com/EnesBaytekin/imge"
 	"github.com/EnesBaytekin/imge/build"
@@ -191,8 +190,8 @@ func requireProjectDir() string {
 	if err != nil {
 		log.Fatalf("Failed to get current directory: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(projectDir, "game.json")); os.IsNotExist(err) {
-		log.Fatal("No game.json found in this directory. Run `imge init` first.")
+	if _, err := build.FindGameFile(projectDir); err != nil {
+		log.Fatal("No game.imge found in this directory. Run `imge init` first.")
 	}
 	return projectDir
 }

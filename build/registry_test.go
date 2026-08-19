@@ -109,7 +109,7 @@ func TestGenerateRegistry(t *testing.T) {
 	g := &Generator{BuildDir: dir}
 	kinds := []componentKind{
 		{kind: "@Collider", typeName: "Collider", source: "built-in:collider.go"},
-		{kind: "components/player.go", typeName: "PlayerComponent", source: "components/player.go"},
+		{kind: "PlayerComponent", typeName: "PlayerComponent", source: "components/player.go"},
 	}
 	if err := g.generateRegistry(kinds); err != nil {
 		t.Fatal(err)
@@ -123,7 +123,7 @@ func TestGenerateRegistry(t *testing.T) {
 	for _, want := range []string{
 		"package components",
 		`core.RegisterComponent("@Collider", func() core.Component { return &Collider{} })`,
-		`core.RegisterComponent("components/player.go", func() core.Component { return &PlayerComponent{} })`,
+		`core.RegisterComponent("PlayerComponent", func() core.Component { return &PlayerComponent{} })`,
 	} {
 		if !strings.Contains(content, want) {
 			t.Errorf("registry missing %q\n---\n%s", want, content)
@@ -189,7 +189,7 @@ type PlayerComponent struct {
 		{"@TimedDespawn", "TimedDespawn"},
 		{"@Velocity", "Velocity"},
 		{"@Wander", "Wander"},
-		{"components/player.go", "PlayerComponent"},
+		{"PlayerComponent", "PlayerComponent"},
 	} {
 		if got[want.kind] != want.typeName {
 			t.Errorf("kind %q = %q, want %q (all: %v)", want.kind, got[want.kind], want.typeName, got)

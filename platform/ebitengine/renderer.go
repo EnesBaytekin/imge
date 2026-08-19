@@ -246,8 +246,9 @@ func (r *Renderer) GetViewportSize() (width, height int) {
 	return r.viewportWidth, r.viewportHeight
 }
 
-// loadTexture loads and caches a texture by ID. The ID is treated as a file path,
-// resolved relative to the current working directory or the assets/ directory.
+// loadTexture loads and caches a texture by ID. The ID is treated as a
+// project-root-relative file path, resolved exactly as written (no assets/
+// fallback).
 func (r *Renderer) loadTexture(textureID string) *ebiten.Image {
 	if img, ok := r.textures[textureID]; ok {
 		return img

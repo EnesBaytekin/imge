@@ -7,7 +7,7 @@
       "depth": 100,
       "tags": ["game"],
       "components": [
-        { "kind": "components/game.go", "name": "game", "args": { "total": 5 } }
+        { "kind": "GameComponent", "name": "game", "args": { "total": 5 } }
       ]
     },
 
@@ -17,7 +17,7 @@
       "tags": ["platform"],
       "transform": { "position": { "x": 0, "y": 536 } },
       "components": [
-        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "platform.png", "width": 800, "height": 64 } },
+        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/platform.png", "width": 800, "height": 64 } },
         { "kind": "@Collider", "name": "hitbox", "args": { "width": 800, "height": 64, "mode": "solid" } }
       ]
     },
@@ -28,7 +28,7 @@
       "tags": ["wall"],
       "transform": { "position": { "x": 0, "y": 0 } },
       "components": [
-        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "platform.png", "width": 16, "height": 600 } },
+        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/platform.png", "width": 16, "height": 600 } },
         { "kind": "@Collider", "name": "hitbox", "args": { "width": 16, "height": 600, "mode": "solid" } }
       ]
     },
@@ -39,7 +39,7 @@
       "tags": ["wall"],
       "transform": { "position": { "x": 784, "y": 0 } },
       "components": [
-        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "platform.png", "width": 16, "height": 600 } },
+        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/platform.png", "width": 16, "height": 600 } },
         { "kind": "@Collider", "name": "hitbox", "args": { "width": 16, "height": 600, "mode": "solid" } }
       ]
     },
@@ -50,7 +50,7 @@
       "tags": ["platform"],
       "transform": { "position": { "x": 140, "y": 440 } },
       "components": [
-        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "platform.png", "width": 176, "height": 24 } },
+        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/platform.png", "width": 176, "height": 24 } },
         { "kind": "@Collider", "name": "hitbox", "args": { "width": 176, "height": 24, "mode": "solid" } }
       ]
     },
@@ -61,7 +61,7 @@
       "tags": ["platform"],
       "transform": { "position": { "x": 380, "y": 360 } },
       "components": [
-        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "platform.png", "width": 144, "height": 24 } },
+        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/platform.png", "width": 144, "height": 24 } },
         { "kind": "@Collider", "name": "hitbox", "args": { "width": 144, "height": 24, "mode": "solid" } }
       ]
     },
@@ -72,7 +72,7 @@
       "tags": ["platform"],
       "transform": { "position": { "x": 600, "y": 440 } },
       "components": [
-        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "platform.png", "width": 128, "height": 24 } },
+        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/platform.png", "width": 128, "height": 24 } },
         { "kind": "@Collider", "name": "hitbox", "args": { "width": 128, "height": 24, "mode": "solid" } }
       ]
     },
@@ -83,7 +83,7 @@
       "tags": ["platform"],
       "transform": { "position": { "x": 60, "y": 300 } },
       "components": [
-        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "platform.png", "width": 96, "height": 24 } },
+        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/platform.png", "width": 96, "height": 24 } },
         { "kind": "@Collider", "name": "hitbox", "args": { "width": 96, "height": 24, "mode": "solid" } }
       ]
     },
@@ -101,7 +101,7 @@
       "tags": ["door"],
       "transform": { "position": { "x": 724, "y": 488 } },
       "components": [
-        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "door.png", "width": 32, "height": 48 } },
+        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/door.png", "width": 32, "height": 48 } },
         {
           "kind": "@Animator",
           "name": "animator",
@@ -117,9 +117,9 @@
             ]
           }
         },
-        { "kind": "@Sound", "name": "sound", "args": { "sound": "door.wav" } },
+        { "kind": "@Sound", "name": "sound", "args": { "sound": "assets/door.wav" } },
         { "kind": "@Collider", "name": "hitbox", "args": { "width": 32, "height": 48, "mode": "trigger", "collidesWith": ["player"] } },
-        { "kind": "components/door.go", "name": "door", "args": { "openDistance": 40, "warnDistance": 100 } }
+        { "kind": "DoorComponent", "name": "door", "args": { "openDistance": 40, "warnDistance": 100 } }
       ]
     },
 
@@ -129,7 +129,7 @@
       "tags": ["hazard"],
       "transform": { "position": { "x": 360, "y": 528 } },
       "components": [
-        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "spike.png", "width": 24, "height": 8, "tint": { "r": 230, "g": 70, "b": 70, "a": 255 } } },
+        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/spike.png", "width": 24, "height": 8, "tint": { "r": 230, "g": 70, "b": 70, "a": 255 } } },
         { "kind": "@Collider", "name": "hitbox", "args": { "width": 24, "height": 8, "mode": "trigger", "collidesWith": ["player"] } },
         { "kind": "@Damage", "name": "damage", "args": { "amount": 1, "targetTags": ["player"], "cooldown": 1 } }
       ]
@@ -147,7 +147,7 @@
         { "kind": "@Gravity", "name": "gravity", "args": { "acceleration": { "x": 0, "y": 980 }, "maxSpeed": 700 } },
         { "kind": "@Patrol", "name": "patrol", "args": { "speed": 50, "points": [ { "x": 620, "y": 416 }, { "x": 700, "y": 416 } ] } },
         { "kind": "@Spin", "name": "spin", "args": { "speed": 4 } },
-        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "enemy.png", "width": 24, "height": 24, "tint": { "r": 255, "g": 150, "b": 50, "a": 255 } } }
+        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/enemy.png", "width": 24, "height": 24, "tint": { "r": 255, "g": 150, "b": 50, "a": 255 } } }
       ]
     },
 
@@ -157,7 +157,7 @@
       "tags": ["enemy"],
       "transform": { "position": { "x": 500, "y": 150 } },
       "components": [
-        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "enemy.png", "width": 20, "height": 20, "tint": { "r": 180, "g": 90, "b": 255, "a": 255 } } },
+        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/enemy.png", "width": 20, "height": 20, "tint": { "r": 180, "g": 90, "b": 255, "a": 255 } } },
         { "kind": "@Spin", "name": "spin", "args": { "speed": 6 } },
         { "kind": "@Mover", "name": "mover", "args": {} },
         { "kind": "@Chase", "name": "chase", "args": { "speed": 90, "targetTag": "player", "stopDistance": 40 } }
@@ -170,7 +170,7 @@
       "tags": ["firefly"],
       "transform": { "position": { "x": 600, "y": 100 } },
       "components": [
-        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "orb.png", "width": 12, "height": 12, "tint": { "r": 255, "g": 230, "b": 90, "a": 255 } } },
+        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/orb.png", "width": 12, "height": 12, "tint": { "r": 255, "g": 230, "b": 90, "a": 255 } } },
         { "kind": "@Spin", "name": "spin", "args": { "speed": 8 } },
         { "kind": "@Wander", "name": "wander", "args": { "speed": 40, "changeInterval": 1.5 } }
       ]
@@ -182,7 +182,7 @@
       "tags": ["ball"],
       "transform": { "position": { "x": 300, "y": 100 } },
       "components": [
-        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "orb.png", "width": 20, "height": 20, "tint": { "r": 255, "g": 90, "b": 90, "a": 255 } } },
+        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/orb.png", "width": 20, "height": 20, "tint": { "r": 255, "g": 90, "b": 90, "a": 255 } } },
         { "kind": "@Collider", "name": "hitbox", "args": { "width": 20, "height": 20, "mode": "solid", "collidesWith": ["platform", "wall"] } },
         { "kind": "@Mover", "name": "mover", "args": {} },
         { "kind": "@Bounce", "name": "bounce", "args": { "vx": 140, "vy": 90 } }
@@ -195,7 +195,7 @@
       "tags": ["pet"],
       "transform": { "position": { "x": 80, "y": 500 } },
       "components": [
-        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "orb.png", "width": 16, "height": 16, "tint": { "r": 90, "g": 220, "b": 255, "a": 255 } } },
+        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/orb.png", "width": 16, "height": 16, "tint": { "r": 90, "g": 220, "b": 255, "a": 255 } } },
         { "kind": "@Spin", "name": "spin", "args": { "speed": 3 } },
         { "kind": "@Follow", "name": "follow", "args": { "targetTag": "player", "lerp": 0.15, "offset": { "x": 30, "y": 30 } } }
       ]
@@ -211,10 +211,10 @@
         { "kind": "@Mover", "name": "mover", "args": {} },
         { "kind": "@Gravity", "name": "gravity", "args": { "acceleration": { "x": 0, "y": 980 }, "maxSpeed": 700 } },
         { "kind": "@Friction", "name": "friction", "args": { "amount": 900, "axes": "x" } },
-        { "kind": "components/player.go", "name": "player", "args": { "speed": 180, "jumpSpeed": 520 } },
+        { "kind": "PlayerComponent", "name": "player", "args": { "speed": 180, "jumpSpeed": 520 } },
         { "kind": "@Velocity", "name": "velocity", "args": {} },
         { "kind": "@Health", "name": "health", "args": { "max": 3 } },
-        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "player.png", "width": 32, "height": 32 } },
+        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/player.png", "width": 32, "height": 32 } },
         {
           "kind": "@Animator",
           "name": "animator",
