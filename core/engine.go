@@ -11,9 +11,7 @@ import "github.com/EnesBaytekin/imge/core/math"
 // Config holds game configuration settings.
 type Config struct {
 	// Window settings
-	WindowWidth  int
-	WindowHeight int
-	WindowTitle  string
+	Window WindowConfig
 
 	// Game settings
 	TargetFPS   int
@@ -26,9 +24,14 @@ type Config struct {
 // DefaultConfig returns a default configuration.
 func DefaultConfig() Config {
 	return Config{
-		WindowWidth:  800,
-		WindowHeight: 600,
-		WindowTitle:  "IMGE Game",
+		Window: WindowConfig{
+			Title:  "IMGE Game",
+			Width:  640,
+			Height: 360,
+			// Fullscreen and Resizable default to false: the window opens at
+			// the largest integer scale fitting the screen and is locked there,
+			// toggling only between windowed and fullscreen.
+		},
 		TargetFPS:    60,
 		FixedUpdate:  false,
 		InitialScene: "",
@@ -57,7 +60,7 @@ type Game struct {
 	pendingScene string
 
 	// Game state
-	running    bool
+	running     bool
 	initialized bool
 }
 
@@ -156,7 +159,7 @@ func (g *Game) Init() error {
 	}
 
 	// Initialize platform (creates window, renderer, audio, etc.)
-	if err := g.platform.Init(g.config.WindowTitle, g.config.WindowWidth, g.config.WindowHeight); err != nil {
+	if err := g.platform.Init(g.config.Window); err != nil {
 		return &GameError{Stage: "Init", Reason: "platform initialization failed: " + err.Error()}
 	}
 

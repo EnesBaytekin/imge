@@ -234,10 +234,22 @@ type Time interface {
 // Window Interface
 // ============================================================================
 
+// WindowConfig describes how the window should be created: its logical (game)
+// resolution, whether it starts fullscreen, and whether the user may resize it.
+// The logical resolution is what the renderer draws at; the platform scales it to
+// fit the actual window/browser, letterboxing to preserve the aspect ratio.
+type WindowConfig struct {
+	Title      string
+	Width      int // logical (game) resolution
+	Height     int // logical (game) resolution
+	Fullscreen bool
+	Resizable  bool
+}
+
 // Window handles window management and events.
 type Window interface {
-	// Create creates a new window with the given title and size.
-	Create(title string, width, height int) error
+	// Create creates a new window with the given configuration.
+	Create(cfg WindowConfig) error
 
 	// Destroy closes and cleans up the window.
 	Destroy()
@@ -340,7 +352,7 @@ type Platform interface {
 
 	// Init initializes the platform with the given window configuration.
 	// This should create the window, initialize subsystems, etc.
-	Init(title string, width, height int) error
+	Init(cfg WindowConfig) error
 
 	// Update is called each frame to update platform state.
 	Update()

@@ -4,7 +4,9 @@
   "window": {
     "title": "IMGE Platformer Demo",
     "width": 800,
-    "height": 600
+    "height": 600,
+    "fullscreen": false,
+    "resizable": false
   },
   "game": {
     "target_fps": 60,

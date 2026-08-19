@@ -70,10 +70,10 @@ func (p *Platform) SetAssetFS(fsys fs.FS) {
 
 // Init configures the Ebitengine window. The underlying window is created by
 // Ebitengine when Run is called.
-func (p *Platform) Init(title string, width, height int) error {
-	p.logicalWidth = width
-	p.logicalHeight = height
-	return p.window.Create(title, width, height)
+func (p *Platform) Init(cfg core.WindowConfig) error {
+	p.logicalWidth = cfg.Width
+	p.logicalHeight = cfg.Height
+	return p.window.Create(cfg)
 }
 
 // Update is a no-op. When the platform is driven by Run (the normal path),
@@ -108,6 +108,14 @@ func (r *runner) Update() error {
 	p := r.platform
 	p.input.Update()
 	p.time.Tick()
+
+	// F11 (or Alt+Enter) toggles fullscreen. Ebitengine restores the window to its
+	// previous size when leaving fullscreen, so no manual resize is needed.
+	if p.input.IsKeyJustPressed(core.KeyF11) ||
+		(p.input.IsKeyPressed(core.KeyAlt) && p.input.IsKeyJustPressed(core.KeyEnter)) {
+		p.window.SetFullscreen(!ebiten.IsFullscreen())
+	}
+
 	ctx := &core.Context{
 		Input: p.input,
 		Audio: p.audio,

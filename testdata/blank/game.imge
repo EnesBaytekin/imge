@@ -3,8 +3,10 @@
   "format_version": 1,
   "window": {
     "title": "My IMGE Game",
-    "width": 800,
-    "height": 600
+    "width": 640,
+    "height": 360,
+    "fullscreen": false,
+    "resizable": false
   },
   "game": {
     "target_fps": 60,

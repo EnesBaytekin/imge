@@ -69,7 +69,7 @@ The single source of truth for window and game settings. See
 {
   "name": "My Game",
   "format_version": 1,
-  "window": { "title": "My Game", "width": 800, "height": 600 },
+  "window": { "title": "My Game", "width": 640, "height": 360 },
   "game": { "target_fps": 60, "initial_scene": "main" }
 }
 ```
@@ -77,7 +77,11 @@ The single source of truth for window and game settings. See
 - `name` — the game name (used for the output filename, slugified).
 - `window.title` — window title.
 - `window.width` / `window.height` — the **logical** resolution. The window/browser
-  letterboxes this size (preserving aspect ratio) rather than stretching.
+  letterboxes this size (preserving aspect ratio) rather than stretching. Desktop
+  windows open at the largest integer scale that fits your monitor.
+- `window.fullscreen` — start the game fullscreen (default `false`).
+- `window.resizable` — let the user resize the window (default `false`, i.e. locked;
+  press F11 / Alt+Enter to toggle fullscreen).
 - `game.target_fps` — target frame rate (default 60).
 - `game.initial_scene` — the name of the scene to show first. **This must match the
   `name` field inside the `.scene` file** (or its filename if the `name` field is

@@ -33,9 +33,11 @@ type GameConfig struct {
 
 // WindowConfig represents window settings
 type WindowConfig struct {
-	Title  string `json:"title"`
-	Width  int    `json:"width"`
-	Height int    `json:"height"`
+	Title      string `json:"title"`
+	Width      int    `json:"width"`
+	Height     int    `json:"height"`
+	Fullscreen bool   `json:"fullscreen"`
+	Resizable  bool   `json:"resizable"`
 }
 
 // GameSettings represents game runtime settings
@@ -105,11 +107,14 @@ func (a *ProjectAnalysis) loadGameConfig(path string) error {
 		config.Window.Title = "My IMGE Game"
 	}
 	if config.Window.Width == 0 {
-		config.Window.Width = 800
+		config.Window.Width = 640
 	}
 	if config.Window.Height == 0 {
-		config.Window.Height = 600
+		config.Window.Height = 360
 	}
+	// fullscreen and resizable default to false (the JSON zero value): the window
+	// opens windowed at the largest integer scale fitting the screen and is locked
+	// to that size, toggling only between windowed and fullscreen.
 	if config.Game.TargetFPS == 0 {
 		config.Game.TargetFPS = 60
 	}

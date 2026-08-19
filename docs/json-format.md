@@ -23,8 +23,10 @@ floats unless stated otherwise; booleans are `true`/`false`.
   "format_version": 1,
   "window": {
     "title": "My Game",
-    "width": 800,
-    "height": 600
+    "width": 640,
+    "height": 360,
+    "fullscreen": false,
+    "resizable": false
   },
   "game": {
     "target_fps": 60,
@@ -38,10 +40,21 @@ floats unless stated otherwise; booleans are `true`/`false`.
 | `name` | string | `"My Game"` | slugified into the output filename |
 | `format_version` | int | `1` | the IMGE project-format version this project targets (see below) |
 | `window.title` | string | `"My IMGE Game"` | window title |
-| `window.width` | int | `800` | logical resolution (letterboxed) |
-| `window.height` | int | `600` | logical resolution |
+| `window.width` | int | `640` | logical resolution (the renderer draws at this size) |
+| `window.height` | int | `360` | logical resolution |
+| `window.fullscreen` | bool | `false` | start the game fullscreen |
+| `window.resizable` | bool | `false` | allow the user to resize the window |
 | `game.target_fps` | int | `60` | target frame rate |
 | `game.initial_scene` | string | `"main"` | scene shown first |
+
+`width`/`height` is the **logical** resolution the game is rendered at — not the
+window size. On desktop the window opens at the **largest integer scale of that
+resolution that fits your monitor**, so a small pixel-art resolution isn't shown
+at its raw pixel size. The frame is then scaled into the window with letterboxing
+to preserve the aspect ratio, exactly how the web build fills the browser. Press
+**F11** (or **Alt+Enter**) to toggle fullscreen at any time. By default the window
+is locked (`resizable: false`), toggling only between windowed and fullscreen; set
+`resizable: true` to let the user drag-resize it.
 
 `format_version` is **not** a free-form game-version field — it's an engine-owned
 number that pins the project format (the `game.imge` schema, the scene/object JSON
