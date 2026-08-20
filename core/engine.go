@@ -28,9 +28,9 @@ func DefaultConfig() Config {
 			Title:  "IMGE Game",
 			Width:  640,
 			Height: 360,
-			// Fullscreen and Resizable default to false: the window opens at
-			// the largest integer scale fitting the screen and is locked there,
-			// toggling only between windowed and fullscreen.
+			// Fullscreen defaults to false: the window opens at the largest
+			// integer scale fitting the screen and is locked there, toggling only
+			// between windowed and fullscreen.
 		},
 		TargetFPS:    60,
 		FixedUpdate:  false,

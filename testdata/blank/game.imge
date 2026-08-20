@@ -5,8 +5,7 @@
     "title": "My IMGE Game",
     "width": 640,
     "height": 360,
-    "fullscreen": false,
-    "resizable": false
+    "fullscreen": false
   },
   "game": {
     "target_fps": 60,

@@ -25,8 +25,7 @@ floats unless stated otherwise; booleans are `true`/`false`.
     "title": "My Game",
     "width": 640,
     "height": 360,
-    "fullscreen": false,
-    "resizable": false
+    "fullscreen": false
   },
   "game": {
     "target_fps": 60,
@@ -43,7 +42,6 @@ floats unless stated otherwise; booleans are `true`/`false`.
 | `window.width` | int | `640` | logical resolution (the renderer draws at this size) |
 | `window.height` | int | `360` | logical resolution |
 | `window.fullscreen` | bool | `false` | start the game fullscreen |
-| `window.resizable` | bool | `false` | allow the user to resize the window |
 | `game.target_fps` | int | `60` | target frame rate |
 | `game.initial_scene` | string | `"main"` | scene shown first |
 
@@ -52,9 +50,8 @@ window size. On desktop the window opens at the **largest integer scale of that
 resolution that fits your monitor**, so a small pixel-art resolution isn't shown
 at its raw pixel size. The frame is then scaled into the window with letterboxing
 to preserve the aspect ratio, exactly how the web build fills the browser. Press
-**F11** (or **Alt+Enter**) to toggle fullscreen at any time. By default the window
-is locked (`resizable: false`), toggling only between windowed and fullscreen; set
-`resizable: true` to let the user drag-resize it.
+**F11** (or **Alt+Enter**) to toggle fullscreen at any time. The window is always
+locked to this fit size, toggling only between windowed and fullscreen.
 
 `format_version` is **not** a free-form game-version field — it's an engine-owned
 number that pins the project format (the `game.imge` schema, the scene/object JSON

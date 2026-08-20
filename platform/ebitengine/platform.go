@@ -109,8 +109,9 @@ func (r *runner) Update() error {
 	p.input.Update()
 	p.time.Tick()
 
-	// F11 (or Alt+Enter) toggles fullscreen. Ebitengine restores the window to its
-	// previous size when leaving fullscreen, so no manual resize is needed.
+	// F11 (or Alt+Enter) toggles fullscreen. The window size is locked via
+	// SetWindowSizeLimits at startup, and Ebitengine re-applies that lock when
+	// leaving fullscreen, so no manual resize is needed here.
 	if p.input.IsKeyJustPressed(core.KeyF11) ||
 		(p.input.IsKeyPressed(core.KeyAlt) && p.input.IsKeyJustPressed(core.KeyEnter)) {
 		p.window.SetFullscreen(!ebiten.IsFullscreen())

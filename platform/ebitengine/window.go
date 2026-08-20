@@ -30,18 +30,21 @@ func (w *Window) Create(cfg core.WindowConfig) error {
 	// resolution is scaled up to fit the window/screen.
 	ebiten.SetScreenFilterEnabled(false)
 
-	if cfg.Resizable {
-		ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
-	} else {
-		ebiten.SetWindowResizingMode(ebiten.WindowResizingModeDisabled)
-	}
+	// The window is fixed-size: it can't be drag-resized, only toggled between
+	// windowed and fullscreen.
+	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeDisabled)
 
 	// Open the window at the largest integer scale of the logical resolution that
 	// fits the monitor, so a small pixel-art resolution isn't microscopic (web
-	// ignores the window size — the browser owns it). Exiting fullscreen later
-	// restores this same size.
+	// ignores the window size — the browser owns it).
 	ww, wh := fitWindowSize(cfg.Width, cfg.Height)
 	ebiten.SetWindowSize(ww, wh)
+
+	// Lock the window to the auto-fit size with matching min/max limits. Ebitengine
+	// disables the limits during fullscreen and re-applies them on exit, so leaving
+	// fullscreen deterministically clamps back to this size instead of drifting
+	// (which would otherwise letterbox the game left/right).
+	ebiten.SetWindowSizeLimits(ww, wh, ww, wh)
 
 	if cfg.Fullscreen {
 		ebiten.SetFullscreen(true)

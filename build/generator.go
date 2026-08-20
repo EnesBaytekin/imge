@@ -216,7 +216,6 @@ func (g *Generator) generateDesktopMainGo(hasData bool) error {
 		WindowWidth      int
 		WindowHeight     int
 		WindowFullscreen bool
-		WindowResizable  bool
 		TargetFPS        int
 		InitialScene     string
 		EmbedDirective   string
@@ -227,7 +226,6 @@ func (g *Generator) generateDesktopMainGo(hasData bool) error {
 		WindowWidth:      g.Analysis.GameConfig.Window.Width,
 		WindowHeight:     g.Analysis.GameConfig.Window.Height,
 		WindowFullscreen: g.Analysis.GameConfig.Window.Fullscreen,
-		WindowResizable:  g.Analysis.GameConfig.Window.Resizable,
 		TargetFPS:        g.Analysis.GameConfig.Game.TargetFPS,
 		InitialScene:     g.Analysis.GameConfig.Game.InitialScene,
 		EmbedDirective:   embedDirective,
@@ -251,7 +249,6 @@ func (g *Generator) generateWebMainGo(hasData bool) error {
 		WindowWidth      int
 		WindowHeight     int
 		WindowFullscreen bool
-		WindowResizable  bool
 		TargetFPS        int
 		InitialScene     string
 		HasData          bool
@@ -261,7 +258,6 @@ func (g *Generator) generateWebMainGo(hasData bool) error {
 		WindowWidth:      g.Analysis.GameConfig.Window.Width,
 		WindowHeight:     g.Analysis.GameConfig.Window.Height,
 		WindowFullscreen: g.Analysis.GameConfig.Window.Fullscreen,
-		WindowResizable:  g.Analysis.GameConfig.Window.Resizable,
 		TargetFPS:        g.Analysis.GameConfig.Game.TargetFPS,
 		InitialScene:     g.Analysis.GameConfig.Game.InitialScene,
 		HasData:          hasData,
@@ -338,7 +334,6 @@ func main() {
 			Width:      {{.WindowWidth}},
 			Height:     {{.WindowHeight}},
 			Fullscreen: {{.WindowFullscreen}},
-			Resizable:  {{.WindowResizable}},
 		},
 		TargetFPS:    {{.TargetFPS}},
 		InitialScene: "{{.InitialScene}}",
@@ -462,7 +457,6 @@ func main() {
 			Width:      {{.WindowWidth}},
 			Height:     {{.WindowHeight}},
 			Fullscreen: {{.WindowFullscreen}},
-			Resizable:  {{.WindowResizable}},
 		},
 		TargetFPS:    {{.TargetFPS}},
 		InitialScene: "{{.InitialScene}}",

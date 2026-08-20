@@ -235,15 +235,14 @@ type Time interface {
 // ============================================================================
 
 // WindowConfig describes how the window should be created: its logical (game)
-// resolution, whether it starts fullscreen, and whether the user may resize it.
-// The logical resolution is what the renderer draws at; the platform scales it to
-// fit the actual window/browser, letterboxing to preserve the aspect ratio.
+// resolution and whether it starts fullscreen. The logical resolution is what the
+// renderer draws at; the platform scales it to fit the actual window/browser,
+// letterboxing to preserve the aspect ratio.
 type WindowConfig struct {
 	Title      string
 	Width      int // logical (game) resolution
 	Height     int // logical (game) resolution
 	Fullscreen bool
-	Resizable  bool
 }
 
 // Window handles window management and events.
