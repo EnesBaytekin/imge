@@ -51,7 +51,7 @@ type TransformConfig struct {
 // ParseSceneConfig parses a scene configuration from JSON bytes.
 func ParseSceneConfig(data []byte) (*SceneConfig, error) {
 	var config SceneConfig
-	if err := json.Unmarshal(data, &config); err != nil {
+	if err := json.Unmarshal(StripComments(data), &config); err != nil {
 		return nil, err
 	}
 	return &config, nil

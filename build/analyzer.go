@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/EnesBaytekin/imge"
+	corejson "github.com/EnesBaytekin/imge/core/json"
 )
 
 // ProjectAnalysis holds information about a game project
@@ -94,7 +95,7 @@ func (a *ProjectAnalysis) loadGameConfig(path string) error {
 
 	// Parse JSON using encoding/json
 	var config GameConfig
-	if err := json.Unmarshal(data, &config); err != nil {
+	if err := json.Unmarshal(corejson.StripComments(data), &config); err != nil {
 		return fmt.Errorf("failed to parse %s: %v", filepath.Base(path), err)
 	}
 

@@ -454,7 +454,7 @@ func (s *Scene) LoadFromFS(fsys fs.FS, path string) error {
 // files are read from the OS filesystem; otherwise they are read from fsys.
 func (s *Scene) loadFromJSON(data []byte, fsys fs.FS) error {
 	var config corejson.SceneConfig
-	if err := json.Unmarshal(data, &config); err != nil {
+	if err := json.Unmarshal(corejson.StripComments(data), &config); err != nil {
 		return fmt.Errorf("failed to parse scene JSON: %w", err)
 	}
 

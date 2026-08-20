@@ -20,7 +20,7 @@ type ObjectConfig struct {
 // ParseObjectConfig parses an object configuration from JSON bytes.
 func ParseObjectConfig(data []byte) (*ObjectConfig, error) {
 	var config ObjectConfig
-	if err := json.Unmarshal(data, &config); err != nil {
+	if err := json.Unmarshal(StripComments(data), &config); err != nil {
 		return nil, err
 	}
 	return &config, nil

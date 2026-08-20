@@ -11,6 +11,7 @@ from your project directory (the directory containing `game.imge`).
 | `imge init sample` | Scaffold the sample platformer demo (`sample` / `demo` / `example` all work) |
 | `imge build [flags]` | Build the game |
 | `imge run` | Build and launch the desktop game |
+| `imge new <kind> <name>` | Scaffold a blank object, component, or scene |
 | `imge version` | Print the engine version |
 | `imge help` | Print usage (also `-h` / `--help`) |
 
@@ -22,6 +23,32 @@ from your project directory (the directory containing `game.imge`).
   rather than risk overwriting your files. Initialize in an empty folder.
 - `imge init` → blank project. `imge init sample` → the playable platformer demo
   (a good reference for custom components and the JSON formats).
+
+## `imge new`
+
+Scaffolds a single file with the full structure already in place, so you fill in
+values instead of typing boilerplate from scratch.
+
+| Kind | File | Contents |
+|---|---|---|
+| `object` | `<name>.obj` | an object template: `name`, `depth`, `ui`, `tags`, `components` (with a commented component example) |
+| `component` | `<name>.go` | `package components` with a `core.BaseComponent` struct and empty `Initialize`/`Update`/`Draw` |
+| `scene` | `<name>.scene` | a scene: `name`, `background_color`, `camera`, `objects` (with commented inline + file-reference examples) |
+
+- **Name is also a path** — `imge new object objects/player` writes `objects/player.obj`
+  (creating `objects/` if needed); the plain `imge new object player` writes into the
+  current directory.
+- **Extension is optional** — `imge new object player` and `imge new object player.obj`
+  (or `player.go`, `player.scene`) produce the same file; the extension is stripped
+  automatically.
+- **Filename is lowercased**; the JSON `name` field keeps the case you typed.
+- **Component struct name is PascalCase** with no suffix — `imge new component enemy`
+  writes `enemy.go` declaring `type Enemy`, referenced in JSON as
+  `{ "kind": "Enemy", ... }`. Use `enemy_brain` for a multi-word name (`EnemyBrain`).
+- **Refuses to overwrite** an existing file.
+- **JSON comments** — the generated `.obj` and `.scene` files include `//` comments
+  showing the component and object formats; `.obj`, `.scene`, and `game.imge` all
+  accept `//` and `/* */` comments.
 
 ## `imge build`
 

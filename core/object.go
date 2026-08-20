@@ -440,7 +440,7 @@ func (obj *Object) GetScale() math.Vector2 {
 // Note: This creates a new object from JSON data, it doesn't update an existing object.
 func LoadObjectFromJSON(data []byte) (*Object, error) {
 	var config corejson.ObjectConfig
-	if err := json.Unmarshal(data, &config); err != nil {
+	if err := json.Unmarshal(corejson.StripComments(data), &config); err != nil {
 		return nil, fmt.Errorf("failed to parse object JSON: %w", err)
 	}
 

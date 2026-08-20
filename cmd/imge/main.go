@@ -26,6 +26,8 @@ func main() {
 		handleRun()
 	case "init":
 		handleInit()
+	case "new":
+		handleNew()
 	case "version":
 		fmt.Printf("imge version %s\n", imge.EngineVersion)
 	case "help", "-h", "--help":
@@ -245,32 +247,24 @@ func handleInit() {
 
 func printUsage() {
 	fmt.Printf("IMGE Minimal Game Engine CLI Tool (version %s)\n", imge.EngineVersion)
+	fmt.Println()
 	fmt.Println("Usage:")
 	fmt.Println("  imge init                 Initialize a blank game project (empty directory only)")
 	fmt.Println("  imge init sample          Initialize the sample platformer demo")
 	fmt.Println("  imge build [flags]        Build the game")
 	fmt.Println("  imge run                  Build and run natively (desktop)")
+	fmt.Println("  imge new <kind> <name>    Create a blank template file")
 	fmt.Println("  imge version              Show engine version")
 	fmt.Println("  imge help                 Show this help")
-	fmt.Println("")
+	fmt.Println()
+	fmt.Println("  <kind>   object (.obj) | component (.go) | scene (.scene)")
+	fmt.Println("  <name>   filename; may include a relative path (e.g. objects/player)")
+	fmt.Println()
 	fmt.Println("Build flags (combine freely):")
 	fmt.Println("  --linux --windows --macos   target OS (omit with --arch to target every OS)")
 	fmt.Println("  --amd64 --arm64             target architecture (omit to build both)")
 	fmt.Println("  --web                       build the web (WASM) bundle")
 	fmt.Println("  --all                       build every supported target")
-	fmt.Println("")
-	fmt.Println("Examples:")
-	fmt.Println("  imge build                    native desktop for this machine")
-	fmt.Println("  imge build --windows          Windows amd64 + arm64")
-	fmt.Println("  imge build --windows --amd64  Windows amd64 only")
-	fmt.Println("  imge build --amd64            amd64 for every OS (linux, macos, windows)")
-	fmt.Println("  imge build --web              web bundle only")
-	fmt.Println("  imge build --windows --web    Windows (both archs) + web")
-	fmt.Println("  imge build --all              every buildable target (skips what it can't)")
-	fmt.Println("")
+	fmt.Println()
 	fmt.Println("Output goes to imge_build/<name>_<os>-<arch> (web to imge_build/web/).")
-	fmt.Println("Cross-compilation:")
-	fmt.Println("  Windows (amd64/arm64) works from any host (pure Go).")
-	fmt.Println("  macOS and non-native Linux can't be cross-compiled (Ebitengine uses Cgo there);")
-	fmt.Println("  build those natively or via CI (GitHub Actions has macOS + ARM runners).")
 }
