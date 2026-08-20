@@ -78,7 +78,7 @@ Objects go through a fixed lifecycle:
 4. **Initialize** — on the **first** `Scene.Update` after being added, each
    component's `Initialize()` runs exactly once, its `On()` handlers are subscribed
    to the event manager, and `OnEnable()` fires (if active). This ordering means
-   `Initialize()` sees a fully-assembled scene — `c.Scene()` and sibling lookups
+   `Initialize()` sees a fully-assembled scene — `c.GetScene()` and sibling lookups
    are valid there.
 5. **Update / Draw** — every frame, in component insertion order (update) / draw
    order (draw).
@@ -119,7 +119,6 @@ From inside a component, `c.GetOwner()` gives the object; then:
 - `core.GetAllFrom[*T](owner)` — all of type `T`.
 - `core.GetFromNamed[*T](owner, name)` — the component of type `T` with that name
   (O(1)). Use this when several components share a type (e.g. multiple `@Sprite`s).
-- `core.GetTransform(c)`, `core.GetPosition(c)`, `core.GetDepth(c)` — shortcuts.
 
 All return a nil pointer / zero value when nothing matches — always nil-check.
 
@@ -133,8 +132,6 @@ Create objects at runtime (e.g. a crate spawning a coin):
 - `scene.InstantiateFromTemplate(templatePath, transform)` — loads a `.obj` file and
   adds it (reads from the OS filesystem).
 - `scene.InstantiateObject(jsonBytes, transform)` — builds an object from inline JSON.
-- `core.InstantiateFromTemplateInScene(component, templatePath, transform)` — helper
-  that resolves the scene from the component's owner.
 
 ## Next
 

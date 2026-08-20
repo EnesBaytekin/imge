@@ -32,7 +32,7 @@ filename without the `.scene` suffix.
 `Scene.Update` runs, in order:
 
 1. `frame++` — increments the scene's frame counter.
-2. `ctx.Scene = s` — so components can reach their scene via `c.Scene()`.
+2. `ctx.Scene = s` — so components can reach their scene via `c.GetScene()`.
 3. For each object: `initializeComponents()` (first time only), then `Update(ctx)`.
 4. `Camera.Tick()` — advance the camera toward its follow target (after objects moved).
 5. `EventManager.Process()` — deliver every queued event.
@@ -118,7 +118,7 @@ world = screen: object position equals pixel position.
 
 ```go
 func (c *Director) Initialize() {
-    s := c.Scene()
+    s := c.GetScene()
     if s == nil || s.Camera == nil { return }
     if players := s.FindObjectsWithTag("player"); len(players) > 0 {
         s.Camera.Follow(players[0])
@@ -128,7 +128,7 @@ func (c *Director) Initialize() {
 
 ## Querying a scene
 
-From a component, `c.Scene()` returns the scene (nil before the object is added):
+From a component, `c.GetScene()` returns the scene (nil before the object is added):
 
 - `scene.FindObjectsWithTag(tag)` — all objects with a tag.
 - `scene.GetObjectByName(name)` — by unique name.

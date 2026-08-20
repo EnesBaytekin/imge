@@ -60,7 +60,7 @@ func (c *GameComponent) Draw(renderer core.Renderer) {
 	}
 
 	// Hearts = the player's current HP.
-	if scene := c.Scene(); scene != nil {
+	if scene := c.GetScene(); scene != nil {
 		if players := scene.FindObjectsWithTag("player"); len(players) > 0 {
 			if hp := core.GetFrom[*Health](players[0]); hp != nil {
 				red := math.NewColor(255, 80, 90, 255)

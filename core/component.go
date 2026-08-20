@@ -4,9 +4,6 @@ package core
 
 import (
 	"encoding/json"
-	"fmt"
-
-	"github.com/EnesBaytekin/imge/core/math"
 )
 
 // ============================================================================
@@ -22,7 +19,7 @@ import (
 type Component interface {
 	// Initialize is called exactly once, after the object is in a fully-loaded
 	// scene and before its first Update. This is where defaults are set and any
-	// scene-dependent setup happens (c.Scene() is available here).
+	// scene-dependent setup happens (c.GetScene() is available here).
 	Initialize()
 
 	// Update is called every frame for logic updates.
@@ -37,6 +34,10 @@ type Component interface {
 
 	// GetOwner returns the parent object that owns this component.
 	GetOwner() *Object
+
+	// GetScene returns the scene that contains the component's owner, or nil if
+	// the owner isn't in a scene yet.
+	GetScene() *Scene
 
 	// OnEnable is called when the component becomes active.
 	OnEnable()
@@ -131,9 +132,9 @@ func (c *BaseComponent) GetDrawLayer() int {
 	return c.DrawLayer
 }
 
-// Scene returns the scene that contains this component's owner, or nil if the
+// GetScene returns the scene that contains this component's owner, or nil if the
 // owner isn't in a scene yet.
-func (c *BaseComponent) Scene() *Scene {
+func (c *BaseComponent) GetScene() *Scene {
 	if c.owner == nil {
 		return nil
 	}
@@ -345,70 +346,9 @@ func GetFromNamed[T Component](obj *Object, name string) T {
 	return zero
 }
 
-// GetTransform is a helper for components to access their owner's transform.
-// Returns nil if the component has no owner.
-func GetTransform(component Component) *math.Transform {
-	owner := component.GetOwner()
-	if owner == nil {
-		return nil
-	}
-	return &owner.Transform
-}
-
-// GetPosition is a helper for components to access their owner's position.
-// Returns (0, 0) if the component has no owner.
-func GetPosition(component Component) math.Vector2 {
-	owner := component.GetOwner()
-	if owner == nil {
-		return math.Vector2{}
-	}
-	return owner.Transform.Position
-}
-
-// GetDepth is a helper for components to access their owner's depth.
-// Returns 0 if the component has no owner.
-func GetDepth(component Component) float64 {
-	owner := component.GetOwner()
-	if owner == nil {
-		return 0
-	}
-	return owner.Depth
-}
-
 // ResolveComponentKind resolves a component kind string.
 // If kind starts with '@', it's a built-in component.
 // Currently returns the kind as-is (registration handles mapping).
 func ResolveComponentKind(kind string) string {
 	return kind
-}
-
-// ============================================================================
-// Runtime Helper Functions for Components
-// ============================================================================
-
-// GetSceneFromComponent returns the scene that contains the component's owner object.
-// Returns nil if the component has no owner or the owner is not in a scene.
-func GetSceneFromComponent(component Component) *Scene {
-	owner := component.GetOwner()
-	if owner == nil {
-		return nil
-	}
-	return owner.Scene
-}
-
-// InstantiateFromTemplateInScene is a helper for components to instantiate objects.
-// If scene is nil, it tries to get the scene from the component's owner.
-func InstantiateFromTemplateInScene(component Component, templatePath string, transform *math.Transform) (*Object, error) {
-	var scene *Scene
-
-	// Try to get scene from component if not provided
-	if component != nil {
-		scene = GetSceneFromComponent(component)
-	}
-
-	if scene == nil {
-		return nil, fmt.Errorf("no scene available for instantiation")
-	}
-
-	return scene.InstantiateFromTemplate(templatePath, transform)
 }

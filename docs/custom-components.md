@@ -41,7 +41,7 @@ func (c *Enemy) Initialize() {
 }
 
 func (c *Enemy) Update(ctx *core.Context) {
-    // logic here, using ctx.DeltaTime(), ctx.Input, c.Scene(), c.GetOwner(), ...
+    // logic here, using ctx.DeltaTime(), ctx.Input, c.GetScene(), c.GetOwner(), ...
 }
 ```
 
@@ -53,7 +53,7 @@ Key points:
   [the JSON rule](json-format.md#json-format-reference)). Unexported fields stay
   private state.
 - **`Initialize()`** runs once, after the object is in a fully-loaded scene — so
-  `c.Scene()` works and you can look up sibling components here.
+  `c.GetScene()` works and you can look up sibling components here.
 - **`Update(ctx)`** runs every frame.
 - **`Draw(renderer)`** runs every frame, for custom rendering.
 
@@ -73,9 +73,6 @@ run       := core.GetFromNamed[*Sprite](owner, "run") // the one named "run"
 `core.GetFrom` / `GetFromNamed` return a nil pointer when nothing matches — always
 nil-check. `GetFromNamed` is O(1) and what you want when several components share a
 type (e.g. several `@Sprite`s).
-
-Helpers: `core.GetTransform(c)`, `core.GetPosition(c)`, `core.GetDepth(c)`,
-`core.GetSceneFromComponent(c)`.
 
 ## Declaring dependencies
 
@@ -106,7 +103,7 @@ See [Events](events.md) for the full model (queueing, timing, `Source`).
 
 ```go
 func (c *Enemy) Update(ctx *core.Context) {
-    scene := c.Scene()                  // the scene containing the owner (nil before added)
+    scene := c.GetScene()                  // the scene containing the owner (nil before added)
     scene.FindObjectsWithTag("player")  // query the world
     ctx.Game.SwitchScene("game_over")   // switch scenes
     ctx.Input.IsKeyJustPressed(core.KeyE)
@@ -188,7 +185,7 @@ func (c *Crate) Initialize() {
 }
 
 func (c *Crate) spawnCoin() {
-    scene := c.Scene()
+    scene := c.GetScene()
     if scene == nil { return }
     scene.InstantiateFromTemplate("objects/coin.obj",
         &math.Transform{ Position: c.GetOwner().GetPosition() })
