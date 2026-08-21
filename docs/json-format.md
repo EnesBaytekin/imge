@@ -79,8 +79,8 @@ place to record your game's own version (use VCS tags for that).
 | `camera` | object | optional initial camera (see [Camera](scenes-and-camera.md#camera)) |
 | `objects` | array | the objects to place, in order |
 
-`camera` fields: `x`, `y` (view **center**, world coords), `zoom` (scale, center
-anchored), `smoothing` (0 = snap), `lock_x`, `lock_y`.
+`camera` fields: `x`, `y` (view's **top-left corner**, world coords), `zoom` (scale,
+center anchored), `smoothing` (0 = snap), `lock_x`, `lock_y`.
 
 ### Scene objects
 
@@ -136,7 +136,9 @@ A template — identical to an inline scene object but with **no transform**:
 
 ## Component instances
 
-A component entry appears in `objects`/`components` arrays everywhere:
+Every object (inline or template) has a `components` array. Each element is one
+**component instance** — a specific component with a kind, a name, and the args
+that configure it:
 
 ```json
 { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/player.png", "width": 32, "height": 32 } }
@@ -144,13 +146,45 @@ A component entry appears in `objects`/`components` arrays everywhere:
 
 | Field | Type | Notes |
 |---|---|---|
-| `kind` | string | `@Name` for built-ins, the Go struct type name for user components (e.g. `PlayerComponent`) |
+| `kind` | string | `@Name` for built-ins (e.g. `@Sprite`, `@Collider`); the Go struct type name for user components (e.g. `PlayerComponent`) |
 | `name` | string | unique **within the object**; used to look components up by name |
 | `args` | object | export variables — keys are the component's `json` tags (see the rule above) |
 
-Component `name` is how you address a specific component (e.g. an `@Animator`
-targets a sprite by name, and `core.GetFromNamed` looks it up). Two components of
-the same kind can coexist under different names (e.g. several `@Sprite`s).
+### `kind`
+
+How the build tool maps a kind to a component:
+
+- Built-ins start with `@` and are the struct name without the `Component`
+  suffix: `@Sprite`, `@Animator`, `@Collider`, …
+- User components use the Go struct type name, e.g. `PlayerComponent` (declared
+  in the project's `components/` package). A kind that matches neither produces a
+  build error ("unknown component").
+
+### `name`
+
+The name is scoped to the object — the same name can be reused on different
+objects. It is how one component addresses another:
+
+- An `@Animator` targets the `@Sprite` it animates **by that sprite's `name`**
+  (the `sprite` field of each clip).
+- `@StateMachine` transition `from` scopes reference component names.
+- `core.GetFromNamed[*T](owner, name)` looks a component up by name.
+
+Two components of the same kind can coexist under different names (e.g. several
+`@Sprite`s, or a solid body + a trigger hitbox, both `@Collider`). `name` may be
+omitted (defaults to `""`), but any component you need to address — a sprite
+driven by an animator, a collider a `@Damage` reads — should be named.
+
+### `args`
+
+`args` is a JSON object whose keys are the component's **export variables**: the
+`json` tags on its exported struct fields. It may be `{}` (or omitted) for a
+component that takes none (e.g. `@Mover`). Every built-in's tags, defaults, and a
+copy-paste example live in [Components](components.md) — paste the entry into an
+object's `components` array and adjust.
+
+Keys are matched **exactly** (snake_case for built-ins); a wrong case is silently
+ignored, not an error.
 
 ## `args` value types
 

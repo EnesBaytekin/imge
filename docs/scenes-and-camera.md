@@ -91,7 +91,7 @@ visible. It's core-level state on the scene, not an object or component.
 
 | Field | Meaning |
 |---|---|
-| `X` / `Y` | the view **center**, in world coordinates |
+| `X` / `Y` | the view's **top-left corner**, in world coordinates |
 | `Zoom` | scale factor, anchored at the viewport center (1 = 1:1) |
 | `Smoothing` | how much the camera eases toward its target each frame (0 = snap; 0.1 = smooth trail) |
 | `LockX` / `LockY` | freeze that axis (e.g. a side-scroller locks Y) |
@@ -112,7 +112,8 @@ Methods (drive these from a custom component):
 axis regardless of smoothing.
 
 A scene with **no camera** (`camera` omitted, or `scene.Camera == nil`) draws with
-world = screen: object position equals pixel position.
+world = screen: object position equals pixel position. A camera at `(0, 0, 1)` is
+the same — the world origin `(0, 0)` sits at the **top-left** of the screen.
 
 ### Example: follow the player
 

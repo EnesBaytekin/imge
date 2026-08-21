@@ -344,11 +344,6 @@ func (s *Scene) Update(ctx *Context) {
 		}
 	}
 
-	// Advance the camera toward its follow target after objects move.
-	if s.Camera != nil {
-		s.Camera.Tick()
-	}
-
 	// Deliver queued events to subscribed components.
 	s.EventManager.Process()
 
@@ -370,6 +365,9 @@ func (s *Scene) Draw(renderer Renderer) {
 	if s.Camera != nil {
 		vw, vh := renderer.GetViewportSize()
 		s.Camera.setViewport(float64(vw), float64(vh))
+		// Advance the camera toward its follow target after objects move, now that
+		// the viewport is known (follow centers the target, which needs the size).
+		s.Camera.Tick()
 		renderer.SetCamera(s.Camera.X, s.Camera.Y, s.Camera.Zoom)
 	} else {
 		renderer.SetCamera(0, 0, 0)

@@ -22,7 +22,7 @@ type Renderer struct {
 	missing        map[string]bool // textures we already warned about
 	viewportWidth  int
 	viewportHeight int
-	camX           float64 // camera view center (world coords)
+	camX           float64 // camera view top-left corner (world coords)
 	camY           float64
 	camZoom        float64
 	camActive      bool
@@ -46,8 +46,8 @@ func (r *Renderer) setViewport(w, h int) {
 }
 
 // SetCamera applies a world-to-screen camera transform to subsequent draw calls.
-// (cx, cy) is the view center in world coordinates and zoom is the scale factor.
-// A zoom <= 0 disables the transform (raw screen space).
+// (cx, cy) is the view's top-left corner in world coordinates and zoom is the
+// scale factor. A zoom <= 0 disables the transform (raw screen space).
 func (r *Renderer) SetCamera(cx, cy, zoom float64) {
 	if zoom <= 0 {
 		r.camActive = false
@@ -66,8 +66,8 @@ func (r *Renderer) screenPos(p math.Vector2) math.Vector2 {
 		return p
 	}
 	return math.NewVector2(
-		(p.X-r.camX)*r.camZoom+float64(r.viewportWidth)/2,
-		(p.Y-r.camY)*r.camZoom+float64(r.viewportHeight)/2,
+		(p.X-r.camX)*r.camZoom,
+		(p.Y-r.camY)*r.camZoom,
 	)
 }
 

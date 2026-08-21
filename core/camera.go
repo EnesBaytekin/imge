@@ -8,10 +8,12 @@ import "github.com/EnesBaytekin/imge/core/math"
 // a Scene (not an object or component), so a scene can follow an object and the
 // renderer can transform world coordinates into screen coordinates.
 //
-// X/Y are the view CENTER in world coordinates. Zoom scales around the viewport
-// center (1 = 1:1). Smoothing eases the camera toward its follow target: 0 snaps
-// instantly (the default), while a small value like 0.1 trails smoothly. LockX /
-// LockY stop the camera from moving along that axis (e.g. a side-scroller locks Y).
+// X/Y are the world coordinates of the viewport's TOP-LEFT corner, so the world
+// origin (0,0) appears at the top-left of the screen. Zoom scales the view around
+// its center (1 = 1:1). Smoothing eases the camera toward its follow target: 0
+// snaps instantly (the default), while a small value like 0.1 trails smoothly.
+// LockX / LockY stop the camera from moving along that axis (e.g. a side-scroller
+// locks Y).
 //
 // A scene with no camera (Camera == nil) draws with world = screen (the default).
 type Camera struct {
@@ -32,7 +34,7 @@ type Camera struct {
 	viewportH float64
 }
 
-// NewCamera returns a camera centered at the origin with 1x zoom.
+// NewCamera returns a camera with the view's top-left corner at the origin and 1x zoom.
 func NewCamera() *Camera {
 	return &Camera{Zoom: 1}
 }
@@ -55,8 +57,17 @@ func (c *Camera) FollowPoint(x, y float64) {
 func (c *Camera) LookAt(x, y float64) {
 	c.following = false
 	c.target = nil
-	c.X = x
-	c.Y = y
+	c.centerOn(x, y)
+}
+
+// centerOn sets the camera so the given world point sits at the viewport center.
+func (c *Camera) centerOn(x, y float64) {
+	z := c.Zoom
+	if z <= 0 {
+		z = 1
+	}
+	c.X = x - c.viewportW/(2*z)
+	c.Y = y - c.viewportH/(2*z)
 }
 
 // StopFollow stops following, leaving the camera where it is.
@@ -78,21 +89,31 @@ func (c *Camera) Tick() {
 		ty = c.target.Transform.Position.Y
 	}
 
+	// X/Y is the view's top-left corner, so center the target by aiming the
+	// top-left at (target - half the viewport). The viewport is set before Tick
+	// runs (see Scene.Draw).
+	z := c.Zoom
+	if z <= 0 {
+		z = 1
+	}
+	gx := tx - c.viewportW/(2*z)
+	gy := ty - c.viewportH/(2*z)
+
 	if c.Smoothing > 0 && c.Smoothing < 1 {
 		if !c.LockX {
-			c.X += (tx - c.X) * c.Smoothing
+			c.X += (gx - c.X) * c.Smoothing
 		}
 		if !c.LockY {
-			c.Y += (ty - c.Y) * c.Smoothing
+			c.Y += (gy - c.Y) * c.Smoothing
 		}
 		return
 	}
 
 	if !c.LockX {
-		c.X = tx
+		c.X = gx
 	}
 	if !c.LockY {
-		c.Y = ty
+		c.Y = gy
 	}
 }
 
@@ -110,8 +131,8 @@ func (c *Camera) WorldToScreen(world math.Vector2) math.Vector2 {
 		z = 1
 	}
 	return math.NewVector2(
-		(world.X-c.X)*z+c.viewportW/2,
-		(world.Y-c.Y)*z+c.viewportH/2,
+		(world.X-c.X)*z,
+		(world.Y-c.Y)*z,
 	)
 }
 
@@ -122,7 +143,7 @@ func (c *Camera) ScreenToWorld(screen math.Vector2) math.Vector2 {
 		z = 1
 	}
 	return math.NewVector2(
-		(screen.X-c.viewportW/2)/z+c.X,
-		(screen.Y-c.viewportH/2)/z+c.Y,
+		screen.X/z+c.X,
+		screen.Y/z+c.Y,
 	)
 }

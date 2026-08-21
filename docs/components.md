@@ -11,6 +11,10 @@ Every component's configurable fields are its **export variables**: JSON-tagged
 fields populated from the component's `args` object in `.obj`/`.scene` files. All
 args are **snake_case**.
 
+Each component below shows a **copy-paste `args` example** with default values —
+paste the `{ "kind", "name", "args" }` entry into an object's `components` array and
+adjust. Every arg has a default except a few marked **(required)**.
+
 ## The component model
 
 - **Kind** — `@Name` for built-ins (e.g. `@Sprite`), the struct type name for user
@@ -19,6 +23,9 @@ args are **snake_case**.
   `Update(ctx)` every frame, then `Draw(renderer)`. Draw order within an object is
   by `draw_layer` (a field every component inherits via `BaseComponent`; lower
   draws first, equal keeps insertion order).
+- **Universal arg** — every component (built-in and custom) accepts one extra arg
+  inherited from `BaseComponent`: `draw_layer` (int, default 0), which orders its
+  `Draw` relative to the object's other components.
 - **Accessing siblings** — `core.GetFrom[*T](owner)` (first by insertion order),
   `core.GetAllFrom[*T](owner)`, `core.GetFromNamed[*T](owner, name)`. All return a
   nil pointer when nothing matches; nil-check.
@@ -58,8 +65,24 @@ args are **snake_case**.
 Draws `texture` at the owner's transform. Frame slicing is derived from the
 texture size — no frame count is configured.
 
-- Args: `texture`, `frame_width`, `frame_height`, `frame`, `width`, `height`,
-  `flip_x`, `flip_y`, `tint`, `offset {x,y}`, `visible`.
+```json
+{
+  "kind": "@Sprite", "name": "sprite",
+  "args": {
+    "texture": "assets/player.png",
+    "frame_width": 0, "frame_height": 0, "frame": 0,
+    "width": 0, "height": 0,
+    "flip_x": false, "flip_y": false,
+    "tint": { "r": 255, "g": 255, "b": 255, "a": 255 },
+    "offset": { "x": 0, "y": 0 },
+    "visible": true
+  }
+}
+```
+
+- Args: `texture` (**required**), `frame_width` (0), `frame_height` (0), `frame`
+  (0), `width` (0 = natural), `height` (0 = natural), `flip_x` (false), `flip_y`
+  (false), `tint` (white), `offset {x,y}` (0,0), `visible` (true).
 - `frame_width = 0` → whole texture is one frame. `frame_width > 0` and
   `frame_height = 0` → a single horizontal strip. Both `> 0` → a grid cut
   row-by-row. `FrameCount()` is always computed from the texture size.
@@ -72,13 +95,33 @@ Owns the animation state of the sprites named in its clips: it drives their fram
 makes exactly one visible at a time, and mirrors its own flip onto all of them.
 Sprites not named in a clip are left untouched.
 
+```json
+{
+  "kind": "@Animator", "name": "animator",
+  "args": {
+    "clips": [
+      { "sprite": "sprite", "fps": 12, "loop": true }
+    ],
+    "default": "sprite", "flip_x": false, "flip_y": false
+  }
+}
+```
+
 - Args: `clips [{sprite, fps, loop}]`, `default`, `flip_x`, `flip_y`.
+  - `clips[].sprite` (**required**) is the name of the `@Sprite` it animates;
+    `fps` (12), `loop` (false).
+  - `default` (`""` → first clip's sprite).
 - A clip's id is the **name** of the `@Sprite` it animates (`sprite` field).
 - Emits `animation_finished` (data = sprite name) when a non-looping clip ends.
 - Requires `@Sprite`. Methods: `Play`, `Stop`, `IsPlaying`, `SetFlipX/Y`.
 
 ### `@Spin`
-- Args: `speed` (radians per second). Adds `speed * dt` to owner rotation.
+
+```json
+{ "kind": "@Spin", "name": "spin", "args": { "speed": 3 } }
+```
+
+- Args: `speed` (3, radians per second). Adds `speed * dt` to owner rotation.
 
 ## Movement
 
@@ -87,53 +130,111 @@ for collision resolution.** Without a `@Mover`, they move the position directly
 (teleport, no collision).
 
 ### `@Mover` (capability)
+
+```json
+{ "kind": "@Mover", "name": "mover", "args": {} }
+```
+
 - No args. Methods: `Teleport(x, y)`, `Move(dx, dy)`, `MoveTowards(target, dist)`.
 - Resolves collisions per axis (slides along walls); solids block, pushables are
   pushed, triggers ignored. Emits `blocked_collision` (data = blocking object) when
   blocked.
 
 ### `@Velocity` (capability)
-- Args: `vx`, `vy` (initial). Integrates velocity through `@Mover` each frame, and
-  zeroes an axis when the mover blocks it.
+
+```json
+{ "kind": "@Velocity", "name": "velocity", "args": { "vx": 0, "vy": 0 } }
+```
+
+- Args: `vx` (0), `vy` (0) — initial velocity. Integrates velocity through `@Mover`
+  each frame, and zeroes an axis when the mover blocks it.
 - Methods: `SetVelocity`, `Velocity`, `AddVelocity`.
 
 ### `@Gravity`
+
+```json
+{ "kind": "@Gravity", "name": "gravity", "args": { "acceleration": { "x": 0, "y": 980 }, "max_speed": 0 } }
+```
+
 - Args: `acceleration {x,y}` (default `{0, 980}`), `max_speed` (0 = no cap).
 - Adds `acceleration * dt` to `@Velocity`, clamped to `max_speed`. Requires
   `@Velocity`.
 
 ### `@Friction`
-- Args: `amount` (px/s reduction), `axes` (`"x"`, `"y"`, or `"both"`).
+
+```json
+{ "kind": "@Friction", "name": "friction", "args": { "amount": 0, "axes": "both" } }
+```
+
+- Args: `amount` (0, px/s reduction), `axes` (`"both"`, or `"x"` / `"y"`).
 - Damps `@Velocity` toward zero. Requires `@Velocity`.
 
 ### `@Bounce`
-- Args: `vx`, `vy`. Moves at constant velocity; reflects the blocked axis and emits
-  `bounce` (data = surface normal `Vector2`).
+
+```json
+{ "kind": "@Bounce", "name": "bounce", "args": { "vx": 100, "vy": 0 } }
+```
+
+- Args: `vx` (0), `vy` (0) — constant velocity. If both are 0, `vx` becomes 100.
+- Reflects the blocked axis and emits `bounce` (data = surface normal `Vector2`).
 
 ### `@PlayerController`
-- Args: `speed`. WASD / arrows → `@Mover`. Arcade/overhead movement; for
+
+```json
+{ "kind": "@PlayerController", "name": "controller", "args": { "speed": 200 } }
+```
+
+- Args: `speed` (200). WASD / arrows → `@Mover`. Arcade/overhead movement; for
   velocity-based platformer feel, write a custom component that sets `@Velocity`.
 
 ### `@Chase`
-- Args: `speed`, `target_tag`, `stop_distance`. Moves toward the nearest object
-  with `target_tag`, stopping within `stop_distance`.
+
+```json
+{ "kind": "@Chase", "name": "chase", "args": { "speed": 60, "target_tag": "player", "stop_distance": 0 } }
+```
+
+- Args: `speed` (60), `target_tag` (`"player"`), `stop_distance` (0 = disabled).
+  Moves toward the nearest object with `target_tag`, stopping within
+  `stop_distance`.
 
 ### `@Follow`
-- Args: `target_tag`, `lerp`, `offset {x,y}`. Lerps position toward the first
-  tagged object + offset. No collision.
+
+```json
+{ "kind": "@Follow", "name": "follow", "args": { "target_tag": "player", "lerp": 0.2, "offset": { "x": 0, "y": 0 } } }
+```
+
+- Args: `target_tag` (`"player"`), `lerp` (0.2, per-frame smoothing 0..1),
+  `offset {x,y}` (0,0). Lerps position toward the first tagged object + offset. No
+  collision.
 
 ### `@Patrol`
-- Args: `points [{x,y}…]`, `speed`, `ping_pong`. Walks between waypoints, looping
-  (or ping-ponging) through them.
+
+```json
+{ "kind": "@Patrol", "name": "patrol", "args": { "points": [ { "x": 0, "y": 0 }, { "x": 100, "y": 0 } ], "speed": 60, "ping_pong": false } }
+```
+
+- Args: `points [{x,y}…]` (needs ≥ 2 to move), `speed` (60), `ping_pong` (false).
+  Walks between waypoints, looping (or ping-ponging) through them.
 
 ### `@Wander`
-- Args: `speed`, `change_interval`. Random direction, re-rolled every
+
+```json
+{ "kind": "@Wander", "name": "wander", "args": { "speed": 40, "change_interval": 1.5 } }
+```
+
+- Args: `speed` (40), `change_interval` (1.5 s). Random direction, re-rolled every
   `change_interval` seconds.
 
 ## Collision & combat
 
 ### `@Collider`
-- Args: `width`, `height`, `offset {x,y}`, `mode`, `push_factor`, `collides_with []`.
+
+```json
+{ "kind": "@Collider", "name": "hitbox", "args": { "width": 32, "height": 32, "offset": { "x": 0, "y": 0 }, "mode": "solid", "push_factor": 1, "collides_with": [] } }
+```
+
+- Args: `width` (32), `height` (32), `offset {x,y}` (0,0), `mode` (`"solid"`),
+  `push_factor` (1), `collides_with []` (empty).
 - `mode`: `solid` (blocks), `pushable` (pushed by movers; `push_factor` scales the
   slide, 0 = immovable, 1 = full), `trigger` (detects only).
 - `offset` shifts the rectangle relative to the owner's position (top-left corner).
@@ -145,13 +246,23 @@ for collision resolution.** Without a `@Mover`, they move the position directly
   `ContainsPoint`, `GetOverlaps` (sorted by ID).
 
 ### `@Health`
-- Args: `max` (default 100). `Damage(amount)` / `Heal(amount)`.
+
+```json
+{ "kind": "@Health", "name": "health", "args": { "max": 100 } }
+```
+
+- Args: `max` (100). `Damage(amount)` / `Heal(amount)`.
 - Emits `damaged` (data = amount) or `died` (data = owner). `IsDead()`, `Current()`.
 
 ### `@Damage`
-- Args: `amount`, `target_tags []`, `cooldown`. Applies damage to overlapping
-  objects that have `@Health`, filtered by `target_tags`, once per `cooldown`
-  seconds. Requires `@Collider`.
+
+```json
+{ "kind": "@Damage", "name": "damage", "args": { "amount": 1, "target_tags": [], "cooldown": 0 } }
+```
+
+- Args: `amount` (1), `target_tags []` (empty = any), `cooldown` (0 = every frame).
+  Applies damage to overlapping objects that have `@Health`, filtered by
+  `target_tags`, once per `cooldown` seconds. Requires `@Collider`.
 
 ## Logic
 
@@ -159,7 +270,25 @@ for collision resolution.** Without a `@Mover`, they move the position directly
 A component-level state machine. The machine is in one named state at a time; each
 state lists the transitions that may leave it.
 
-- Args: `initial`, `states [{name, transitions [{event, from, to, delay}]}]`.
+```json
+{
+  "kind": "@StateMachine", "name": "state",
+  "args": {
+    "initial": "idle",
+    "states": [
+      { "name": "idle", "transitions": [ { "event": "start", "from": "", "to": "run", "delay": 0 } ] },
+      { "name": "run",  "transitions": [] }
+    ]
+  }
+}
+```
+
+- Args: `initial` (`""` → first state), `states [{name, transitions [{event, from, to, delay}]}]`.
+  - `states[].name` (**required**) — the state key.
+  - `transitions[].event` (**required**) — the trigger name.
+  - `transitions[].from` (`""` = manual only) — see below.
+  - `transitions[].to` (**required**) — target state.
+  - `transitions[].delay` (0) — seconds to wait before the transition.
 - A transition fires when its `event` occurs while the machine is in that state:
   - `from = ""` → manual only, reached via `Trigger(event)`.
   - `from = "component"` → the named component **on the same object**.
@@ -174,12 +303,23 @@ state lists the transitions that may leave it.
 ## Audio & misc
 
 ### `@Sound`
-- Args: `sound`, `volume` (0–1), `loop`, `play_on_start`.
+
+```json
+{ "kind": "@Sound", "name": "sound", "args": { "sound": "assets/pickup.wav", "volume": 1, "loop": false, "play_on_start": false } }
+```
+
+- Args: `sound` (**required**), `volume` (1, 0–1), `loop` (false), `play_on_start`
+  (false).
 - `play_on_start` auto-plays on the first frame; otherwise drive via
   `Play(ctx)` / `Stop(ctx)`.
 
 ### `@TimedDespawn`
-- Args: `lifetime` (seconds). Destroys the owner after `lifetime`.
+
+```json
+{ "kind": "@TimedDespawn", "name": "despawn", "args": { "lifetime": 5 } }
+```
+
+- Args: `lifetime` (5 s). Destroys the owner after `lifetime`.
 
 ## Events reference
 
@@ -212,9 +352,9 @@ state lists the transitions that may leave it.
 ## Scene-level (not components)
 
 - **Camera** — `scene.camera {x, y, zoom, smoothing, lock_x, lock_y}`. `x`/`y` are
-  the view center in world coordinates; `zoom` is the scale factor (center
-  anchored). `smoothing` lerps toward a follow target (0 = snap). Drive it from a
-  custom component via `scene.Camera.Follow(obj)`.
+  the view's top-left corner in world coordinates; `zoom` is the scale factor
+  (center anchored). `smoothing` lerps toward a follow target (0 = snap). Drive it
+  from a custom component via `scene.Camera.Follow(obj)`.
 - **`ui` flag** — an object with `"ui": true` is drawn in screen space (pixels),
   ignores the camera, and draws on top of all world objects.
 

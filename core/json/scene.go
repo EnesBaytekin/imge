@@ -17,7 +17,7 @@ type SceneConfig struct {
 }
 
 // CameraConfig represents the initial camera settings in a scene file. X/Y are
-// the view center in world coordinates; zoom is the scale factor (1 = 1:1).
+// the view's top-left corner in world coordinates; zoom is the scale factor (1 = 1:1).
 type CameraConfig struct {
 	X         float64 `json:"x"`
 	Y         float64 `json:"y"`
