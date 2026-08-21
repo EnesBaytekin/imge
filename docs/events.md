@@ -27,7 +27,7 @@ An event carries:
 
 | Field | Type | Notes |
 |---|---|---|
-| `Name` | string | the event type (e.g. `"collision_enter"`) |
+| `Name` | string | the event type (e.g. `"trigger_enter"`) |
 | `Data` | `any` | extra information, interpreted by the listener |
 | `Source` | `Component` | the emitting component, or `nil` for engine-generated events |
 
@@ -75,7 +75,7 @@ calls `SubscribeAll`, which registers the component for every event name it has 
 
 | Event | Emitted by | `Data` |
 |---|---|---|
-| `collision_enter` / `collision_exit` | `@Collider` | the other `*core.Object` |
+| `trigger_enter` / `trigger_exit` | `@Trigger` | the other `*core.Object` |
 | `blocked_collision` | `@Mover` | the blocking `*core.Object` |
 | `bounce` | `@Bounce` | surface normal `math.Vector2` |
 | `damaged` | `@Health` | the amount (`int`) |
@@ -105,7 +105,7 @@ See [Components → `@StateMachine`](components.md#statemachine) for the full ta
 
 ```go
 // Coin component — detects the player, emits an event, despawns.
-func (c *Coin) On("collision_enter", func(data any) {
+func (c *Coin) On("trigger_enter", func(data any) {
     other := data.(*core.Object)
     if other.HasTag("player") {
         c.Emit("coin_collected", c.GetOwner())
@@ -121,7 +121,7 @@ func (c *HUD) Initialize() {
 }
 ```
 
-Note the event chain: `collision_enter` (from `@Collider`) → `coin_collected` (from
+Note the event chain: `trigger_enter` (from `@Trigger`) → `coin_collected` (from
 the coin) → any other component listening for `coin_collected`. Because handlers
 that emit push to the next frame's queue, each hop is one frame apart — usually
 irrelevant, but worth knowing for tight timing.

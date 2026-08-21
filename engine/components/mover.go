@@ -19,10 +19,11 @@ func (r MoveResult) Moved() bool { return r.X || r.Y }
 const maxPushDepth = 4
 
 // Mover moves its owner with collision resolution. It holds no speed state:
-// callers pass an explicit displacement in pixels. When the owner has a @Collider,
-// movement that would overlap another object is resolved axis-by-axis (so a
-// diagonal move slides along walls): solids block, pushables are pushed, triggers
-// are ignored. Without a collider, the mover teleports freely.
+// callers pass an explicit displacement in pixels. When the owner has @Collider
+// shapes, movement that would overlap another object's colliders is resolved
+// axis-by-axis (so a diagonal move slides along walls): solids block, pushables
+// are pushed — mover and obstacle advance together at a reduced speed, so they
+// never interpenetrate. Without a collider, the mover teleports freely.
 type Mover struct {
 	core.BaseComponent
 }
@@ -75,80 +76,98 @@ func (m *Mover) moveAxis(axis int, delta float64, depth int) bool {
 		return delta == 0
 	}
 
-	pos := owner.Transform.Position
-	candidate := pos
-	if axis == 0 {
-		candidate.X += delta
-	} else {
-		candidate.Y += delta
-	}
-
-	collider := core.GetFrom[*Collider](owner)
-	if collider == nil {
-		owner.Transform.Position = candidate
+	ownColliders := core.GetAllFrom[*Collider](owner)
+	if len(ownColliders) == 0 {
+		// No body: teleport freely along this axis.
+		m.shift(owner, axis, delta)
 		return true
 	}
 
-	bounds := collider.GetBounds()
-	bounds.Position = candidate
+	// The body's own push factor (0 = solid, the default). It scales how hard this
+	// mover pushes: a pushable mover (itself > 0) pushes less. Compound bodies have
+	// a uniform factor in practice; take the max so any pushable part registers.
+	ownPushFactor := 0.0
+	for _, c := range ownColliders {
+		if c.PushFactor > ownPushFactor {
+			ownPushFactor = c.PushFactor
+		}
+	}
 
-	for _, other := range collider.candidates() {
-		otherCollider := core.GetFrom[*Collider](other)
-		if otherCollider == nil || !bounds.Overlaps(otherCollider.GetBounds()) {
+	for _, other := range shapeCandidates(owner, unionCollidesWith(ownColliders)) {
+		otherColliders := core.GetAllFrom[*Collider](other)
+		if len(otherColliders) == 0 {
 			continue
 		}
 
-		switch otherCollider.Mode {
-		case ColliderTrigger:
-			continue
-		case ColliderSolid:
-			m.Emit("blocked_collision", other)
-			return false
-		case ColliderPushable:
-			if depth >= maxPushDepth || !m.push(other, otherCollider, axis, bounds, depth+1) {
-				m.Emit("blocked_collision", other)
-				return false
+		// Test each of the mover's colliders (translated by delta) against each of
+		// the obstacle's colliders. Any overlap triggers resolution.
+		for _, own := range ownColliders {
+			bounds := own.GetBounds()
+			if axis == 0 {
+				bounds.Position.X += delta
+			} else {
+				bounds.Position.Y += delta
+			}
+
+			for _, oc := range otherColliders {
+				if !bounds.Overlaps(oc.GetBounds()) {
+					continue
+				}
+
+				if oc.PushFactor <= 0 {
+					// Solid: blocks outright.
+					m.Emit("blocked_collision", other)
+					return false
+				}
+
+				if depth >= maxPushDepth {
+					m.Emit("blocked_collision", other)
+					return false
+				}
+
+				otherMover := core.GetFrom[*Mover](other)
+				if otherMover == nil {
+					m.Emit("blocked_collision", other)
+					return false
+				}
+
+				// Combined push factor: how hard the mover pushes (1 - p_a) scaled by
+				// how easily the obstacle gives (p_b). Both advance the SAME distance
+				// so they stay flush and never interpenetrate.
+				f := (1 - ownPushFactor) * oc.PushFactor
+				amount := delta * f
+
+				before := other.Transform.Position
+				if !otherMover.moveAxis(axis, amount, depth+1) {
+					// The obstacle couldn't move (e.g. a wall behind it), so neither
+					// does the mover.
+					m.Emit("blocked_collision", other)
+					return false
+				}
+
+				// Move the mover by however far the obstacle actually went, keeping
+				// the two flush even when the obstacle only moved partway.
+				var actual float64
+				if axis == 0 {
+					actual = other.Transform.Position.X - before.X
+				} else {
+					actual = other.Transform.Position.Y - before.Y
+				}
+				m.shift(owner, axis, actual)
+				return true
 			}
 		}
 	}
 
-	owner.Transform.Position = candidate
+	m.shift(owner, axis, delta)
 	return true
 }
 
-// push tries to slide a pushable collider out of the way along `axis`, returning
-// true if the push cleared the overlap. pushFactor scales the distance.
-func (m *Mover) push(other *core.Object, otherCollider *Collider, axis int, myBounds math.Rect, depth int) bool {
-	otherMover := core.GetFrom[*Mover](other)
-	if otherMover == nil {
-		return false
-	}
-	otherBounds := otherCollider.GetBounds()
-
-	// Overlap length along the axis and push direction (away from the mover).
-	var overlap, dir float64
+// shift moves the owner by delta along one axis (0 = X, 1 = Y).
+func (m *Mover) shift(owner *core.Object, axis int, delta float64) {
 	if axis == 0 {
-		overlap = fmin(myBounds.Right(), otherBounds.Right()) - fmax(myBounds.Left(), otherBounds.Left())
-		if otherBounds.Center().X >= myBounds.Center().X {
-			dir = 1
-		} else {
-			dir = -1
-		}
+		owner.Transform.Position.X += delta
 	} else {
-		overlap = fmin(myBounds.Bottom(), otherBounds.Bottom()) - fmax(myBounds.Top(), otherBounds.Top())
-		if otherBounds.Center().Y >= myBounds.Center().Y {
-			dir = 1
-		} else {
-			dir = -1
-		}
+		owner.Transform.Position.Y += delta
 	}
-
-	if overlap <= 0 {
-		return false
-	}
-	amount := overlap * otherCollider.PushFactor * dir
-	if amount == 0 {
-		return false
-	}
-	return otherMover.moveAxis(axis, amount, depth)
 }

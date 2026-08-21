@@ -201,7 +201,7 @@ Wire it up in JSON:
   "tags": ["crate"],
   "components": [
     { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/crate.png", "width": 24, "height": 24 } },
-    { "kind": "@Collider", "name": "hitbox", "args": { "width": 24, "height": 24, "mode": "pushable" } },
+    { "kind": "@Collider", "name": "hitbox", "args": { "width": 24, "height": 24, "push_factor": 1 } },
     { "kind": "@Health", "name": "health", "args": { "max": 1 } },
     { "kind": "Crate", "name": "crate", "args": {} }
   ]

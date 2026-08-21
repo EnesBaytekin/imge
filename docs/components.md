@@ -52,9 +52,10 @@ adjust. Every arg has a default except a few marked **(required)**.
 | `@Follow` | Smoothly lerps toward a tagged object + offset |
 | `@Patrol` | Walks a list of waypoints (loop or ping-pong) |
 | `@Wander` | Moves in a random direction, re-rolled on an interval |
-| `@Collider` | Rectangle shape; solid/pushable/trigger, overlap tracking |
+| `@Collider` | Rectangle physics body; solid or pushable (multiple = compound body) |
+| `@Trigger` | Sensor region; detects overlaps, emits `trigger_enter`/`trigger_exit` |
 | `@Health` | HP pool; emits `damaged` / `died` |
-| `@Damage` | Applies damage to overlapping tagged targets |
+| `@Damage` | Applies damage to a `@Trigger`'s overlapping targets |
 | `@StateMachine` | Named states + event-driven transitions |
 | `@Sound` | One-shot sound effect or looping music |
 | `@TimedDespawn` | Destroys the owner after N seconds |
@@ -136,9 +137,10 @@ for collision resolution.** Without a `@Mover`, they move the position directly
 ```
 
 - No args. Methods: `Teleport(x, y)`, `Move(dx, dy)`, `MoveTowards(target, dist)`.
-- Resolves collisions per axis (slides along walls); solids block, pushables are
-  pushed, triggers ignored. Emits `blocked_collision` (data = blocking object) when
-  blocked.
+- Resolves collisions per axis (slides along walls): solids block, pushables are
+  pushed (mover and obstacle advance together at a reduced speed, never
+  interpenetrating). `@Trigger`s never affect movement. Emits `blocked_collision`
+  (data = blocking object) when blocked.
 
 ### `@Velocity` (capability)
 
@@ -230,18 +232,39 @@ for collision resolution.** Without a `@Mover`, they move the position directly
 ### `@Collider`
 
 ```json
-{ "kind": "@Collider", "name": "hitbox", "args": { "width": 32, "height": 32, "offset": { "x": 0, "y": 0 }, "mode": "solid", "push_factor": 1, "collides_with": [] } }
+{ "kind": "@Collider", "name": "hitbox", "args": { "width": 32, "height": 32, "offset": { "x": 0, "y": 0 }, "push_factor": 0, "collides_with": [] } }
 ```
 
-- Args: `width` (32), `height` (32), `offset {x,y}` (0,0), `mode` (`"solid"`),
-  `push_factor` (1), `collides_with []` (empty).
-- `mode`: `solid` (blocks), `pushable` (pushed by movers; `push_factor` scales the
-  slide, 0 = immovable, 1 = full), `trigger` (detects only).
+- Args: `width` (32), `height` (32), `offset {x,y}` (0,0), `push_factor` (0),
+  `collides_with []` (empty).
+- `push_factor` sets how the collider responds when a mover hits it: **0 = solid**
+  (blocks outright, the default), and a value in **(0, 1] = pushable** — the higher
+  the value, the lighter (easier to push; 1 = weightless).
+- Multiple `@Collider`s on one object form a **single compound body**: a mover tests
+  the whole union of rectangles and treats them as one physical object.
+- `@Collider` is **pure physics** — it never emits events or tracks overlaps. Use
+  `@Trigger` for detection.
 - `offset` shifts the rectangle relative to the owner's position (top-left corner).
   Use it when the sprite and hitbox have different origins.
 - `collides_with` lists tags to interact with (empty = everything).
-- Tracks overlaps each frame and emits `collision_enter` / `collision_exit`
+- Methods: `GetBounds`, `SetSize`, `SetOffset`, `GetSize`, `CheckOverlap`,
+  `ContainsPoint`.
+
+### `@Trigger`
+
+```json
+{ "kind": "@Trigger", "name": "trigger", "args": { "width": 32, "height": 32, "offset": { "x": 0, "y": 0 }, "collides_with": [] } }
+```
+
+- Args: `width` (32), `height` (32), `offset {x,y}` (0,0), `collides_with []`
+  (empty).
+- A sensor region: it **never blocks or is pushed** — it only detects when another
+  object's `@Collider` shapes overlap it. An object is detected when *any* of its
+  colliders overlaps (compound-aware).
+- Tracks overlaps each frame and emits `trigger_enter` / `trigger_exit`
   (data = other object).
+- Multiple `@Trigger`s on one object are independent sensors, each with its own
+  area.
 - Methods: `GetBounds`, `SetSize`, `SetOffset`, `GetSize`, `CheckOverlap`,
   `ContainsPoint`, `GetOverlaps` (sorted by ID).
 
@@ -257,12 +280,15 @@ for collision resolution.** Without a `@Mover`, they move the position directly
 ### `@Damage`
 
 ```json
-{ "kind": "@Damage", "name": "damage", "args": { "amount": 1, "target_tags": [], "cooldown": 0 } }
+{ "kind": "@Damage", "name": "damage", "args": { "amount": 1, "target_tags": [], "cooldown": 0, "trigger": "" } }
 ```
 
-- Args: `amount` (1), `target_tags []` (empty = any), `cooldown` (0 = every frame).
-  Applies damage to overlapping objects that have `@Health`, filtered by
-  `target_tags`, once per `cooldown` seconds. Requires `@Collider`.
+- Args: `amount` (1), `target_tags []` (empty = any), `cooldown` (0 = every frame),
+  `trigger` (`""` = the owner's first `@Trigger`; otherwise the name of a specific
+  `@Trigger`).
+- Reads the target `@Trigger`'s overlaps and applies damage to overlapping objects
+  that have `@Health`, filtered by `target_tags`, once per `cooldown` seconds.
+  Requires `@Trigger`.
 
 ## Logic
 
@@ -327,7 +353,7 @@ state lists the transitions that may leave it.
 |-------|-----------|------|
 | `blocked_collision` | `@Mover` | blocking object |
 | `bounce` | `@Bounce` | surface normal `Vector2` |
-| `collision_enter` / `collision_exit` | `@Collider` | the other object |
+| `trigger_enter` / `trigger_exit` | `@Trigger` | the other object |
 | `damaged` / `died` | `@Health` | amount / owner |
 | `animation_finished` | `@Animator` | sprite name |
 | `state_entered` / `state_exited` | `@StateMachine` | state name |
@@ -341,9 +367,9 @@ state lists the transitions that may leave it.
 - **Animation** — `@Sprite` + `@Animator`: the animator drives the sprite's frame,
   visibility and flip; give one object several sprites and an animator to swap
   between them.
-- **Combat** — `@Collider` (trigger or solid) + `@Health` + `@Damage`: `@Damage`
-  reads its collider's overlaps and calls `Health.Damage`, which emits `damaged` /
-  `died` for anything else to react to.
+- **Combat** — `@Trigger` + `@Health` + `@Damage`: `@Damage` reads its trigger's
+  overlaps and calls `Health.Damage`, which emits `damaged` / `died` for anything
+  else to react to.
 - **State machine** — `@StateMachine` listens to the events above: e.g. transition
   on `animation_finished` (from `@Animator`) or `died` (from `@Health`), and emit
   `state_entered`/`state_exited` so other components can react to state changes

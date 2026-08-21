@@ -18,7 +18,7 @@
       "transform": { "position": { "x": 0, "y": 536 } },
       "components": [
         { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/platform.png", "width": 800, "height": 64 } },
-        { "kind": "@Collider", "name": "hitbox", "args": { "width": 800, "height": 64, "mode": "solid" } }
+        { "kind": "@Collider", "name": "hitbox", "args": { "width": 800, "height": 64 } }
       ]
     },
 
@@ -29,7 +29,7 @@
       "transform": { "position": { "x": 0, "y": 0 } },
       "components": [
         { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/platform.png", "width": 16, "height": 600 } },
-        { "kind": "@Collider", "name": "hitbox", "args": { "width": 16, "height": 600, "mode": "solid" } }
+        { "kind": "@Collider", "name": "hitbox", "args": { "width": 16, "height": 600 } }
       ]
     },
 
@@ -40,7 +40,7 @@
       "transform": { "position": { "x": 784, "y": 0 } },
       "components": [
         { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/platform.png", "width": 16, "height": 600 } },
-        { "kind": "@Collider", "name": "hitbox", "args": { "width": 16, "height": 600, "mode": "solid" } }
+        { "kind": "@Collider", "name": "hitbox", "args": { "width": 16, "height": 600 } }
       ]
     },
 
@@ -51,7 +51,7 @@
       "transform": { "position": { "x": 140, "y": 440 } },
       "components": [
         { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/platform.png", "width": 176, "height": 24 } },
-        { "kind": "@Collider", "name": "hitbox", "args": { "width": 176, "height": 24, "mode": "solid" } }
+        { "kind": "@Collider", "name": "hitbox", "args": { "width": 176, "height": 24 } }
       ]
     },
 
@@ -62,7 +62,7 @@
       "transform": { "position": { "x": 380, "y": 360 } },
       "components": [
         { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/platform.png", "width": 144, "height": 24 } },
-        { "kind": "@Collider", "name": "hitbox", "args": { "width": 144, "height": 24, "mode": "solid" } }
+        { "kind": "@Collider", "name": "hitbox", "args": { "width": 144, "height": 24 } }
       ]
     },
 
@@ -73,7 +73,7 @@
       "transform": { "position": { "x": 600, "y": 440 } },
       "components": [
         { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/platform.png", "width": 128, "height": 24 } },
-        { "kind": "@Collider", "name": "hitbox", "args": { "width": 128, "height": 24, "mode": "solid" } }
+        { "kind": "@Collider", "name": "hitbox", "args": { "width": 128, "height": 24 } }
       ]
     },
 
@@ -84,7 +84,7 @@
       "transform": { "position": { "x": 60, "y": 300 } },
       "components": [
         { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/platform.png", "width": 96, "height": 24 } },
-        { "kind": "@Collider", "name": "hitbox", "args": { "width": 96, "height": 24, "mode": "solid" } }
+        { "kind": "@Collider", "name": "hitbox", "args": { "width": 96, "height": 24 } }
       ]
     },
 
@@ -118,7 +118,7 @@
           }
         },
         { "kind": "@Sound", "name": "sound", "args": { "sound": "assets/door.wav" } },
-        { "kind": "@Collider", "name": "hitbox", "args": { "width": 32, "height": 48, "mode": "trigger", "collidesWith": ["player"] } },
+        { "kind": "@Trigger", "name": "hitbox", "args": { "width": 32, "height": 48, "collides_with": ["player"] } },
         { "kind": "DoorComponent", "name": "door", "args": { "openDistance": 40, "warnDistance": 100 } }
       ]
     },
@@ -130,8 +130,8 @@
       "transform": { "position": { "x": 360, "y": 528 } },
       "components": [
         { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/spike.png", "width": 24, "height": 8, "tint": { "r": 230, "g": 70, "b": 70, "a": 255 } } },
-        { "kind": "@Collider", "name": "hitbox", "args": { "width": 24, "height": 8, "mode": "trigger", "collidesWith": ["player"] } },
-        { "kind": "@Damage", "name": "damage", "args": { "amount": 1, "targetTags": ["player"], "cooldown": 1 } }
+        { "kind": "@Trigger", "name": "hitbox", "args": { "width": 24, "height": 8, "collides_with": ["player"] } },
+        { "kind": "@Damage", "name": "damage", "args": { "amount": 1, "target_tags": ["player"], "cooldown": 1, "trigger": "hitbox" } }
       ]
     },
 
@@ -141,7 +141,7 @@
       "tags": ["enemy"],
       "transform": { "position": { "x": 620, "y": 416 } },
       "components": [
-        { "kind": "@Collider", "name": "hitbox", "args": { "width": 24, "height": 24, "mode": "solid", "collidesWith": ["player", "platform", "wall"] } },
+        { "kind": "@Collider", "name": "hitbox", "args": { "width": 24, "height": 24, "collides_with": ["player", "platform", "wall"] } },
         { "kind": "@Mover", "name": "mover", "args": {} },
         { "kind": "@Velocity", "name": "velocity", "args": {} },
         { "kind": "@Gravity", "name": "gravity", "args": { "acceleration": { "x": 0, "y": 980 }, "maxSpeed": 700 } },
@@ -183,7 +183,7 @@
       "transform": { "position": { "x": 300, "y": 100 } },
       "components": [
         { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/orb.png", "width": 20, "height": 20, "tint": { "r": 255, "g": 90, "b": 90, "a": 255 } } },
-        { "kind": "@Collider", "name": "hitbox", "args": { "width": 20, "height": 20, "mode": "solid", "collidesWith": ["platform", "wall"] } },
+        { "kind": "@Collider", "name": "hitbox", "args": { "width": 20, "height": 20, "collides_with": ["platform", "wall"] } },
         { "kind": "@Mover", "name": "mover", "args": {} },
         { "kind": "@Bounce", "name": "bounce", "args": { "vx": 140, "vy": 90 } }
       ]
@@ -207,7 +207,7 @@
       "tags": ["player"],
       "transform": { "position": { "x": 120, "y": 470 } },
       "components": [
-        { "kind": "@Collider", "name": "body", "args": { "width": 28, "height": 32, "mode": "solid", "collidesWith": ["platform", "wall", "crate", "enemy"] } },
+        { "kind": "@Collider", "name": "body", "args": { "width": 28, "height": 32, "collides_with": ["platform", "wall", "crate", "enemy"] } },
         { "kind": "@Mover", "name": "mover", "args": {} },
         { "kind": "@Gravity", "name": "gravity", "args": { "acceleration": { "x": 0, "y": 980 }, "maxSpeed": 700 } },
         { "kind": "@Friction", "name": "friction", "args": { "amount": 900, "axes": "x" } },

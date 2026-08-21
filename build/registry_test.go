@@ -187,6 +187,7 @@ type PlayerComponent struct {
 		{"@Spin", "Spin"},
 		{"@Sprite", "Sprite"},
 		{"@TimedDespawn", "TimedDespawn"},
+		{"@Trigger", "Trigger"},
 		{"@Velocity", "Velocity"},
 		{"@Wander", "Wander"},
 		{"PlayerComponent", "PlayerComponent"},

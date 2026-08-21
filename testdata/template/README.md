@@ -43,7 +43,8 @@ components/*.go         custom components (merged with the built-ins at build ti
 
 | Component        | Used by                              | What it demonstrates |
 |------------------|--------------------------------------|----------------------|
-| `@Collider`      | everything physical                  | `solid` / `pushable` / `trigger` modes, `collidesWith` tag filtering, `collision_enter` events |
+| `@Collider`      | everything physical                  | solid blocks, `push_factor` pushables, `collides_with` tag filtering (multiple = compound body) |
+| `@Trigger`       | gold, spikes, door                   | overlap detection with `trigger_enter` / `trigger_exit` events |
 | `@Mover`         | player, crates, walker, bat, ball    | axis-by-axis collision resolution, push chains |
 | `@Velocity`      | player, crates, walker               | per-axis speed state |
 | `@Gravity`       | player, crates, walker               | acceleration + max-speed clamp |
@@ -52,7 +53,7 @@ components/*.go         custom components (merged with the built-ins at build ti
 | `@Animator`      | player, door                         | multi-clip sprite-sheet animation (idle / run / jump, closed / open) |
 | `@Spin`          | coins, enemies, poof particles       | rotation over time |
 | `@Health`        | player, crates                       | HP pool + `died` / `damaged` events |
-| `@Damage`        | spikes                               | overlap damage on a cooldown |
+| `@Damage`        | spikes                               | damage to a `@Trigger`'s overlaps on a cooldown |
 | `@Chase`         | bat                                  | home in on the nearest `player`, stop at range |
 | `@Patrol`        | walker                               | loop between waypoints |
 | `@Wander`        | firefly                              | random-direction drift |
@@ -66,7 +67,7 @@ components/*.go         custom components (merged with the built-ins at build ti
 | File        | Type             | What it does |
 |-------------|------------------|--------------|
 | `player.go` | `PlayerComponent`| reads input, writes `@Velocity`, picks anim clips, attacks crates, respawns on `died` |
-| `gold.go`   | `GoldComponent`  | sine-wave bob, collects on `collision_enter` with the player |
+| `gold.go`   | `GoldComponent`  | sine-wave bob, collects when its `@Trigger` overlaps the player |
 | `crate.go`  | `CrateComponent` | breaks on `died`, spawns a coin + a poof particle |
 | `door.go`   | `DoorComponent`  | unlocks on `all_gold`, emits `win` on touch, draws the `!` warning |
 | `game.go`   | `GameComponent`  | HUD (coins + hearts), tracks progress, shows the win overlay |
@@ -75,7 +76,7 @@ components/*.go         custom components (merged with the built-ins at build ti
 
 ```
 player attacks crate   → Health.damage → "died"        → CrateComponent breaks
-                       → spawns gold    → "collision_enter" (player) → GoldComponent
+                       → spawns gold    → "trigger_enter" (player)  → GoldComponent
                        → "gold_collected" → GameComponent counts up
                        → "all_gold" (at 5)  → DoorComponent unlocks
                        → player touches   → "win"         → GameComponent overlay

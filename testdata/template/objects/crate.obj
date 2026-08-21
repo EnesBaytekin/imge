@@ -11,7 +11,7 @@
     {
       "kind": "@Collider",
       "name": "hitbox",
-      "args": { "width": 24, "height": 24, "mode": "pushable", "collidesWith": ["player", "platform", "wall", "crate"] }
+      "args": { "width": 24, "height": 24, "push_factor": 1, "collides_with": ["player", "platform", "wall", "crate"] }
     },
     { "kind": "@Mover", "name": "mover", "args": {} },
     { "kind": "@Velocity", "name": "velocity", "args": {} },

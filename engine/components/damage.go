@@ -4,11 +4,11 @@ import (
 	"github.com/EnesBaytekin/imge/core"
 )
 
-// Damage applies damage to overlapping objects that have a @Health. TargetTags
-// restricts which tagged objects take damage (empty = any). Cooldown spaces out
-// repeated ticks (seconds; 0 = every frame).
+// Damage applies damage to objects overlapping a @Trigger that have a @Health.
+// TargetTags restricts which tagged objects take damage (empty = any). Cooldown
+// spaces out repeated ticks (seconds; 0 = every frame).
 //
-// Export variables (JSON args): amount, targetTags, cooldown.
+// Export variables (JSON args): amount, target_tags, cooldown, trigger.
 type Damage struct {
 	core.BaseComponent
 
@@ -16,11 +16,15 @@ type Damage struct {
 	TargetTags []string `json:"target_tags"`
 	Cooldown   float64  `json:"cooldown"`
 
+	// Trigger is the name of the @Trigger to read overlaps from. Empty means the
+	// owner's first @Trigger.
+	Trigger string `json:"trigger"`
+
 	timer float64
 }
 
 // Requires declares the component this one needs to function.
-func (d *Damage) Requires() []string { return []string{"@Collider"} }
+func (d *Damage) Requires() []string { return []string{"@Trigger"} }
 
 // Initialize applies defaults.
 func (d *Damage) Initialize() {
@@ -40,13 +44,16 @@ func (d *Damage) Update(ctx *core.Context) {
 	if owner == nil {
 		return
 	}
-	collider := core.GetFrom[*Collider](owner)
-	if collider == nil {
+	trigger := core.GetFromNamed[*Trigger](owner, d.Trigger)
+	if trigger == nil && d.Trigger == "" {
+		trigger = core.GetFrom[*Trigger](owner)
+	}
+	if trigger == nil {
 		return
 	}
 
 	applied := false
-	for _, other := range collider.GetOverlaps() {
+	for _, other := range trigger.GetOverlaps() {
 		if !matchesAnyTag(other, d.TargetTags) {
 			continue
 		}

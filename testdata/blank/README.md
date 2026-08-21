@@ -26,7 +26,7 @@ sprite and gives it a solid collider:
   "transform": { "position": { "x": 100, "y": 300 } },
   "components": [
     { "kind": "@Sprite",   "name": "sprite", "args": { "texture": "assets/box.png", "width": 32, "height": 32 } },
-    { "kind": "@Collider", "name": "body",   "args": { "width": 32, "height": 32, "mode": "solid" } }
+    { "kind": "@Collider", "name": "body",   "args": { "width": 32, "height": 32 } }
   ]
 }
 ```
@@ -34,9 +34,10 @@ sprite and gives it a solid collider:
 Every component needs a `name` (unique within the object) — it's how components
 address each other (e.g. an `@Animator` targets a sprite by name).
 
-Built-in components are named `@Name` (`@Sprite`, `@Collider`, `@Mover`,
-`@Velocity`, `@Gravity`, `@Friction`, `@Animator`, `@Health`, `@Damage`,
-`@Spin`, `@Chase`, `@Patrol`, `@Wander`, `@Bounce`, `@Follow`, `@Sound`, …).
+Built-in components are named `@Name` (`@Sprite`, `@Collider`, `@Trigger`,
+`@Mover`, `@Velocity`, `@Gravity`, `@Friction`, `@Animator`, `@Health`,
+`@Damage`, `@Spin`, `@Chase`, `@Patrol`, `@Wander`, `@Bounce`, `@Follow`,
+`@Sound`, …).
 A component in `components/` gets a `kind` equal to its Go struct type name
 (e.g. a struct `FooComponent` is referenced as `"kind": "FooComponent"`).
 

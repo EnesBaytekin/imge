@@ -20,7 +20,7 @@ The movement stack: `@Velocity` holds speed, `@Gravity` adds acceleration,
   "tags": ["player"],
   "transform": { "position": { "x": 120, "y": 470 } },
   "components": [
-    { "kind": "@Collider", "name": "body", "args": { "width": 28, "height": 32, "mode": "solid", "collides_with": ["platform", "wall"] } },
+    { "kind": "@Collider", "name": "body", "args": { "width": 28, "height": 32, "collides_with": ["platform", "wall"] } },
     { "kind": "@Mover", "name": "mover", "args": {} },
     { "kind": "@Velocity", "name": "velocity", "args": {} },
     { "kind": "@Gravity", "name": "gravity", "args": { "acceleration": { "x": 0, "y": 980 }, "max_speed": 700 } },
@@ -69,8 +69,8 @@ For a quick **overhead/arcade** character with no physics, swap the whole stack 
 
 ## An enemy that chases
 
-`@Chase` homes in on the nearest `player`; a trigger `@Collider` + `@Damage` hurts
-them on overlap, on a cooldown. `@Sprite` + `@Spin` make it visible.
+`@Chase` homes in on the nearest `player`; a `@Trigger` + `@Damage` hurts them on
+overlap, on a cooldown. `@Sprite` + `@Spin` make it visible.
 
 ```json
 {
@@ -79,9 +79,9 @@ them on overlap, on a cooldown. `@Sprite` + `@Spin` make it visible.
   "components": [
     { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/orb.png", "width": 20, "height": 20 } },
     { "kind": "@Spin", "name": "spin", "args": { "speed": 6 } },
-    { "kind": "@Collider", "name": "hitbox", "args": { "width": 20, "height": 20, "mode": "trigger", "collides_with": ["player"] } },
+    { "kind": "@Trigger", "name": "hitbox", "args": { "width": 20, "height": 20, "collides_with": ["player"] } },
     { "kind": "@Chase", "name": "chase", "args": { "speed": 90, "target_tag": "player", "stop_distance": 40 } },
-    { "kind": "@Damage", "name": "damage", "args": { "amount": 1, "target_tags": ["player"], "cooldown": 1.0 } }
+    { "kind": "@Damage", "name": "damage", "args": { "amount": 1, "target_tags": ["player"], "cooldown": 1.0, "trigger": "hitbox" } }
   ]
 }
 ```
@@ -92,7 +92,7 @@ drift, `@Bounce` for a reflecting projectile, `@Follow` for a companion.
 
 ## A collectible pickup
 
-A trigger collider detects the player; a custom component handles the pickup. The
+A trigger detects the player; a custom component handles the pickup. The
 coin bobs (custom) and spins (`@Spin`).
 
 ```json
@@ -102,7 +102,7 @@ coin bobs (custom) and spins (`@Spin`).
   "components": [
     { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/coin.png", "width": 20, "height": 20 } },
     { "kind": "@Spin", "name": "spin", "args": { "speed": 3 } },
-    { "kind": "@Collider", "name": "hitbox", "args": { "width": 20, "height": 20, "mode": "trigger", "collides_with": ["player"] } },
+    { "kind": "@Trigger", "name": "hitbox", "args": { "width": 20, "height": 20, "collides_with": ["player"] } },
     { "kind": "Coin", "name": "coin", "args": {} }
   ]
 }
@@ -117,7 +117,7 @@ import "github.com/EnesBaytekin/imge/core"
 type Coin struct { core.BaseComponent }
 
 func (c *Coin) Initialize() {
-    c.On("collision_enter", func(data any) {
+    c.On("trigger_enter", func(data any) {
         other, ok := data.(*core.Object)
         if ok && other.HasTag("player") {
             c.Emit("coin_collected", c.GetOwner())
@@ -141,8 +141,8 @@ component react (respawn, game over).
   "name": "spikes",
   "tags": ["hazard"],
   "components": [
-    { "kind": "@Collider", "name": "hitbox", "args": { "width": 24, "height": 8, "mode": "trigger", "collides_with": ["player"] } },
-    { "kind": "@Damage", "name": "damage", "args": { "amount": 1, "target_tags": ["player"], "cooldown": 1 } }
+    { "kind": "@Trigger", "name": "hitbox", "args": { "width": 24, "height": 8, "collides_with": ["player"] } },
+    { "kind": "@Damage", "name": "damage", "args": { "amount": 1, "target_tags": ["player"], "cooldown": 1, "trigger": "hitbox" } }
   ]
 }
 ```
@@ -234,7 +234,7 @@ func (c *Game) Initialize() {
 // components/door.go — opens on all_coins, wins on touch
 func (c *Door) Initialize() {
     c.On("all_coins", func(any) { core.GetFrom[*Animator](c.GetOwner()).Play("open") })
-    c.On("collision_enter", func(data any) {
+    c.On("trigger_enter", func(data any) {
         if o, ok := data.(*core.Object); ok && o.HasTag("player") && c.open {
             c.Emit("win", nil)
         }
@@ -243,7 +243,7 @@ func (c *Door) Initialize() {
 ```
 
 The door object carries `@Sprite` (closed) + `@Sprite` (open) + `@Animator`
-(`closed`/`open` clips) + a trigger `@Collider` + a `Door` component.
+(`closed`/`open` clips) + a `@Trigger` + a `Door` component.
 
 ## State-machine driven behavior
 

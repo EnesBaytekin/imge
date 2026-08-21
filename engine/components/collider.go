@@ -4,31 +4,20 @@
 package components
 
 import (
-	"sort"
-
 	"github.com/EnesBaytekin/imge/core"
 	"github.com/EnesBaytekin/imge/core/math"
 )
 
-// ColliderMode describes how a collider participates in movement resolution.
-type ColliderMode string
-
-const (
-	// ColliderSolid blocks movers outright (walls, ground).
-	ColliderSolid ColliderMode = "solid"
-	// ColliderPushable is pushed out of the way by a mover; PushFactor scales how
-	// far it slides.
-	ColliderPushable ColliderMode = "pushable"
-	// ColliderTrigger never blocks or is pushed; it only detects overlaps.
-	ColliderTrigger ColliderMode = "trigger"
-)
-
-// Collider is a rectangle shape. It answers overlap queries, tracks which objects
-// currently overlap it (emitting "collision_enter"/"collision_exit"), and — via
-// its Mode — tells movers how to resolve against it.
+// Collider is a rectangle shape that participates in movement resolution. It is
+// pure physics: it answers overlap queries and — via its PushFactor — tells movers
+// whether it blocks or gets pushed. It does NOT track overlaps or emit events;
+// detection lives on @Trigger instead.
 //
-// Export variables (JSON args): width, height, offset {x,y}, mode, pushFactor,
-// collidesWith.
+// Multiple colliders on one object form a single compound body: a mover tests the
+// whole union against obstacles and treats them as one physical object.
+//
+// Export variables (JSON args): width, height, offset {x,y}, push_factor,
+// collides_with.
 type Collider struct {
 	core.BaseComponent
 
@@ -40,19 +29,14 @@ type Collider struct {
 	// origins — e.g. the sprite is centered but the collider should be.
 	Offset math.Vector2 `json:"offset"`
 
-	// Mode controls how movement resolves against this collider.
-	Mode ColliderMode `json:"mode"`
-
-	// PushFactor scales how far a pushable collider slides when pushed
-	// (0 = immovable, 1 = full; default 1).
+	// PushFactor sets how this collider responds when a mover collides with it:
+	// 0 (the default) is solid — it blocks outright. A value in (0, 1] makes it
+	// pushable, where a higher value means lighter (easier to push; 1 = weightless).
 	PushFactor float64 `json:"push_factor"`
 
 	// CollidesWith lists object tags this collider interacts with. Empty means it
 	// interacts with every object.
 	CollidesWith []string `json:"collides_with"`
-
-	// overlaps tracks the objects currently overlapping this collider.
-	overlaps map[uint64]*core.Object
 }
 
 // Initialize applies defaults.
@@ -63,58 +47,12 @@ func (c *Collider) Initialize() {
 	if c.Height <= 0 {
 		c.Height = 32
 	}
-	if c.Mode == "" {
-		c.Mode = ColliderSolid
-	}
-	if c.PushFactor == 0 {
-		c.PushFactor = 1.0
-	}
-	c.overlaps = make(map[uint64]*core.Object)
-}
-
-// Update refreshes the overlap set and emits enter/exit events.
-func (c *Collider) Update(ctx *core.Context) {
-	owner := c.GetOwner()
-	if owner == nil || owner.Scene == nil {
-		return
-	}
-
-	bounds := c.GetBounds()
-	current := make(map[uint64]*core.Object)
-
-	for _, other := range c.candidates() {
-		otherCollider := core.GetFrom[*Collider](other)
-		if otherCollider == nil || !bounds.Overlaps(otherCollider.GetBounds()) {
-			continue
-		}
-		current[other.ID] = other
-		if _, seen := c.overlaps[other.ID]; !seen {
-			c.Emit("collision_enter", other)
-		}
-	}
-
-	for id, other := range c.overlaps {
-		if _, still := current[id]; !still {
-			c.Emit("collision_exit", other)
-		}
-	}
-
-	c.overlaps = current
 }
 
 // GetBounds returns the collider rectangle in world space, anchored at the
 // owner's position plus Offset (top-left corner).
 func (c *Collider) GetBounds() math.Rect {
-	owner := c.GetOwner()
-	if owner == nil {
-		return math.NewRect(c.Offset.X, c.Offset.Y, c.Width, c.Height)
-	}
-	return math.NewRect(
-		owner.Transform.Position.X+c.Offset.X,
-		owner.Transform.Position.Y+c.Offset.Y,
-		c.Width,
-		c.Height,
-	)
+	return shapeBounds(c.GetOwner(), c.Width, c.Height, c.Offset)
 }
 
 // SetSize sets the collider dimensions.
@@ -147,28 +85,32 @@ func (c *Collider) ContainsPoint(point math.Vector2) bool {
 	return c.GetBounds().ContainsPoint(point)
 }
 
-// GetOverlaps returns the objects currently overlapping this collider, ordered by
-// object ID for determinism.
-func (c *Collider) GetOverlaps() []*core.Object {
-	result := make([]*core.Object, 0, len(c.overlaps))
-	for _, obj := range c.overlaps {
-		result = append(result, obj)
+// shapeBounds returns the world-space rectangle occupied by a width×height shape
+// anchored at the owner's position plus offset (top-left corner). The owner may be
+// nil (the rectangle is then anchored at the offset alone), which keeps the helper
+// usable before an object is in a scene.
+func shapeBounds(owner *core.Object, width, height float64, offset math.Vector2) math.Rect {
+	if owner == nil {
+		return math.NewRect(offset.X, offset.Y, width, height)
 	}
-	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
-	return result
+	return math.NewRect(
+		owner.Transform.Position.X+offset.X,
+		owner.Transform.Position.Y+offset.Y,
+		width,
+		height,
+	)
 }
 
-// candidates returns the objects this collider may interact with, filtered by
-// CollidesWith. Empty CollidesWith means every active object; otherwise the scene
-// tag index is used for O(1) lookup per tag.
-func (c *Collider) candidates() []*core.Object {
-	owner := c.GetOwner()
+// shapeCandidates returns the objects a shape may interact with, filtered by
+// collidesWith. Empty collidesWith means every active object; otherwise the scene
+// tag index is used for O(1) lookup per tag. The owner is always excluded.
+func shapeCandidates(owner *core.Object, collidesWith []string) []*core.Object {
 	if owner == nil || owner.Scene == nil {
 		return nil
 	}
 	scene := owner.Scene
 
-	if len(c.CollidesWith) == 0 {
+	if len(collidesWith) == 0 {
 		objs := make([]*core.Object, 0, len(scene.Objects))
 		for _, obj := range scene.Objects {
 			if obj != owner && obj.Active && !obj.IsDestroyed() {
@@ -180,7 +122,7 @@ func (c *Collider) candidates() []*core.Object {
 
 	seen := make(map[uint64]bool)
 	var objs []*core.Object
-	for _, tag := range c.CollidesWith {
+	for _, tag := range collidesWith {
 		for _, obj := range scene.FindObjectsWithTag(tag) {
 			if obj == owner || !obj.Active || obj.IsDestroyed() || seen[obj.ID] {
 				continue
@@ -192,18 +134,27 @@ func (c *Collider) candidates() []*core.Object {
 	return objs
 }
 
-// fmin/fmax are small float helpers so this package doesn't import the standard
-// library math (which would collide with core/math).
-func fmin(a, b float64) float64 {
-	if a < b {
-		return a
+// unionCollidesWith merges the collidesWith tag lists of a compound body into one
+// filter. An empty list means "interact with everything", which dominates: if any
+// collider in the body has no filter, the body interacts with every object (nil).
+func unionCollidesWith(colliders []*Collider) []string {
+	unfiltered := false
+	seen := make(map[string]bool)
+	var tags []string
+	for _, c := range colliders {
+		if len(c.CollidesWith) == 0 {
+			unfiltered = true
+			continue
+		}
+		for _, tag := range c.CollidesWith {
+			if !seen[tag] {
+				seen[tag] = true
+				tags = append(tags, tag)
+			}
+		}
 	}
-	return b
-}
-
-func fmax(a, b float64) float64 {
-	if a > b {
-		return a
+	if unfiltered {
+		return nil
 	}
-	return b
+	return tags
 }

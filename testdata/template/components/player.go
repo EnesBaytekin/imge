@@ -145,7 +145,8 @@ func (c *PlayerComponent) Update(ctx *core.Context) {
 	}
 }
 
-// grounded reports whether a non-trigger collider sits directly below the owner.
+// grounded reports whether a collider sits directly below the owner. Objects that
+// only have a @Trigger (no @Collider) are skipped by the nil check below.
 func (c *PlayerComponent) grounded() bool {
 	owner := c.GetOwner()
 	if owner == nil || owner.Scene == nil {
@@ -164,7 +165,7 @@ func (c *PlayerComponent) grounded() bool {
 			continue
 		}
 		oc := core.GetFrom[*Collider](other)
-		if oc == nil || oc.Mode == ColliderTrigger {
+		if oc == nil {
 			continue
 		}
 		if probe.Overlaps(oc.GetBounds()) {

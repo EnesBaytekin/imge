@@ -10,9 +10,9 @@
     },
     { "kind": "@Spin", "name": "spin", "args": { "speed": 3 } },
     {
-      "kind": "@Collider",
+      "kind": "@Trigger",
       "name": "hitbox",
-      "args": { "width": 20, "height": 20, "mode": "trigger", "collidesWith": ["player"] }
+      "args": { "width": 20, "height": 20, "collides_with": ["player"] }
     },
     {
       "kind": "GoldComponent",

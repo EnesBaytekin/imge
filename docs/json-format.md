@@ -171,9 +171,10 @@ objects. It is how one component addresses another:
 - `core.GetFromNamed[*T](owner, name)` looks a component up by name.
 
 Two components of the same kind can coexist under different names (e.g. several
-`@Sprite`s, or a solid body + a trigger hitbox, both `@Collider`). `name` may be
-omitted (defaults to `""`), but any component you need to address — a sprite
-driven by an animator, a collider a `@Damage` reads — should be named.
+`@Sprite`s). Different kinds coexist too — a solid body (`@Collider`) plus a
+trigger hitbox (`@Trigger`) on the same object. `name` may be omitted (defaults
+to `""`), but any component you need to address — a sprite driven by an animator,
+a trigger a `@Damage` reads — should be named.
 
 ### `args`
 
@@ -226,7 +227,7 @@ Nested structs use their own `json` tags: `acceleration {x,y}`, `offset {x,y}`,
       "transform": { "position": { "x": 0, "y": 500 } },
       "components": [
         { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/platform.png", "width": 800, "height": 40 } },
-        { "kind": "@Collider", "name": "body", "args": { "width": 800, "height": 40, "mode": "solid" } }
+        { "kind": "@Collider", "name": "body", "args": { "width": 800, "height": 40 } }
       ]
     },
     { "file": "objects/coin.obj", "transform": { "position": { "x": 380, "y": 370 } } }

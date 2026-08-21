@@ -69,10 +69,10 @@ func spawnGold(scene *core.Scene, x, y float64) {
 	spin.SetKind("@Spin")
 	_ = obj.AddComponent(spin)
 
-	col := &Collider{Width: 20, Height: 20, Mode: ColliderTrigger, CollidesWith: []string{"player"}}
-	col.SetName("hitbox")
-	col.SetKind("@Collider")
-	_ = obj.AddComponent(col)
+	trg := &Trigger{Width: 20, Height: 20, CollidesWith: []string{"player"}}
+	trg.SetName("hitbox")
+	trg.SetKind("@Trigger")
+	_ = obj.AddComponent(trg)
 
 	_ = scene.AddObject(obj)
 }

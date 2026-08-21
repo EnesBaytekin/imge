@@ -7,8 +7,8 @@ import (
 )
 
 // GoldComponent makes its owner bob up and down on a sine wave and collects
-// itself when the player overlaps its trigger @Collider. The @Spin sibling
-// provides the visible rotation.
+// itself when the player overlaps its @Trigger. The @Spin sibling provides the
+// visible rotation.
 type GoldComponent struct {
 	core.BaseComponent
 	Amplitude float64 `json:"amplitude"`
@@ -21,7 +21,7 @@ type GoldComponent struct {
 
 // Requires declares the sibling components this gold needs to function.
 func (c *GoldComponent) Requires() []string {
-	return []string{"@Collider", "@Sprite", "@Spin"}
+	return []string{"@Trigger", "@Sprite", "@Spin"}
 }
 
 func (c *GoldComponent) Initialize() {
@@ -47,15 +47,15 @@ func (c *GoldComponent) Update(ctx *core.Context) {
 	c.t += ctx.DeltaTime()
 	owner.Transform.Position.Y = c.baseY + stdmath.Sin(c.t*c.Speed)*c.Amplitude
 
-	// Collect only when the player overlaps THIS coin's collider. We read the
-	// collider's own overlap set rather than the scene-global "collision_enter"
+	// Collect only when the player overlaps THIS coin's trigger. We read the
+	// trigger's own overlap set rather than the scene-global "trigger_enter"
 	// event, because that event is broadcast to every listener — every coin would
 	// collect at once the moment any one of them is touched.
-	col := core.GetFrom[*Collider](owner)
-	if col == nil {
+	trg := core.GetFrom[*Trigger](owner)
+	if trg == nil {
 		return
 	}
-	for _, other := range col.GetOverlaps() {
+	for _, other := range trg.GetOverlaps() {
 		if other.HasTag("player") {
 			c.collect()
 			return
