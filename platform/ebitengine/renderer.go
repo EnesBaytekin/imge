@@ -11,6 +11,7 @@ import (
 	"github.com/EnesBaytekin/imge/core/math"
 	"github.com/EnesBaytekin/imge/platform/ebitengine/assetfs"
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/colorm"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
@@ -18,7 +19,7 @@ import (
 // Shapes are drawn without anti-aliasing so pixel art stays crisp.
 type Renderer struct {
 	target         *ebiten.Image
-	textures       map[string]*ebiten.Image
+	textures       map[string]textureEntry
 	missing        map[string]bool // textures we already warned about
 	viewportWidth  int
 	viewportHeight int
@@ -29,9 +30,16 @@ type Renderer struct {
 	assetFS        fs.FS // embedded assets (web); nil means use the OS filesystem
 }
 
+// textureEntry caches a decoded texture together with its dominant hue, computed
+// once at load time and used by the hue_to transform.
+type textureEntry struct {
+	img *ebiten.Image
+	hue float64
+}
+
 func newRenderer() *Renderer {
 	return &Renderer{
-		textures: make(map[string]*ebiten.Image),
+		textures: make(map[string]textureEntry),
 		missing:  make(map[string]bool),
 	}
 }
@@ -85,9 +93,25 @@ func (r *Renderer) SetAssetFS(fsys fs.FS) {
 	r.assetFS = fsys
 }
 
-// toRGBA converts a math.Color to the standard library color.RGBA.
+// toRGBA converts a math.Color to the standard library color.RGBA. The values are
+// straight (non-premultiplied) alpha, which is what Ebitengine's Fill and vector
+// shape functions expect.
 func toRGBA(c math.Color) color.RGBA {
 	return color.RGBA{R: c.R, G: c.G, B: c.B, A: c.A}
+}
+
+// toColorm converts a core math.ColorMatrix into the Ebitengine color matrix used
+// by colorm.DrawImage. Both operate on straight-alpha colors, so the elements map
+// directly (i = output channel, j = input channel, j == 4 is the constant term).
+func toColorm(m math.ColorMatrix) colorm.ColorM {
+	var c colorm.ColorM
+	for i := 0; i < 4; i++ {
+		for j := 0; j < 4; j++ {
+			c.SetElement(i, j, m.M[i][j])
+		}
+		c.SetElement(i, 4, m.T[i])
+	}
+	return c
 }
 
 // Clear fills the entire target with the given color.
@@ -162,13 +186,14 @@ func (r *Renderer) DrawLine(start, end math.Vector2, c math.Color, thickness flo
 }
 
 // DrawTexture draws a texture (or a sub-region of it) at the given position with
-// scale, rotation, and tint. Textures are loaded lazily on first use and cached by ID.
-func (r *Renderer) DrawTexture(textureID string, src math.Rect, position math.Vector2, scale math.Vector2, rotation float64, tint math.Color) {
+// scale, rotation, and a color transform. Textures are loaded lazily on first use
+// and cached by ID.
+func (r *Renderer) DrawTexture(textureID string, src math.Rect, position math.Vector2, scale math.Vector2, rotation float64, transform math.ColorTransform) {
 	if r.target == nil {
 		return
 	}
 
-	img := r.loadTexture(textureID)
+	img, hue := r.loadTexture(textureID)
 	if img == nil {
 		return
 	}
@@ -210,22 +235,28 @@ func (r *Renderer) DrawTexture(textureID string, src math.Rect, position math.Ve
 		py -= sy * h
 	}
 
-	opts := &ebiten.DrawImageOptions{}
 	// Anchor the (sub-)image at its center, apply scale and rotation, then place
 	// its top-left corner at `pos`.
-	opts.GeoM.Translate(-cx, -cy)
-	opts.GeoM.Scale(sx, sy)
-	opts.GeoM.Rotate(rotation)
-	opts.GeoM.Translate(px+cx*sx, py+cy*sy)
-	opts.ColorScale.ScaleWithColor(toRGBA(tint))
+	var geoM ebiten.GeoM
+	geoM.Translate(-cx, -cy)
+	geoM.Scale(sx, sy)
+	geoM.Rotate(rotation)
+	geoM.Translate(px+cx*sx, py+cy*sy)
 
-	r.target.DrawImage(drawImg, opts)
+	// The common case is no color transform, so keep the plain texture shader path.
+	if transform.IsIdentity() {
+		r.target.DrawImage(drawImg, &ebiten.DrawImageOptions{GeoM: geoM})
+		return
+	}
+
+	cm := toColorm(transform.Matrix(hue))
+	colorm.DrawImage(r.target, drawImg, cm, &colorm.DrawImageOptions{GeoM: geoM})
 }
 
 // GetTextureSize returns the natural pixel size of a texture, loading it if
 // needed. Returns (0, 0) when the texture cannot be loaded.
 func (r *Renderer) GetTextureSize(textureID string) (float64, float64) {
-	img := r.loadTexture(textureID)
+	img, _ := r.loadTexture(textureID)
 	if img == nil {
 		return 0, 0
 	}
@@ -249,9 +280,9 @@ func (r *Renderer) GetViewportSize() (width, height int) {
 // loadTexture loads and caches a texture by ID. The ID is treated as a
 // project-root-relative file path, resolved exactly as written (no assets/
 // fallback).
-func (r *Renderer) loadTexture(textureID string) *ebiten.Image {
-	if img, ok := r.textures[textureID]; ok {
-		return img
+func (r *Renderer) loadTexture(textureID string) (*ebiten.Image, float64) {
+	if e, ok := r.textures[textureID]; ok {
+		return e.img, e.hue
 	}
 
 	f, err := assetfs.Open(r.assetFS, textureID)
@@ -260,7 +291,7 @@ func (r *Renderer) loadTexture(textureID string) *ebiten.Image {
 			log.Printf("ebitengine: texture not found: %q", textureID)
 			r.missing[textureID] = true
 		}
-		return nil
+		return nil, 0
 	}
 	defer f.Close()
 
@@ -270,11 +301,14 @@ func (r *Renderer) loadTexture(textureID string) *ebiten.Image {
 			log.Printf("ebitengine: failed to decode texture %q: %v", textureID, err)
 			r.missing[textureID] = true
 		}
-		return nil
+		return nil, 0
 	}
 
 	// NewImageFromImage defaults to FilterNearest, which keeps pixel art crisp.
+	// DominantHue is computed once here (from the decoded source) and cached, so
+	// hue_to does not re-scan the texture every frame.
+	hue := math.DominantHue(src)
 	img := ebiten.NewImageFromImage(src)
-	r.textures[textureID] = img
-	return img
+	r.textures[textureID] = textureEntry{img: img, hue: hue}
+	return img, hue
 }

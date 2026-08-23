@@ -129,7 +129,7 @@
       "tags": ["hazard"],
       "transform": { "position": { "x": 360, "y": 528 } },
       "components": [
-        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/spike.png", "width": 24, "height": 8, "tint": { "r": 230, "g": 70, "b": 70, "a": 255 } } },
+        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/spike.png", "width": 24, "height": 8, "color": { "tint": { "r": 230, "g": 70, "b": 70, "a": 255 } } } },
         { "kind": "@Trigger", "name": "hitbox", "args": { "width": 24, "height": 8, "collides_with": ["player"] } },
         { "kind": "@Damage", "name": "damage", "args": { "amount": 1, "target_tags": ["player"], "cooldown": 1, "trigger": "hitbox" } }
       ]
@@ -147,7 +147,7 @@
         { "kind": "@Gravity", "name": "gravity", "args": { "acceleration": { "x": 0, "y": 980 }, "maxSpeed": 700 } },
         { "kind": "@Patrol", "name": "patrol", "args": { "speed": 50, "points": [ { "x": 620, "y": 416 }, { "x": 700, "y": 416 } ] } },
         { "kind": "@Spin", "name": "spin", "args": { "speed": 4 } },
-        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/enemy.png", "width": 24, "height": 24, "tint": { "r": 255, "g": 150, "b": 50, "a": 255 } } }
+        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/enemy.png", "width": 24, "height": 24, "color": { "tint": { "r": 255, "g": 150, "b": 50, "a": 255 } } } }
       ]
     },
 
@@ -157,7 +157,7 @@
       "tags": ["enemy"],
       "transform": { "position": { "x": 500, "y": 150 } },
       "components": [
-        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/enemy.png", "width": 20, "height": 20, "tint": { "r": 180, "g": 90, "b": 255, "a": 255 } } },
+        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/enemy.png", "width": 20, "height": 20, "color": { "tint": { "r": 180, "g": 90, "b": 255, "a": 255 } } } },
         { "kind": "@Spin", "name": "spin", "args": { "speed": 6 } },
         { "kind": "@Mover", "name": "mover", "args": {} },
         { "kind": "@Chase", "name": "chase", "args": { "speed": 90, "targetTag": "player", "stopDistance": 40 } }
@@ -170,7 +170,7 @@
       "tags": ["firefly"],
       "transform": { "position": { "x": 600, "y": 100 } },
       "components": [
-        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/orb.png", "width": 12, "height": 12, "tint": { "r": 255, "g": 230, "b": 90, "a": 255 } } },
+        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/orb.png", "width": 12, "height": 12, "color": { "tint": { "r": 255, "g": 230, "b": 90, "a": 255 } } } },
         { "kind": "@Spin", "name": "spin", "args": { "speed": 8 } },
         { "kind": "@Wander", "name": "wander", "args": { "speed": 40, "changeInterval": 1.5 } }
       ]
@@ -182,7 +182,7 @@
       "tags": ["ball"],
       "transform": { "position": { "x": 300, "y": 100 } },
       "components": [
-        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/orb.png", "width": 20, "height": 20, "tint": { "r": 255, "g": 90, "b": 90, "a": 255 } } },
+        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/orb.png", "width": 20, "height": 20, "color": { "tint": { "r": 255, "g": 90, "b": 90, "a": 255 } } } },
         { "kind": "@Collider", "name": "hitbox", "args": { "width": 20, "height": 20, "collides_with": ["platform", "wall"] } },
         { "kind": "@Mover", "name": "mover", "args": {} },
         { "kind": "@Bounce", "name": "bounce", "args": { "vx": 140, "vy": 90 } }
@@ -195,7 +195,7 @@
       "tags": ["pet"],
       "transform": { "position": { "x": 80, "y": 500 } },
       "components": [
-        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/orb.png", "width": 16, "height": 16, "tint": { "r": 90, "g": 220, "b": 255, "a": 255 } } },
+        { "kind": "@Sprite", "name": "sprite", "args": { "texture": "assets/orb.png", "width": 16, "height": 16, "color": { "tint": { "r": 90, "g": 220, "b": 255, "a": 255 } } } },
         { "kind": "@Spin", "name": "spin", "args": { "speed": 3 } },
         { "kind": "@Follow", "name": "follow", "args": { "targetTag": "player", "lerp": 0.15, "offset": { "x": 30, "y": 30 } } }
       ]

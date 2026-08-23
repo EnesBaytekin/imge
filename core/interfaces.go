@@ -34,7 +34,9 @@ type Renderer interface {
 	// DrawTexture draws a texture (or a region of it) at the specified position
 	// with transformations. textureID identifies a previously loaded texture.
 	// src is the source region in the texture; a zero Rect means the entire texture.
-	DrawTexture(textureID string, src math.Rect, position math.Vector2, scale math.Vector2, rotation float64, tint math.Color)
+	// transform is the color transform applied to the texture (an identity
+	// transform is a plain draw).
+	DrawTexture(textureID string, src math.Rect, position math.Vector2, scale math.Vector2, rotation float64, transform math.ColorTransform)
 
 	// GetTextureSize returns the natural pixel size of a loaded texture.
 	// Returns (0, 0) if the texture cannot be loaded.

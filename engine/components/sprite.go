@@ -19,20 +19,21 @@ import (
 // offset is added to the owner's position before drawing.
 //
 // Export variables (JSON args): texture, frame_width, frame_height, frame, width,
-// height, flip_x, flip_y, tint, offset {x,y}, visible, draw_layer.
+// height, flip_x, flip_y, color {tint, hue, hue_to, grayscale, solid}, offset
+// {x,y}, visible, draw_layer.
 type Sprite struct {
 	core.BaseComponent
 
-	Texture     string       `json:"texture"`
-	FrameWidth  float64      `json:"frame_width"`
-	FrameHeight float64      `json:"frame_height"`
-	Frame       int          `json:"frame"`
-	Width       float64      `json:"width"`
-	Height      float64      `json:"height"`
-	FlipX       bool         `json:"flip_x"`
-	FlipY       bool         `json:"flip_y"`
-	Tint        math.Color   `json:"tint"`
-	Offset      math.Vector2 `json:"offset"`
+	Texture     string              `json:"texture"`
+	FrameWidth  float64             `json:"frame_width"`
+	FrameHeight float64             `json:"frame_height"`
+	Frame       int                 `json:"frame"`
+	Width       float64             `json:"width"`
+	Height      float64             `json:"height"`
+	FlipX       bool                `json:"flip_x"`
+	FlipY       bool                `json:"flip_y"`
+	Color       math.ColorTransform `json:"color"`
+	Offset      math.Vector2        `json:"offset"`
 
 	// Visible controls whether the sprite draws. It is a *bool so the JSON arg can
 	// default to true (nil = not specified). An @Animator overrides this for the
@@ -45,11 +46,9 @@ type Sprite struct {
 	sized    bool
 }
 
-// Initialize applies defaults.
+// Initialize applies defaults. The color transform's zero value is identity, so
+// no default is needed there.
 func (s *Sprite) Initialize() {
-	if s.Tint == (math.Color{}) {
-		s.Tint = math.White
-	}
 	if s.Visible == nil {
 		v := true
 		s.Visible = &v
@@ -99,7 +98,7 @@ func (s *Sprite) Draw(renderer core.Renderer) {
 	}
 
 	pos := owner.Transform.Position.Add(s.Offset)
-	renderer.DrawTexture(s.Texture, src, pos, scale, owner.Transform.Rotation, s.Tint)
+	renderer.DrawTexture(s.Texture, src, pos, scale, owner.Transform.Rotation, s.Color)
 }
 
 // frameRect returns the source region for the current frame (zero Rect = whole
@@ -196,9 +195,9 @@ func (s *Sprite) SetTexture(path string) {
 	s.Texture = path
 }
 
-// SetTint sets the color tint for rendering.
-func (s *Sprite) SetTint(tint math.Color) {
-	s.Tint = tint
+// SetColor sets the color transform for rendering.
+func (s *Sprite) SetColor(transform math.ColorTransform) {
+	s.Color = transform
 }
 
 // SetFlipX sets horizontal flipping.

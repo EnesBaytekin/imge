@@ -200,17 +200,20 @@ The values inside `args` map to Go types:
 | `[]math.Vector2` | array of `{x,y}` (e.g. `@Patrol` `points`) |
 | `[]Clip` | array of objects (e.g. `@Animator` `clips`) |
 | `math.Vector2` | `{ "x": 0, "y": 0 }` |
-| `math.Color` | `{ "r": 255, "g": 0, "b": 0, "a": 255 }` (0–255) |
+| `math.Color` | `{ "r": 255, "g": 0, "b": 0, "a": 255 }` (0–255) or `"#RRGGBB"` |
+| `math.ColorTransform` | `{ "grayscale": false, "hue": 0, "hue_to": {…}, "tint": {…}, "solid": false }` (e.g. `@Sprite` `color`) |
 | `*bool` | `true` / `false` (e.g. `@Sprite` `visible`) |
 
 Nested structs use their own `json` tags: `acceleration {x,y}`, `offset {x,y}`,
-`tint {r,g,b,a}`.
+`color {grayscale, hue, hue_to {r,g,b,a}, tint {r,g,b,a}, solid}`.
 
 ## Color and vector shorthand
 
-- **Hex string** — used only for a scene's `background_color` (`"#RRGGBB"`, etc.).
-- **`{r,g,b,a}` object** — used for component args that take a `math.Color` (e.g.
-  `@Sprite` `tint`). Channels are `uint8`, 0–255. Omitted `a` defaults to 255.
+- **Hex string** — a scene's `background_color`, or any `math.Color` arg (e.g.
+  `@Sprite` `color.tint`, `color.hue_to`): `"#RGB"`, `"#RGBA"`, `"#RRGGBB"`, or
+  `"#RRGGBBAA"` (the leading `#` is optional).
+- **`{r,g,b,a}` object** — also accepted for `math.Color` args. Channels are
+  `uint8`, 0–255. Omitted `a` defaults to 255.
 - **`{x,y}` object** — any `math.Vector2` (positions, velocities, offsets, points).
 
 ## Full worked example

@@ -9,9 +9,9 @@ import (
 // Transform represents a 2D transformation (position, rotation, scale).
 // This is a core component for positioning game objects in the world.
 type Transform struct {
-	Position Vector2  // Translation in world space
-	Rotation float64  // Rotation in radians (0 = facing right, positive = counter-clockwise)
-	Scale    Vector2  // Scale factors (1,1 = original size)
+	Position Vector2 // Translation in world space
+	Rotation float64 // Rotation in radians (0 = facing right, positive = counter-clockwise)
+	Scale    Vector2 // Scale factors (1,1 = original size)
 }
 
 // NewTransform creates a new transform with default values.
@@ -64,7 +64,7 @@ func (t Transform) ScaleBy(scaleX, scaleY float64) Transform {
 	return Transform{
 		Position: t.Position,
 		Rotation: t.Rotation,
-		Scale:    Vector2{
+		Scale: Vector2{
 			X: t.Scale.X * scaleX,
 			Y: t.Scale.Y * scaleY,
 		},

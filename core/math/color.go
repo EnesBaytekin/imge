@@ -2,6 +2,7 @@
 package math
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"strings"
@@ -17,6 +18,49 @@ type Color struct {
 	G uint8 `json:"g"`
 	B uint8 `json:"b"`
 	A uint8 `json:"a"`
+}
+
+// UnmarshalJSON lets a Color be configured from either an RGBA object
+// ({"r":255,"g":0,"b":0,"a":255}) or a hex string ("#RRGGBB"). The alpha channel
+// defaults to 255 (opaque) when omitted. A JSON null is a no-op, matching the
+// encoding/json convention.
+func (c *Color) UnmarshalJSON(data []byte) error {
+	s := strings.TrimSpace(string(data))
+	if s == "null" {
+		return nil
+	}
+
+	// Hex string form.
+	if len(s) > 0 && s[0] == '"' {
+		var str string
+		if err := json.Unmarshal(data, &str); err != nil {
+			return err
+		}
+		parsed, err := ParseHex(str)
+		if err != nil {
+			return err
+		}
+		*c = parsed
+		return nil
+	}
+
+	// Object form. Decode into a plain struct (so this method isn't re-entered),
+	// with A as a pointer so an omitted key is distinguishable from an explicit 0.
+	var obj struct {
+		R uint8  `json:"r"`
+		G uint8  `json:"g"`
+		B uint8  `json:"b"`
+		A *uint8 `json:"a"`
+	}
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return err
+	}
+	a := uint8(255)
+	if obj.A != nil {
+		a = *obj.A
+	}
+	*c = Color{R: obj.R, G: obj.G, B: obj.B, A: a}
+	return nil
 }
 
 // NewColor creates a new color from RGBA values (0-255).
@@ -127,6 +171,21 @@ func hexDigit(c byte) (uint8, bool) {
 // ToFloats converts the color to float values (0.0 to 1.0).
 func (c Color) ToFloats() (r, g, b, a float64) {
 	return uint8ToFloat(c.R), uint8ToFloat(c.G), uint8ToFloat(c.B), uint8ToFloat(c.A)
+}
+
+// Premultiplied returns the color's RGBA premultiplied by alpha, as floats in
+// [0, 1]. Straight RGBA is (r, g, b, a); premultiplied is (r*a, g*a, b*a, a).
+// Pipelines that operate on premultiplied-alpha colors (e.g. a color scale
+// applied to a texture) need this form.
+func (c Color) Premultiplied() (r, g, b, a float64) {
+	r = uint8ToFloat(c.R)
+	g = uint8ToFloat(c.G)
+	b = uint8ToFloat(c.B)
+	a = uint8ToFloat(c.A)
+	r *= a
+	g *= a
+	b *= a
+	return
 }
 
 // Lerp linearly interpolates between this color and another by t (0 to 1).

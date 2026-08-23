@@ -28,7 +28,9 @@ adjust. Every arg has a default except a few marked **(required)**.
   `Draw` relative to the object's other components.
 - **Accessing siblings** — `core.GetFrom[*T](owner)` (first by insertion order),
   `core.GetAllFrom[*T](owner)`, `core.GetFromNamed[*T](owner, name)`. All return a
-  nil pointer when nothing matches; nil-check.
+  nil pointer when nothing matches; nil-check. See
+  [Custom components → Reaching sibling components](custom-components.md#reaching-sibling-components)
+  for the full table.
 - **Requires** — optional `Requires() []string` declares the kinds a component
   needs (informational; the build tool warns about missing ones).
 - **Events** — `Emit(name, data)` broadcasts to every component that subscribed via
@@ -74,7 +76,13 @@ texture size — no frame count is configured.
     "frame_width": 0, "frame_height": 0, "frame": 0,
     "width": 0, "height": 0,
     "flip_x": false, "flip_y": false,
-    "tint": { "r": 255, "g": 255, "b": 255, "a": 255 },
+    "color": {
+      "grayscale": false,
+      "hue": 0,
+      "hue_to": null,
+      "tint": { "r": 255, "g": 255, "b": 255, "a": 255 },
+      "solid": false
+    },
     "offset": { "x": 0, "y": 0 },
     "visible": true
   }
@@ -83,12 +91,16 @@ texture size — no frame count is configured.
 
 - Args: `texture` (**required**), `frame_width` (0), `frame_height` (0), `frame`
   (0), `width` (0 = natural), `height` (0 = natural), `flip_x` (false), `flip_y`
-  (false), `tint` (white), `offset {x,y}` (0,0), `visible` (true).
+  (false), `color` (identity), `offset {x,y}` (0,0), `visible` (true).
+- `color` recolors the texture at draw time, applied in this order:
+  `grayscale` (desaturate) → `hue` / `hue_to` (rotate) → `tint` (multiply) →
+  `solid` (silhouette). See [Color effects](color-effects.md) for the full guide
+  with visual side-by-side comparisons.
 - `frame_width = 0` → whole texture is one frame. `frame_width > 0` and
   `frame_height = 0` → a single horizontal strip. Both `> 0` → a grid cut
   row-by-row. `FrameCount()` is always computed from the texture size.
 - `width`/`height` are the display size (0 = natural frame size).
-- Methods: `SetFrame`, `SetTexture`, `SetTint`, `SetFlipX/Y`, `SetVisible`,
+- Methods: `SetFrame`, `SetTexture`, `SetColor`, `SetFlipX/Y`, `SetVisible`,
   `SetOffset`, `IsVisible`, `FrameCount`.
 
 ### `@Animator`

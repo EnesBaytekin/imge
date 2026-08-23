@@ -70,9 +70,18 @@ sprites   := core.GetAllFrom[*Sprite](owner)        // all of type
 run       := core.GetFromNamed[*Sprite](owner, "run") // the one named "run"
 ```
 
-`core.GetFrom` / `GetFromNamed` return a nil pointer when nothing matches — always
-nil-check. `GetFromNamed` is O(1) and what you want when several components share a
-type (e.g. several `@Sprite`s).
+All three are generic over the component type `T`:
+
+| Accessor | Returns | Notes |
+|---|---|---|
+| `core.GetFrom[T](obj)` | the first component of type `T` (insertion order), or `nil` | the common case |
+| `core.GetAllFrom[T](obj)` | every component of type `T` (insertion order), or `nil` | when an object has several of the same type |
+| `core.GetFromNamed[T](obj, name)` | the component of type `T` named `name`, or `nil` | O(1) name lookup; ignores insertion order |
+
+`GetFrom` / `GetFromNamed` return the zero value (a `nil` pointer) when nothing
+matches — always nil-check before use. `GetFromNamed` is what you want when several
+components share a type (e.g. several `@Sprite`s): give each a `name` in JSON and
+fetch the one you mean by name.
 
 ## Declaring dependencies
 
