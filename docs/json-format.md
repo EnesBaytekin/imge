@@ -25,7 +25,8 @@ floats unless stated otherwise; booleans are `true`/`false`.
     "title": "My Game",
     "width": 640,
     "height": 360,
-    "fullscreen": false
+    "fullscreen": false,
+    "pixel_per_unit": 1
   },
   "game": {
     "target_fps": 60,
@@ -42,16 +43,28 @@ floats unless stated otherwise; booleans are `true`/`false`.
 | `window.width` | int | `640` | logical resolution (the renderer draws at this size) |
 | `window.height` | int | `360` | logical resolution |
 | `window.fullscreen` | bool | `false` | start the game fullscreen |
+| `window.pixel_per_unit` | int | `1` | framebuffer pixels per logical unit (sub-unit render precision; see below) |
 | `game.target_fps` | int | `60` | target frame rate |
 | `game.initial_scene` | string | `"main"` | scene shown first |
 
 `width`/`height` is the **logical** resolution the game is rendered at — not the
-window size. On desktop the window opens at the **largest integer scale of that
-resolution that fits your monitor**, so a small pixel-art resolution isn't shown
-at its raw pixel size. The frame is then scaled into the window with letterboxing
-to preserve the aspect ratio, exactly how the web build fills the browser. Press
-**F11** (or **Alt+Enter**) to toggle fullscreen at any time. The window is always
-locked to this fit size, toggling only between windowed and fullscreen.
+window size. Each frame is drawn to a render target of `width × height` logical
+units, then scaled into the window/browser with letterboxing to preserve the
+aspect ratio (desktop opens at the largest integer scale that fits your monitor;
+the web build fills the browser). Press **F11** (or **Alt+Enter**) to toggle
+fullscreen at any time; the window is always locked to its fit size.
+
+`pixel_per_unit` (default `1`) is how many framebuffer pixels each logical unit
+occupies along one axis. The actual render target is `width×pixel_per_unit` by
+`height×pixel_per_unit`, and the window auto-fits to **that** size. At `1` the
+engine is pixel-perfect: a position like `54.8` snaps to the nearest whole pixel,
+which can make smooth fractional movement appear to jitter. Raising it to `2`,
+`4`, etc. lets the rasterizer show half-, quarter-, … pixel positions, so motion
+stays smooth without changing anything in the game world — positions, collider
+sizes, and camera math are all unaffected; only the render resolution (and the
+mouse coordinate mapping, which is normalized back to logical units) changes.
+There is no upper limit, but the framebuffer (and its memory) grows with the
+square of the value, so keep it as small as your game's smoothness needs.
 
 `format_version` is **not** a free-form game-version field — it's an engine-owned
 number that pins the project format (the `game.imge` schema, the scene/object JSON

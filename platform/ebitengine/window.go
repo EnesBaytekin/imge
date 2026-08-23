@@ -34,10 +34,16 @@ func (w *Window) Create(cfg core.WindowConfig) error {
 	// windowed and fullscreen.
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeDisabled)
 
-	// Open the window at the largest integer scale of the logical resolution that
-	// fits the monitor, so a small pixel-art resolution isn't microscopic (web
-	// ignores the window size — the browser owns it).
-	ww, wh := fitWindowSize(cfg.Width, cfg.Height)
+	// Open the window at the largest integer scale of the RENDER resolution
+	// (logical * pixel_per_unit) that fits the monitor. Basing it on the render
+	// resolution rather than the logical one keeps the final upscale an integer,
+	// so pixel art stays crisp when pixel_per_unit > 1 and the extra sub-unit
+	// resolution is actually shown (web ignores the window size — the browser owns it).
+	ppu := cfg.PixelPerUnit
+	if ppu <= 0 {
+		ppu = 1
+	}
+	ww, wh := fitWindowSize(cfg.Width*ppu, cfg.Height*ppu)
 	ebiten.SetWindowSize(ww, wh)
 
 	// Lock the window to the auto-fit size with matching min/max limits. Ebitengine

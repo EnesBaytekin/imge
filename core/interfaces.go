@@ -242,9 +242,15 @@ type Time interface {
 // letterboxing to preserve the aspect ratio.
 type WindowConfig struct {
 	Title      string
-	Width      int // logical (game) resolution
-	Height     int // logical (game) resolution
+	Width      int // logical (game) resolution, in game units
+	Height     int // logical (game) resolution, in game units
 	Fullscreen bool
+	// PixelPerUnit is the number of framebuffer pixels per logical unit along one
+	// axis (>= 1). The render target is Width*PixelPerUnit x Height*PixelPerUnit,
+	// so a value > 1 lets the rasterizer show sub-unit (fractional) positions — the
+	// world still moves in whole units, but the extra resolution makes that motion
+	// smooth instead of snapping to whole pixels. 1 (the default) is pixel-perfect.
+	PixelPerUnit int
 }
 
 // Window handles window management and events.

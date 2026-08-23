@@ -34,10 +34,11 @@ type GameConfig struct {
 
 // WindowConfig represents window settings
 type WindowConfig struct {
-	Title      string `json:"title"`
-	Width      int    `json:"width"`
-	Height     int    `json:"height"`
-	Fullscreen bool   `json:"fullscreen"`
+	Title        string `json:"title"`
+	Width        int    `json:"width"`
+	Height       int    `json:"height"`
+	Fullscreen   bool   `json:"fullscreen"`
+	PixelPerUnit int    `json:"pixel_per_unit"`
 }
 
 // GameSettings represents game runtime settings
@@ -111,6 +112,9 @@ func (a *ProjectAnalysis) loadGameConfig(path string) error {
 	}
 	if config.Window.Height == 0 {
 		config.Window.Height = 360
+	}
+	if config.Window.PixelPerUnit <= 0 {
+		config.Window.PixelPerUnit = 1
 	}
 	// fullscreen defaults to false (the JSON zero value): the window opens windowed
 	// at the largest integer scale fitting the screen and is locked to that size,

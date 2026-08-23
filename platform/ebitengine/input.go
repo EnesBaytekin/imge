@@ -20,6 +20,7 @@ type Input struct {
 	prevMouse     math.Vector2
 	mouseDelta    math.Vector2
 	mouseScroll   math.Vector2
+	pixelScale    float64
 
 	touchActive       bool
 	touchJustPressed  bool
@@ -28,7 +29,16 @@ type Input struct {
 }
 
 func newInput() *Input {
-	return &Input{}
+	return &Input{pixelScale: 1}
+}
+
+// setPixelScale sets the division factor that maps raw cursor/touch coordinates
+// (which Ebitengine reports in Layout space) back to logical units.
+func (i *Input) setPixelScale(ppu float64) {
+	if ppu <= 0 {
+		ppu = 1
+	}
+	i.pixelScale = ppu
 }
 
 // keyMap maps engine key codes to Ebitengine keys.
@@ -143,10 +153,10 @@ func (i *Input) Update() {
 
 	if i.touchActive {
 		tx, ty := ebiten.TouchPosition(ids[0])
-		i.mousePosition = math.NewVector2(float64(tx), float64(ty))
+		i.mousePosition = math.NewVector2(float64(tx)/i.pixelScale, float64(ty)/i.pixelScale)
 	} else {
 		x, y := ebiten.CursorPosition()
-		i.mousePosition = math.NewVector2(float64(x), float64(y))
+		i.mousePosition = math.NewVector2(float64(x)/i.pixelScale, float64(y)/i.pixelScale)
 	}
 	i.mouseDelta = i.mousePosition.Subtract(i.prevMouse)
 	i.prevMouse = i.mousePosition

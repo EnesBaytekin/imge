@@ -28,6 +28,11 @@ type Renderer struct {
 	camZoom        float64
 	camActive      bool
 	assetFS        fs.FS // embedded assets (web); nil means use the OS filesystem
+
+	// pixelScale is the framebuffer-pixels-per-unit scale (pixel_per_unit). Every
+	// world/logical coordinate is multiplied by it when mapped to the render
+	// target, so a value > 1 gives sub-unit rasterization precision.
+	pixelScale float64
 }
 
 // textureEntry caches a decoded texture together with its dominant hue, computed
@@ -39,8 +44,9 @@ type textureEntry struct {
 
 func newRenderer() *Renderer {
 	return &Renderer{
-		textures: make(map[string]textureEntry),
-		missing:  make(map[string]bool),
+		textures:   make(map[string]textureEntry),
+		missing:    make(map[string]bool),
+		pixelScale: 1,
 	}
 }
 
@@ -51,6 +57,14 @@ func (r *Renderer) begin(target *ebiten.Image) {
 
 func (r *Renderer) setViewport(w, h int) {
 	r.viewportWidth, r.viewportHeight = w, h
+}
+
+// setPixelScale sets the framebuffer-pixels-per-unit scale applied to every draw.
+func (r *Renderer) setPixelScale(ppu float64) {
+	if ppu <= 0 {
+		ppu = 1
+	}
+	r.pixelScale = ppu
 }
 
 // SetCamera applies a world-to-screen camera transform to subsequent draw calls.
@@ -71,20 +85,20 @@ func (r *Renderer) SetCamera(cx, cy, zoom float64) {
 // screenPos maps a world point to screen coordinates under the current camera.
 func (r *Renderer) screenPos(p math.Vector2) math.Vector2 {
 	if !r.camActive {
-		return p
+		return math.NewVector2(p.X*r.pixelScale, p.Y*r.pixelScale)
 	}
 	return math.NewVector2(
-		(p.X-r.camX)*r.camZoom,
-		(p.Y-r.camY)*r.camZoom,
+		(p.X-r.camX)*r.camZoom*r.pixelScale,
+		(p.Y-r.camY)*r.camZoom*r.pixelScale,
 	)
 }
 
 // zoom returns the current camera zoom (1 when no camera is active).
 func (r *Renderer) zoom() float64 {
 	if r.camActive {
-		return r.camZoom
+		return r.camZoom * r.pixelScale
 	}
-	return 1
+	return r.pixelScale
 }
 
 // SetAssetFS sets the filesystem textures are loaded from. Web builds pass their

@@ -28,17 +28,22 @@ type Platform struct {
 	// stretching to whatever the browser viewport happens to be.
 	logicalWidth  int
 	logicalHeight int
+
+	// pixelPerUnit is the framebuffer-pixels-per-unit scale (pixel_per_unit). The
+	// render target is logicalWidth*pixelPerUnit x logicalHeight*pixelPerUnit.
+	pixelPerUnit int
 }
 
 // New creates a new Ebitengine platform instance.
 func New() (*Platform, error) {
 	return &Platform{
-		renderer:   newRenderer(),
-		input:      newInput(),
-		audio:      newAudio(),
-		time:       newTime(),
-		window:     newWindow(),
-		filesystem: &FileSystem{},
+		renderer:      newRenderer(),
+		input:         newInput(),
+		audio:         newAudio(),
+		time:          newTime(),
+		window:        newWindow(),
+		filesystem:    &FileSystem{},
+		pixelPerUnit:  1,
 	}, nil
 }
 
@@ -73,6 +78,15 @@ func (p *Platform) SetAssetFS(fsys fs.FS) {
 func (p *Platform) Init(cfg core.WindowConfig) error {
 	p.logicalWidth = cfg.Width
 	p.logicalHeight = cfg.Height
+
+	ppu := cfg.PixelPerUnit
+	if ppu <= 0 {
+		ppu = 1
+	}
+	p.pixelPerUnit = ppu
+	p.renderer.setPixelScale(float64(ppu))
+	p.input.setPixelScale(float64(ppu))
+
 	return p.window.Create(cfg)
 }
 
@@ -145,8 +159,10 @@ func (r *runner) Layout(outsideWidth, outsideHeight int) (int, int) {
 
 	w, h := p.logicalWidth, p.logicalHeight
 	if w <= 0 || h <= 0 {
-		w, h = outsideWidth, outsideHeight
+		// No configured logical size: use the window 1:1 (ppu not applied).
+		p.renderer.setViewport(outsideWidth, outsideHeight)
+		return outsideWidth, outsideHeight
 	}
 	p.renderer.setViewport(w, h)
-	return w, h
+	return w * p.pixelPerUnit, h * p.pixelPerUnit
 }
