@@ -253,9 +253,11 @@ type WindowConfig struct {
 	PixelPerUnit int
 	// SmoothShapes opts vector shapes into framebuffer-resolution rasterization
 	// (fine, 1px edges). The default (false) renders them "chunky": each shape is
-	// rasterized at logical resolution and upscaled by PixelPerUnit, so its pixels
-	// are PixelPerUnit x PixelPerUnit blocks — matching how textures already
-	// render. Only meaningful when PixelPerUnit > 1.
+	// rasterized at logical resolution (its anchor quantized to whole units, so
+	// its pixel pattern is deterministic) and upscaled by PixelPerUnit, matching
+	// how textures already render. Applies at any PixelPerUnit — at 1 it still
+	// keeps shapes pixel-perfect and stable instead of re-rasterizing at
+	// fractional positions (which wobbles as the shape moves).
 	SmoothShapes bool
 }
 

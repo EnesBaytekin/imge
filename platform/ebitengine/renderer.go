@@ -86,11 +86,14 @@ func (r *Renderer) setSmoothShapes(smooth bool) {
 	r.smoothShapes = smooth
 }
 
-// chunky reports whether vector shapes should rasterize at logical resolution and
-// upscale (chunky pixels) instead of at framebuffer resolution (fine pixels).
-// smoothShapes opts into fine; the two paths coincide when pixelScale is 1.
+// chunky reports whether vector shapes should rasterize at logical resolution
+// (integer-anchored, deterministic) and then be upscaled and positioned, instead
+// of rasterizing directly at framebuffer resolution. smoothShapes opts into the
+// fine path. Quantizing the anchor keeps a shape's pixel pattern stable as it
+// moves fractionally — including at pixelScale 1, where the fine path would
+// re-rasterize at the fractional position and wobble every frame.
 func (r *Renderer) chunky() bool {
-	return !r.smoothShapes && r.pixelScale > 1
+	return !r.smoothShapes
 }
 
 // chunkySprite returns a cached logical-resolution rasterization of a shape,

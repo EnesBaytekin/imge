@@ -71,13 +71,17 @@ square of the value, so keep it as small as your game's smoothness needs.
 `smooth_shapes` (default `false`) controls how **vector shapes** — `DrawRect`,
 `DrawRectOutline`, `DrawCircle`, `DrawCircleOutline`, and `DrawLine` — are
 rasterized. By default they render **chunky**, matching textures: each shape is
-rasterized at logical resolution and upscaled by `pixel_per_unit`, so its pixels
-are `pixel_per_unit`-sized blocks and its position still glides at sub-unit
-precision. Set `smooth_shapes: true` to rasterize them at full framebuffer
-resolution instead — finer edges (1-pixel granularity) that do not match the
-textures' chunky look. The flag only matters when `pixel_per_unit > 1`; at `1`
-the two modes are identical. It is game-wide: there is no per-shape toggle, so if
-you need both, keep shapes chunky and use a texture for the fine-grained case.
+rasterized at logical resolution (its anchor quantized to whole units, so the
+pixel pattern is deterministic) and then upscaled by `pixel_per_unit`, so its
+pixels are `pixel_per_unit`-sized blocks and its position still glides at
+sub-unit precision. Set `smooth_shapes: true` to rasterize them directly at full
+framebuffer resolution instead — finer edges (1-pixel granularity) that do not
+match the textures' chunky look. The flag applies at any `pixel_per_unit`: at `1`
+the chunky path still rasterizes shapes on the unit grid, keeping them
+pixel-perfect and stable, whereas fine re-rasterizes at the fractional position
+and can wobble as a shape moves. It is game-wide: there is no per-shape toggle,
+so if you need both, keep shapes chunky and use a texture for the fine-grained
+case.
 
 `format_version` is **not** a free-form game-version field — it's an engine-owned
 number that pins the project format (the `game.imge` schema, the scene/object JSON
