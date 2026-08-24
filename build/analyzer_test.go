@@ -1,81 +1,29 @@
 package build
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
+
+	"github.com/EnesBaytekin/imge"
+	corejson "github.com/EnesBaytekin/imge/core/json"
 )
 
-// writeGameFile writes a game.imge to a fresh temp dir and returns its path.
-func writeGameFile(t *testing.T, content string) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "game.imge")
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+func TestValidateFormatVersionDefaultsToCurrent(t *testing.T) {
+	c := &corejson.GameConfig{Name: "x"} // FormatVersion 0 = "original format"
+	if err := validateFormatVersion(c); err != nil {
 		t.Fatal(err)
 	}
-	return path
-}
-
-func TestPixelPerUnitDefaultsToOne(t *testing.T) {
-	path := writeGameFile(t, `{
-	  "name": "My Game",
-	  "format_version": 1,
-	  "window": { "width": 320, "height": 180 }
-	}`)
-
-	var a ProjectAnalysis
-	if err := a.loadGameConfig(path); err != nil {
-		t.Fatal(err)
-	}
-	if got := a.GameConfig.Window.PixelPerUnit; got != 1 {
-		t.Fatalf("default pixel_per_unit = %d, want 1", got)
+	if c.FormatVersion != imge.CurrentFormatVersion {
+		t.Fatalf("format_version = %d, want %d", c.FormatVersion, imge.CurrentFormatVersion)
 	}
 }
 
-func TestPixelPerUnitExplicit(t *testing.T) {
-	path := writeGameFile(t, `{
-	  "name": "My Game",
-	  "format_version": 1,
-	  "window": { "width": 320, "height": 180, "pixel_per_unit": 4 }
-	}`)
-
-	var a ProjectAnalysis
-	if err := a.loadGameConfig(path); err != nil {
-		t.Fatal(err)
-	}
-	if got := a.GameConfig.Window.PixelPerUnit; got != 4 {
-		t.Fatalf("pixel_per_unit = %d, want 4", got)
+func TestValidateFormatVersionRejectsNewer(t *testing.T) {
+	c := &corejson.GameConfig{Name: "x", FormatVersion: imge.CurrentFormatVersion + 1}
+	if err := validateFormatVersion(c); err == nil {
+		t.Fatal("expected error for a newer format_version, got nil")
 	}
 }
 
-func TestSmoothShapesDefaultsToFalse(t *testing.T) {
-	path := writeGameFile(t, `{
-	  "name": "My Game",
-	  "format_version": 1,
-	  "window": { "width": 320, "height": 180 }
-	}`)
-
-	var a ProjectAnalysis
-	if err := a.loadGameConfig(path); err != nil {
-		t.Fatal(err)
-	}
-	if got := a.GameConfig.Window.SmoothShapes; got != false {
-		t.Fatalf("default smooth_shapes = %v, want false", got)
-	}
-}
-
-func TestSmoothShapesExplicit(t *testing.T) {
-	path := writeGameFile(t, `{
-	  "name": "My Game",
-	  "format_version": 1,
-	  "window": { "width": 320, "height": 180, "smooth_shapes": true }
-	}`)
-
-	var a ProjectAnalysis
-	if err := a.loadGameConfig(path); err != nil {
-		t.Fatal(err)
-	}
-	if got := a.GameConfig.Window.SmoothShapes; got != true {
-		t.Fatalf("smooth_shapes = %v, want true", got)
-	}
-}
+// An "older than current" version can only exist once CurrentFormatVersion is
+// bumped above 1; until then the only lower value (0) means "absent" and is
+// defaulted rather than rejected, so that branch has no testable input yet.

@@ -163,12 +163,7 @@ const objectTemplate = `{
   "depth": 0,
   "ui": false,
   "tags": [],
-  "components": [
-    // One entry per component:
-    //   { "kind": "Enemy", "name": "brain", "args": { "speed": 100 } }
-    // "kind" is the component's Go struct name; built-ins start with "@"
-    // (e.g. "@Sprite", "@Collider"). "args" may be {} if it takes none.
-  ]
+  "components": []
 }
 `
 
@@ -185,18 +180,7 @@ const sceneTemplate = `{
     "lock_x": false,
     "lock_y": false
   },
-  "objects": [
-    // Two ways to place an object:
-    //
-    // 1. Inline — define it right here:
-    //   { "name": "player", "depth": 0, "tags": ["player"],
-    //     "transform": { "position": { "x": 0, "y": 0 } },
-    //     "components": [ { "kind": "Player", "name": "player", "args": {} } ] }
-    //
-    // 2. Reference a .obj template file (transform overrides position):
-    //   { "file": "objects/player.obj",
-    //     "transform": { "position": { "x": 0, "y": 0 } } }
-  ]
+  "objects": []
 }
 `
 

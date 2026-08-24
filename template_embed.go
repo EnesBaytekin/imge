@@ -5,6 +5,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	corejson "github.com/EnesBaytekin/imge/core/json"
 )
 
 // SampleTemplate embeds the sample platformer demo that `imge init sample`
@@ -15,10 +17,10 @@ import (
 //go:embed testdata/template
 var SampleTemplate embed.FS
 
-// BlankTemplate embeds the minimal starter project that `imge init` (no
-// argument) writes into an empty directory: a game.imge with every setting at its
-// default and one starter scene, so a developer can start defining objects
-// without writing any JSON scaffolding from scratch.
+// BlankTemplate embeds the starter scene that `imge init` (no argument) writes
+// into an empty directory. The game.imge itself is not embedded — it's generated
+// from the config structs (core/json.DefaultGameConfig) by ExtractBlankTemplate,
+// so the structs stay the single source of truth for its fields.
 //
 //go:embed testdata/blank
 var BlankTemplate embed.FS
@@ -33,12 +35,17 @@ func ExtractSampleTemplate(dst string) error {
 	return extractTemplate(SampleTemplate, "testdata/template", dst)
 }
 
-// ExtractBlankTemplate writes the embedded blank project into dst: a game.imge
-// with every field set to its default, plus scenes/main.scene (kept identical to
-// what `imge new scene` generates — see sceneTemplate in cmd/imge). It creates no
-// empty directories and no README.
+// ExtractBlankTemplate writes the blank project into dst: a game.imge with every
+// field set to its default (generated from core/json.DefaultGameConfig) plus
+// scenes/main.scene (kept identical to what `imge new scene` generates — see
+// sceneTemplate in cmd/imge). It creates no empty directories and no README.
 func ExtractBlankTemplate(dst string) error {
-	return extractTemplate(BlankTemplate, "testdata/blank", dst)
+	if err := extractTemplate(BlankTemplate, "testdata/blank", dst); err != nil {
+		return err
+	}
+	cfg := corejson.DefaultGameConfig()
+	cfg.FormatVersion = CurrentFormatVersion
+	return corejson.SaveGameConfig(cfg, filepath.Join(dst, "game.imge"))
 }
 
 // extractTemplate writes every file under root in fsys into dst, preserving the

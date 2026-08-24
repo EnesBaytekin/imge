@@ -33,9 +33,9 @@ values instead of typing boilerplate from scratch.
 
 | Kind | File | Contents |
 |---|---|---|
-| `object` | `<name>.obj` | an object template: `name`, `depth`, `ui`, `tags`, `components` (with a commented component example) |
+| `object` | `<name>.obj` | an object template: `name`, `depth`, `ui`, `tags`, `components` |
 | `component` | `<name>.go` | `package components` with a `core.BaseComponent` struct and empty `Initialize`/`Update`/`Draw` |
-| `scene` | `<name>.scene` | a scene: `name`, `background_color`, `camera`, `objects` (with commented inline + file-reference examples) |
+| `scene` | `<name>.scene` | a scene: `name`, `background_color`, `camera`, `objects` |
 
 - **Name is also a path** — `imge new object objects/player` writes `objects/player.obj`
   (creating `objects/` if needed); the plain `imge new object player` writes into the
@@ -48,9 +48,8 @@ values instead of typing boilerplate from scratch.
   writes `enemy.go` declaring `type Enemy`, referenced in JSON as
   `{ "kind": "Enemy", ... }`. Use `enemy_brain` for a multi-word name (`EnemyBrain`).
 - **Refuses to overwrite** an existing file.
-- **JSON comments** — the generated `.obj` and `.scene` files include `//` comments
-  showing the component and object formats; `.obj`, `.scene`, and `game.imge` all
-  accept `//` and `/* */` comments.
+- **JSON comments** — `.obj`, `.scene`, and `game.imge` all accept `//` and `/* */`
+  comments in hand-written files; the generated templates don't add any.
 
 ## `imge build`
 

@@ -1,7 +1,6 @@
 package build
 
 import (
-	"encoding/json"
 	"fmt"
 	"go/parser"
 	"go/token"
@@ -17,35 +16,11 @@ import (
 // ProjectAnalysis holds information about a game project
 type ProjectAnalysis struct {
 	ProjectDir     string
-	GameConfig     GameConfig
+	GameConfig     corejson.GameConfig
 	ComponentFiles []string // Paths to component .go files
 	AssetFiles     []string // Paths to asset files
 	SceneFiles     []string // Paths to .scene files
 	ObjectFiles    []string // Paths to .obj files
-}
-
-// GameConfig represents the game.imge configuration.
-type GameConfig struct {
-	Name          string       `json:"name"`
-	FormatVersion int          `json:"format_version"`
-	Window        WindowConfig `json:"window"`
-	Game          GameSettings `json:"game"`
-}
-
-// WindowConfig represents window settings
-type WindowConfig struct {
-	Title        string `json:"title"`
-	Width        int    `json:"width"`
-	Height       int    `json:"height"`
-	Fullscreen   bool   `json:"fullscreen"`
-	PixelPerUnit int    `json:"pixel_per_unit"`
-	SmoothShapes bool   `json:"smooth_shapes"`
-}
-
-// GameSettings represents game runtime settings
-type GameSettings struct {
-	TargetFPS    int    `json:"target_fps"`
-	InitialScene string `json:"initial_scene"`
 }
 
 // FindGameFile returns the path to the project's marker file, `game.imge`. It
@@ -74,9 +49,14 @@ func AnalyzeProject(projectDir string) (*ProjectAnalysis, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := analysis.loadGameConfig(gameFilePath); err != nil {
+	config, err := corejson.LoadGameConfig(gameFilePath)
+	if err != nil {
 		return nil, fmt.Errorf("failed to load %s: %v", filepath.Base(gameFilePath), err)
 	}
+	if err := validateFormatVersion(config); err != nil {
+		return nil, fmt.Errorf("invalid %s: %v", filepath.Base(gameFilePath), err)
+	}
+	analysis.GameConfig = *config
 
 	// Scan the whole project root once, classifying every file by extension and
 	// (for .go) package. This makes the directory layout fully free-form: a
@@ -89,48 +69,12 @@ func AnalyzeProject(projectDir string) (*ProjectAnalysis, error) {
 	return analysis, nil
 }
 
-func (a *ProjectAnalysis) loadGameConfig(path string) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-
-	// Parse JSON using encoding/json
-	var config GameConfig
-	if err := json.Unmarshal(corejson.StripComments(data), &config); err != nil {
-		return fmt.Errorf("failed to parse %s: %v", filepath.Base(path), err)
-	}
-
-	// Set defaults if fields are empty
-	if config.Name == "" {
-		config.Name = "My Game"
-	}
-	if config.Window.Title == "" {
-		config.Window.Title = "My IMGE Game"
-	}
-	if config.Window.Width == 0 {
-		config.Window.Width = 640
-	}
-	if config.Window.Height == 0 {
-		config.Window.Height = 360
-	}
-	if config.Window.PixelPerUnit <= 0 {
-		config.Window.PixelPerUnit = 1
-	}
-	// fullscreen defaults to false (the JSON zero value): the window opens windowed
-	// at the largest integer scale fitting the screen and is locked to that size,
-	// toggling only between windowed and fullscreen.
-	if config.Game.TargetFPS == 0 {
-		config.Game.TargetFPS = 60
-	}
-	if config.Game.InitialScene == "" {
-		config.Game.InitialScene = "main"
-	}
-
-	// format_version pins the project format this imge was built for. Absent (0)
-	// means the original format, so default to the current one; a project that
-	// declares a newer format than this tool knows is rejected, and an older one
-	// needs a migration we don't have yet.
+// validateFormatVersion checks the project's declared format version against the
+// one this build understands. An absent (0) format version means "the original
+// format", so it defaults to the current one; a newer version is rejected, and an
+// older one needs a migration we don't have yet. On success the config's
+// FormatVersion is normalized to the current version.
+func validateFormatVersion(config *corejson.GameConfig) error {
 	if config.FormatVersion == 0 {
 		config.FormatVersion = imge.CurrentFormatVersion
 	}
@@ -140,8 +84,6 @@ func (a *ProjectAnalysis) loadGameConfig(path string) error {
 	if config.FormatVersion < imge.CurrentFormatVersion {
 		return fmt.Errorf("format_version %d is older than this imge supports (up to %d); the project needs migrating", config.FormatVersion, imge.CurrentFormatVersion)
 	}
-
-	a.GameConfig = config
 	return nil
 }
 
