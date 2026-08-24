@@ -251,6 +251,12 @@ type WindowConfig struct {
 	// world still moves in whole units, but the extra resolution makes that motion
 	// smooth instead of snapping to whole pixels. 1 (the default) is pixel-perfect.
 	PixelPerUnit int
+	// SmoothShapes opts vector shapes into framebuffer-resolution rasterization
+	// (fine, 1px edges). The default (false) renders them "chunky": each shape is
+	// rasterized at logical resolution and upscaled by PixelPerUnit, so its pixels
+	// are PixelPerUnit x PixelPerUnit blocks — matching how textures already
+	// render. Only meaningful when PixelPerUnit > 1.
+	SmoothShapes bool
 }
 
 // Window handles window management and events.

@@ -47,3 +47,35 @@ func TestPixelPerUnitExplicit(t *testing.T) {
 		t.Fatalf("pixel_per_unit = %d, want 4", got)
 	}
 }
+
+func TestSmoothShapesDefaultsToFalse(t *testing.T) {
+	path := writeGameFile(t, `{
+	  "name": "My Game",
+	  "format_version": 1,
+	  "window": { "width": 320, "height": 180 }
+	}`)
+
+	var a ProjectAnalysis
+	if err := a.loadGameConfig(path); err != nil {
+		t.Fatal(err)
+	}
+	if got := a.GameConfig.Window.SmoothShapes; got != false {
+		t.Fatalf("default smooth_shapes = %v, want false", got)
+	}
+}
+
+func TestSmoothShapesExplicit(t *testing.T) {
+	path := writeGameFile(t, `{
+	  "name": "My Game",
+	  "format_version": 1,
+	  "window": { "width": 320, "height": 180, "smooth_shapes": true }
+	}`)
+
+	var a ProjectAnalysis
+	if err := a.loadGameConfig(path); err != nil {
+		t.Fatal(err)
+	}
+	if got := a.GameConfig.Window.SmoothShapes; got != true {
+		t.Fatalf("smooth_shapes = %v, want true", got)
+	}
+}

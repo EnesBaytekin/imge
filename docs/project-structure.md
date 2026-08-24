@@ -83,6 +83,10 @@ The single source of truth for window and game settings. See
 - `window.pixel_per_unit` — framebuffer pixels per logical unit (default `1`). Set
   `>1` for sub-pixel (smoother fractional) motion; the world is unaffected, only
   the render resolution changes. See [game.imge reference](json-format.md#gameimge).
+- `window.smooth_shapes` — how vector shapes are rasterized (default `false`).
+  `false` renders them **chunky** (logical-resolution, upscaled to match textures);
+  `true` renders them fine (full framebuffer resolution). Only matters when
+  `pixel_per_unit > 1`.
 - `game.target_fps` — target frame rate (default 60).
 - `game.initial_scene` — the name of the scene to show first. **This must match the
   `name` field inside the `.scene` file** (or its filename if the `name` field is

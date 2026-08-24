@@ -26,7 +26,8 @@ floats unless stated otherwise; booleans are `true`/`false`.
     "width": 640,
     "height": 360,
     "fullscreen": false,
-    "pixel_per_unit": 1
+    "pixel_per_unit": 1,
+    "smooth_shapes": false
   },
   "game": {
     "target_fps": 60,
@@ -44,6 +45,7 @@ floats unless stated otherwise; booleans are `true`/`false`.
 | `window.height` | int | `360` | logical resolution |
 | `window.fullscreen` | bool | `false` | start the game fullscreen |
 | `window.pixel_per_unit` | int | `1` | framebuffer pixels per logical unit (sub-unit render precision; see below) |
+| `window.smooth_shapes` | bool | `false` | rasterize vector shapes at framebuffer resolution (fine) instead of chunky; see below |
 | `game.target_fps` | int | `60` | target frame rate |
 | `game.initial_scene` | string | `"main"` | scene shown first |
 
@@ -65,6 +67,17 @@ sizes, and camera math are all unaffected; only the render resolution (and the
 mouse coordinate mapping, which is normalized back to logical units) changes.
 There is no upper limit, but the framebuffer (and its memory) grows with the
 square of the value, so keep it as small as your game's smoothness needs.
+
+`smooth_shapes` (default `false`) controls how **vector shapes** — `DrawRect`,
+`DrawRectOutline`, `DrawCircle`, `DrawCircleOutline`, and `DrawLine` — are
+rasterized. By default they render **chunky**, matching textures: each shape is
+rasterized at logical resolution and upscaled by `pixel_per_unit`, so its pixels
+are `pixel_per_unit`-sized blocks and its position still glides at sub-unit
+precision. Set `smooth_shapes: true` to rasterize them at full framebuffer
+resolution instead — finer edges (1-pixel granularity) that do not match the
+textures' chunky look. The flag only matters when `pixel_per_unit > 1`; at `1`
+the two modes are identical. It is game-wide: there is no per-shape toggle, so if
+you need both, keep shapes chunky and use a texture for the fine-grained case.
 
 `format_version` is **not** a free-form game-version field — it's an engine-owned
 number that pins the project format (the `game.imge` schema, the scene/object JSON

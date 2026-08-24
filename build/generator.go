@@ -211,27 +211,29 @@ func (g *Generator) generateDesktopMainGo(hasData bool) error {
 	}
 
 	data := struct {
-		ModuleName       string
-		WindowTitle      string
-		WindowWidth      int
-		WindowHeight     int
-		WindowFullscreen bool
+		ModuleName         string
+		WindowTitle        string
+		WindowWidth        int
+		WindowHeight       int
+		WindowFullscreen   bool
 		WindowPixelPerUnit int
-		TargetFPS        int
-		InitialScene     string
-		EmbedDirective   string
-		HasData          bool
+		WindowSmoothShapes bool
+		TargetFPS          int
+		InitialScene       string
+		EmbedDirective     string
+		HasData            bool
 	}{
-		ModuleName:       fmt.Sprintf("%s_build", filepath.Base(g.Analysis.ProjectDir)),
-		WindowTitle:      g.Analysis.GameConfig.Window.Title,
-		WindowWidth:      g.Analysis.GameConfig.Window.Width,
-		WindowHeight:     g.Analysis.GameConfig.Window.Height,
-		WindowFullscreen: g.Analysis.GameConfig.Window.Fullscreen,
+		ModuleName:         fmt.Sprintf("%s_build", filepath.Base(g.Analysis.ProjectDir)),
+		WindowTitle:        g.Analysis.GameConfig.Window.Title,
+		WindowWidth:        g.Analysis.GameConfig.Window.Width,
+		WindowHeight:       g.Analysis.GameConfig.Window.Height,
+		WindowFullscreen:   g.Analysis.GameConfig.Window.Fullscreen,
 		WindowPixelPerUnit: g.Analysis.GameConfig.Window.PixelPerUnit,
-		TargetFPS:        g.Analysis.GameConfig.Game.TargetFPS,
-		InitialScene:     g.Analysis.GameConfig.Game.InitialScene,
-		EmbedDirective:   embedDirective,
-		HasData:          hasData,
+		WindowSmoothShapes: g.Analysis.GameConfig.Window.SmoothShapes,
+		TargetFPS:          g.Analysis.GameConfig.Game.TargetFPS,
+		InitialScene:       g.Analysis.GameConfig.Game.InitialScene,
+		EmbedDirective:     embedDirective,
+		HasData:            hasData,
 	}
 
 	return g.renderTemplate(mainTemplateDesktop, data)
@@ -246,25 +248,27 @@ func (g *Generator) generateWebMainGo(hasData bool) error {
 	}
 
 	data := struct {
-		ModuleName       string
-		WindowTitle      string
-		WindowWidth      int
-		WindowHeight     int
-		WindowFullscreen bool
+		ModuleName         string
+		WindowTitle        string
+		WindowWidth        int
+		WindowHeight       int
+		WindowFullscreen   bool
 		WindowPixelPerUnit int
-		TargetFPS        int
-		InitialScene     string
-		HasData          bool
+		WindowSmoothShapes bool
+		TargetFPS          int
+		InitialScene       string
+		HasData            bool
 	}{
-		ModuleName:       fmt.Sprintf("%s_build", filepath.Base(g.Analysis.ProjectDir)),
-		WindowTitle:      g.Analysis.GameConfig.Window.Title,
-		WindowWidth:      g.Analysis.GameConfig.Window.Width,
-		WindowHeight:     g.Analysis.GameConfig.Window.Height,
-		WindowFullscreen: g.Analysis.GameConfig.Window.Fullscreen,
+		ModuleName:         fmt.Sprintf("%s_build", filepath.Base(g.Analysis.ProjectDir)),
+		WindowTitle:        g.Analysis.GameConfig.Window.Title,
+		WindowWidth:        g.Analysis.GameConfig.Window.Width,
+		WindowHeight:       g.Analysis.GameConfig.Window.Height,
+		WindowFullscreen:   g.Analysis.GameConfig.Window.Fullscreen,
 		WindowPixelPerUnit: g.Analysis.GameConfig.Window.PixelPerUnit,
-		TargetFPS:        g.Analysis.GameConfig.Game.TargetFPS,
-		InitialScene:     g.Analysis.GameConfig.Game.InitialScene,
-		HasData:          hasData,
+		WindowSmoothShapes: g.Analysis.GameConfig.Window.SmoothShapes,
+		TargetFPS:          g.Analysis.GameConfig.Game.TargetFPS,
+		InitialScene:       g.Analysis.GameConfig.Game.InitialScene,
+		HasData:            hasData,
 	}
 
 	return g.renderTemplate(mainTemplateWeb, data)
@@ -339,6 +343,7 @@ func main() {
 			Height:     {{.WindowHeight}},
 			Fullscreen: {{.WindowFullscreen}},
 			PixelPerUnit: {{.WindowPixelPerUnit}},
+			SmoothShapes: {{.WindowSmoothShapes}},
 		},
 		TargetFPS:    {{.TargetFPS}},
 		InitialScene: "{{.InitialScene}}",
@@ -463,6 +468,7 @@ func main() {
 			Height:     {{.WindowHeight}},
 			Fullscreen: {{.WindowFullscreen}},
 			PixelPerUnit: {{.WindowPixelPerUnit}},
+			SmoothShapes: {{.WindowSmoothShapes}},
 		},
 		TargetFPS:    {{.TargetFPS}},
 		InitialScene: "{{.InitialScene}}",

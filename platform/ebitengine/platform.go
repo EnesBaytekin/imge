@@ -37,13 +37,13 @@ type Platform struct {
 // New creates a new Ebitengine platform instance.
 func New() (*Platform, error) {
 	return &Platform{
-		renderer:      newRenderer(),
-		input:         newInput(),
-		audio:         newAudio(),
-		time:          newTime(),
-		window:        newWindow(),
-		filesystem:    &FileSystem{},
-		pixelPerUnit:  1,
+		renderer:     newRenderer(),
+		input:        newInput(),
+		audio:        newAudio(),
+		time:         newTime(),
+		window:       newWindow(),
+		filesystem:   &FileSystem{},
+		pixelPerUnit: 1,
 	}, nil
 }
 
@@ -85,6 +85,7 @@ func (p *Platform) Init(cfg core.WindowConfig) error {
 	}
 	p.pixelPerUnit = ppu
 	p.renderer.setPixelScale(float64(ppu))
+	p.renderer.setSmoothShapes(cfg.SmoothShapes)
 	p.input.setPixelScale(float64(ppu))
 
 	return p.window.Create(cfg)

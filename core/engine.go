@@ -30,6 +30,8 @@ func DefaultConfig() Config {
 			Height: 360,
 			// PixelPerUnit 1 = pixel-perfect: one framebuffer pixel per unit.
 			PixelPerUnit: 1,
+			// SmoothShapes defaults to false: vector shapes render chunky.
+			SmoothShapes: false,
 			// Fullscreen defaults to false: the window opens at the largest
 			// integer scale fitting the screen and is locked there, toggling only
 			// between windowed and fullscreen.

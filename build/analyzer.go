@@ -39,6 +39,7 @@ type WindowConfig struct {
 	Height       int    `json:"height"`
 	Fullscreen   bool   `json:"fullscreen"`
 	PixelPerUnit int    `json:"pixel_per_unit"`
+	SmoothShapes bool   `json:"smooth_shapes"`
 }
 
 // GameSettings represents game runtime settings

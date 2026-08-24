@@ -1,12 +1,14 @@
 package ebitengine
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	_ "image/jpeg" // register JPEG decoder
 	_ "image/png"  // register PNG decoder
 	"io/fs"
 	"log"
+	stdmath "math"
 
 	"github.com/EnesBaytekin/imge/core/math"
 	"github.com/EnesBaytekin/imge/platform/ebitengine/assetfs"
@@ -33,6 +35,16 @@ type Renderer struct {
 	// world/logical coordinate is multiplied by it when mapped to the render
 	// target, so a value > 1 gives sub-unit rasterization precision.
 	pixelScale float64
+
+	// smoothShapes opts vector shapes into framebuffer-resolution (fine)
+	// rasterization. When false (the default) shapes render "chunky": rasterized
+	// at logical resolution and upscaled, matching textures (see chunky()).
+	smoothShapes bool
+
+	// shapeCache caches logical-resolution rasterizations of vector shapes. A
+	// shape's chunky pixels depend only on its geometry and color — not its
+	// position — so the same buffer is reused every frame (like the texture cache).
+	shapeCache map[string]*ebiten.Image
 }
 
 // textureEntry caches a decoded texture together with its dominant hue, computed
@@ -46,6 +58,7 @@ func newRenderer() *Renderer {
 	return &Renderer{
 		textures:   make(map[string]textureEntry),
 		missing:    make(map[string]bool),
+		shapeCache: make(map[string]*ebiten.Image),
 		pixelScale: 1,
 	}
 }
@@ -65,6 +78,49 @@ func (r *Renderer) setPixelScale(ppu float64) {
 		ppu = 1
 	}
 	r.pixelScale = ppu
+}
+
+// setSmoothShapes opts vector shapes into fine (framebuffer-resolution)
+// rasterization. The default is false: shapes render chunky.
+func (r *Renderer) setSmoothShapes(smooth bool) {
+	r.smoothShapes = smooth
+}
+
+// chunky reports whether vector shapes should rasterize at logical resolution and
+// upscale (chunky pixels) instead of at framebuffer resolution (fine pixels).
+// smoothShapes opts into fine; the two paths coincide when pixelScale is 1.
+func (r *Renderer) chunky() bool {
+	return !r.smoothShapes && r.pixelScale > 1
+}
+
+// chunkySprite returns a cached logical-resolution rasterization of a shape,
+// creating and rasterizing it on first use. The buffer's pixel (0,0) is the
+// shape's world-space top-left, which callers position via blitChunky.
+func (r *Renderer) chunkySprite(key string, w, h int, rasterize func(*ebiten.Image)) *ebiten.Image {
+	if img, ok := r.shapeCache[key]; ok {
+		return img
+	}
+	img := ebiten.NewImage(w, h)
+	rasterize(img)
+	r.shapeCache[key] = img
+	return img
+}
+
+// blitChunky draws a logical-resolution sprite upscaled by zoom() at the fractional
+// screen position of worldMin+frac. The sprite's pixels stay chunky (zoom() x zoom())
+// while its position moves fractionally — the same model textures use.
+func (r *Renderer) blitChunky(img *ebiten.Image, worldMin, frac math.Vector2) {
+	pos := r.screenPos(math.NewVector2(worldMin.X+frac.X, worldMin.Y+frac.Y))
+	z := r.zoom()
+	var geoM ebiten.GeoM
+	geoM.Scale(z, z)
+	geoM.Translate(pos.X, pos.Y)
+	r.target.DrawImage(img, &ebiten.DrawImageOptions{GeoM: geoM})
+}
+
+// colorKey encodes a color into a stable, compact cache-key suffix.
+func colorKey(c math.Color) string {
+	return fmt.Sprintf("%02x%02x%02x%02x", c.R, c.G, c.B, c.A)
 }
 
 // SetCamera applies a world-to-screen camera transform to subsequent draw calls.
@@ -140,6 +196,10 @@ func (r *Renderer) DrawRect(rect math.Rect, c math.Color) {
 	if r.target == nil {
 		return
 	}
+	if r.chunky() {
+		r.drawRectChunky(rect, c)
+		return
+	}
 	p := r.screenPos(rect.Position)
 	z := r.zoom()
 	vector.DrawFilledRect(r.target,
@@ -148,9 +208,29 @@ func (r *Renderer) DrawRect(rect math.Rect, c math.Color) {
 		toRGBA(c), false)
 }
 
+// drawRectChunky rasterizes the rect at logical resolution and blits it upscaled.
+func (r *Renderer) drawRectChunky(rect math.Rect, c math.Color) {
+	w, h := rect.Width(), rect.Height()
+	if w <= 0 || h <= 0 {
+		return
+	}
+	qx := stdmath.Round(rect.Position.X)
+	qy := stdmath.Round(rect.Position.Y)
+	bw, bh := int(stdmath.Ceil(w)), int(stdmath.Ceil(h))
+	key := fmt.Sprintf("rect:%g:%g:%s", w, h, colorKey(c))
+	img := r.chunkySprite(key, bw, bh, func(dst *ebiten.Image) {
+		vector.DrawFilledRect(dst, 0, 0, float32(w), float32(h), toRGBA(c), false)
+	})
+	r.blitChunky(img, math.NewVector2(qx, qy), math.NewVector2(rect.Position.X-qx, rect.Position.Y-qy))
+}
+
 // DrawRectOutline draws a rectangle outline (border only).
 func (r *Renderer) DrawRectOutline(rect math.Rect, c math.Color, thickness float64) {
 	if r.target == nil {
+		return
+	}
+	if r.chunky() {
+		r.drawRectOutlineChunky(rect, c, thickness)
 		return
 	}
 	p := r.screenPos(rect.Position)
@@ -161,9 +241,34 @@ func (r *Renderer) DrawRectOutline(rect math.Rect, c math.Color, thickness float
 		float32(thickness*z), toRGBA(c), false)
 }
 
+// drawRectOutlineChunky rasterizes the outline at logical resolution and blits it
+// upscaled. The stroke is centered on the rect perimeter, so it extends half the
+// thickness outside the rect.
+func (r *Renderer) drawRectOutlineChunky(rect math.Rect, c math.Color, thickness float64) {
+	if thickness <= 0 {
+		return
+	}
+	w, h := rect.Width(), rect.Height()
+	qx := stdmath.Round(rect.Position.X)
+	qy := stdmath.Round(rect.Position.Y)
+	ox := stdmath.Ceil(thickness / 2)
+	oy := stdmath.Ceil(thickness / 2)
+	bw := int(stdmath.Ceil(w) + 2*ox)
+	bh := int(stdmath.Ceil(h) + 2*oy)
+	key := fmt.Sprintf("rectoutline:%g:%g:%g:%s", w, h, thickness, colorKey(c))
+	img := r.chunkySprite(key, bw, bh, func(dst *ebiten.Image) {
+		vector.StrokeRect(dst, float32(ox), float32(oy), float32(w), float32(h), float32(thickness), toRGBA(c), false)
+	})
+	r.blitChunky(img, math.NewVector2(qx-ox, qy-oy), math.NewVector2(rect.Position.X-qx, rect.Position.Y-qy))
+}
+
 // DrawCircle draws a filled circle.
 func (r *Renderer) DrawCircle(center math.Vector2, radius float64, c math.Color) {
 	if r.target == nil {
+		return
+	}
+	if r.chunky() {
+		r.drawCircleChunky(center, radius, c)
 		return
 	}
 	p := r.screenPos(center)
@@ -173,9 +278,32 @@ func (r *Renderer) DrawCircle(center math.Vector2, radius float64, c math.Color)
 		toRGBA(c), false)
 }
 
+// drawCircleChunky rasterizes the circle at logical resolution and blits it
+// upscaled. The center is quantized to a whole unit so the circle's edge snaps to
+// the unit grid; the sub-unit remainder is applied as a sub-pixel blit offset.
+func (r *Renderer) drawCircleChunky(center math.Vector2, radius float64, c math.Color) {
+	if radius <= 0 {
+		return
+	}
+	qx := stdmath.Round(center.X)
+	qy := stdmath.Round(center.Y)
+	pad := int(stdmath.Ceil(radius)) + 1 // +1 keeps the edge from clipping
+	key := fmt.Sprintf("circle:%g:%s", radius, colorKey(c))
+	img := r.chunkySprite(key, 2*pad, 2*pad, func(dst *ebiten.Image) {
+		vector.DrawFilledCircle(dst, float32(pad), float32(pad), float32(radius), toRGBA(c), false)
+	})
+	r.blitChunky(img,
+		math.NewVector2(qx-float64(pad), qy-float64(pad)),
+		math.NewVector2(center.X-qx, center.Y-qy))
+}
+
 // DrawCircleOutline draws a circle outline.
 func (r *Renderer) DrawCircleOutline(center math.Vector2, radius float64, c math.Color, thickness float64) {
 	if r.target == nil {
+		return
+	}
+	if r.chunky() {
+		r.drawCircleOutlineChunky(center, radius, c, thickness)
 		return
 	}
 	p := r.screenPos(center)
@@ -185,9 +313,32 @@ func (r *Renderer) DrawCircleOutline(center math.Vector2, radius float64, c math
 		float32(thickness*z), toRGBA(c), false)
 }
 
+// drawCircleOutlineChunky rasterizes the outline at logical resolution and blits it
+// upscaled. The stroke is centered on the circle of the given radius, so it extends
+// half the thickness beyond it.
+func (r *Renderer) drawCircleOutlineChunky(center math.Vector2, radius float64, c math.Color, thickness float64) {
+	if thickness <= 0 {
+		return
+	}
+	qx := stdmath.Round(center.X)
+	qy := stdmath.Round(center.Y)
+	pad := int(stdmath.Ceil(radius+thickness/2)) + 1
+	key := fmt.Sprintf("circleoutline:%g:%g:%s", radius, thickness, colorKey(c))
+	img := r.chunkySprite(key, 2*pad, 2*pad, func(dst *ebiten.Image) {
+		vector.StrokeCircle(dst, float32(pad), float32(pad), float32(radius), float32(thickness), toRGBA(c), false)
+	})
+	r.blitChunky(img,
+		math.NewVector2(qx-float64(pad), qy-float64(pad)),
+		math.NewVector2(center.X-qx, center.Y-qy))
+}
+
 // DrawLine draws a line between two points.
 func (r *Renderer) DrawLine(start, end math.Vector2, c math.Color, thickness float64) {
 	if r.target == nil {
+		return
+	}
+	if r.chunky() {
+		r.drawLineChunky(start, end, c, thickness)
 		return
 	}
 	s := r.screenPos(start)
@@ -197,6 +348,35 @@ func (r *Renderer) DrawLine(start, end math.Vector2, c math.Color, thickness flo
 		float32(s.X), float32(s.Y),
 		float32(e.X), float32(e.Y),
 		float32(thickness*z), toRGBA(c), false)
+}
+
+// drawLineChunky rasterizes the line at logical resolution and blits it upscaled.
+// Both endpoints snap to whole units (a line has no single anchor to keep
+// fractional), and the stroke extends half the thickness around the line.
+func (r *Renderer) drawLineChunky(start, end math.Vector2, c math.Color, thickness float64) {
+	if thickness <= 0 {
+		return
+	}
+	x0 := stdmath.Round(start.X)
+	y0 := stdmath.Round(start.Y)
+	x1 := stdmath.Round(end.X)
+	y1 := stdmath.Round(end.Y)
+	minX := stdmath.Min(x0, x1)
+	minY := stdmath.Min(y0, y1)
+	maxX := stdmath.Max(x0, x1)
+	maxY := stdmath.Max(y0, y1)
+	pad := stdmath.Ceil(thickness / 2)
+	bw := int(maxX - minX + 2*pad)
+	bh := int(maxY - minY + 2*pad)
+	key := fmt.Sprintf("line:%g:%g:%g:%s", x1-x0, y1-y0, thickness, colorKey(c))
+	img := r.chunkySprite(key, bw, bh, func(dst *ebiten.Image) {
+		vector.StrokeLine(dst,
+			float32(x0-minX+pad), float32(y0-minY+pad),
+			float32(x1-minX+pad), float32(y1-minY+pad),
+			float32(thickness), toRGBA(c), false)
+	})
+	// No fractional offset: both endpoints are snapped to the grid.
+	r.blitChunky(img, math.NewVector2(minX-pad, minY-pad), math.NewVector2(0, 0))
 }
 
 // DrawTexture draws a texture (or a sub-region of it) at the given position with
