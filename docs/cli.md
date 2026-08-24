@@ -21,8 +21,10 @@ from your project directory (the directory containing `game.imge`).
 
 - **Refuses to run in a non-empty directory** — it prints a warning and exits,
   rather than risk overwriting your files. Initialize in an empty folder.
-- `imge init` → blank project. `imge init sample` → the playable platformer demo
-  (a good reference for custom components and the JSON formats).
+- `imge init` → blank project: a `game.imge` (every setting at its default) and a
+  `scenes/main.scene` — no README, no empty directories. `imge init sample` → the
+  playable platformer demo (a good reference for custom components and the JSON
+  formats).
 
 ## `imge new`
 

@@ -16,9 +16,9 @@ import (
 var SampleTemplate embed.FS
 
 // BlankTemplate embeds the minimal starter project that `imge init` (no
-// argument) writes into an empty directory: a game.imge, one empty scene, and a
-// README, so a developer can start defining objects without writing any JSON
-// scaffolding from scratch.
+// argument) writes into an empty directory: a game.imge with every setting at its
+// default and one starter scene, so a developer can start defining objects
+// without writing any JSON scaffolding from scratch.
 //
 //go:embed testdata/blank
 var BlankTemplate embed.FS
@@ -33,19 +33,12 @@ func ExtractSampleTemplate(dst string) error {
 	return extractTemplate(SampleTemplate, "testdata/template", dst)
 }
 
-// ExtractBlankTemplate writes the embedded blank project into dst and creates
-// the standard empty directories a developer will drop their own files into.
-// scenes/ already exists via main.scene.
+// ExtractBlankTemplate writes the embedded blank project into dst: a game.imge
+// with every field set to its default, plus scenes/main.scene (kept identical to
+// what `imge new scene` generates — see sceneTemplate in cmd/imge). It creates no
+// empty directories and no README.
 func ExtractBlankTemplate(dst string) error {
-	if err := extractTemplate(BlankTemplate, "testdata/blank", dst); err != nil {
-		return err
-	}
-	for _, dir := range []string{"components", "objects", "assets"} {
-		if err := os.MkdirAll(filepath.Join(dst, dir), 0755); err != nil {
-			return err
-		}
-	}
-	return nil
+	return extractTemplate(BlankTemplate, "testdata/blank", dst)
 }
 
 // extractTemplate writes every file under root in fsys into dst, preserving the

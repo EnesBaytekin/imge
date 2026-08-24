@@ -172,6 +172,8 @@ const objectTemplate = `{
 }
 `
 
+// sceneTemplate doubles as the blank template's scenes/main.scene
+// (testdata/blank/scenes/main.scene, with {{NAME}} → "main") — keep them in sync.
 const sceneTemplate = `{
   "name": "{{NAME}}",
   "background_color": "#000000",

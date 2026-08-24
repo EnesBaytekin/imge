@@ -5,21 +5,21 @@ files your game needs. **The layout is free-form** — the build scans the whole
 project root and finds components, scenes, objects, and assets wherever you put
 them, and every path you write is **relative to the project root**.
 
-`imge init` scaffolds a conventional layout to get you started:
+`imge init` scaffolds a minimal starter to get you started — a `game.imge` with
+every setting at its default, plus a `scenes/main.scene`:
 
 ```
 mygame/
-├── game.imge          # window title/size, FPS, initial scene
-├── components/        # your Go components
-├── scenes/            # scene definitions (.scene)
-├── objects/           # object templates (.obj)
-└── assets/            # images (PNG/JPEG) and sounds (WAV/MP3/OGG)
+├── game.imge          # window title/size, FPS, initial scene — all at defaults
+└── scenes/
+    └── main.scene     # the starting scene (add objects here)
 ```
 
-…but **none of these directories is required**. Only `game.imge` is (the `imge`
-tool checks for it — it marks the project root). You are free to reorganize, nest,
-or flatten everything — the engine does not care. For example, this is equally
-valid:
+`init` deliberately does **not** create `components/`, `objects/`, or `assets/` —
+you add those directories as you need them. In fact, **no directory layout is
+required**: only `game.imge` marks the project root (the `imge` tool checks for
+it). You are free to reorganize, nest, or flatten everything — the engine does not
+care. For example, this is equally valid:
 
 ```
 game-demo/

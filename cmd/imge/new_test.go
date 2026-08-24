@@ -1,6 +1,11 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
 
 func TestPascalCase(t *testing.T) {
 	cases := map[string]string{
@@ -48,5 +53,19 @@ func TestTrimExt(t *testing.T) {
 		if got := trimExt(in, ".obj"); got != want {
 			t.Errorf("trimExt(%q, \".obj\") = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// TestBlankSceneMatchesSceneTemplate guards the blank template's scenes/main.scene
+// against drifting from what `imge new scene main` produces. They must stay
+// identical; the sceneTemplate const is the single source of truth.
+func TestBlankSceneMatchesSceneTemplate(t *testing.T) {
+	want := strings.ReplaceAll(sceneTemplate, "{{NAME}}", "main")
+	got, err := os.ReadFile(filepath.Join("..", "..", "testdata", "blank", "scenes", "main.scene"))
+	if err != nil {
+		t.Fatalf("read blank scenes/main.scene: %v", err)
+	}
+	if string(got) != want {
+		t.Errorf("testdata/blank/scenes/main.scene has drifted from sceneTemplate — keep them in sync")
 	}
 }

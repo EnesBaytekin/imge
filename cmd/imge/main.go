@@ -241,8 +241,8 @@ func handleInit() {
 	fmt.Println("\nProject initialized successfully!")
 	fmt.Println("Next steps:")
 	fmt.Println("  1. Build and run: imge run")
-	fmt.Println("  2. Add objects to scenes/main.scene (see README.md for the format)")
-	fmt.Println("  3. Define custom behavior in components/")
+	fmt.Println("  2. Add objects to scenes/main.scene")
+	fmt.Println("  3. Create a component: imge new component <name>")
 }
 
 func printUsage() {
