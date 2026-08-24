@@ -32,6 +32,7 @@ into a single self-contained executable or a web (WASM) bundle.
 | | | |
 |---|---|---|
 | [**JSON format**](json-format.md) | Full format for `game.imge`, `.scene`, `.obj`, and component `args` | reference |
+| [**Rendering & pixel-perfection**](rendering.md) | `pixel_per_unit`, sub-pixel motion, and `smooth_shapes` | guide |
 | [**Color effects**](color-effects.md) | Recolor a `@Sprite`: `color` — grayscale, hue, hue_to, tint, solid | guide |
 
 ## Recipes

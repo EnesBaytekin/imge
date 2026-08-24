@@ -66,7 +66,8 @@ stays smooth without changing anything in the game world — positions, collider
 sizes, and camera math are all unaffected; only the render resolution (and the
 mouse coordinate mapping, which is normalized back to logical units) changes.
 There is no upper limit, but the framebuffer (and its memory) grows with the
-square of the value, so keep it as small as your game's smoothness needs.
+square of the value, so keep it as small as your game's smoothness needs. See
+[Rendering & pixel-perfection](rendering.md) for the full picture with examples.
 
 `smooth_shapes` (default `false`) controls how **vector shapes** — `DrawRect`,
 `DrawRectOutline`, `DrawCircle`, `DrawCircleOutline`, and `DrawLine` — are
@@ -81,7 +82,7 @@ the chunky path still rasterizes shapes on the unit grid, keeping them
 pixel-perfect and stable, whereas fine re-rasterizes at the fractional position
 and can wobble as a shape moves. It is game-wide: there is no per-shape toggle,
 so if you need both, keep shapes chunky and use a texture for the fine-grained
-case.
+case. See [Rendering & pixel-perfection](rendering.md) for a visual comparison.
 
 `format_version` is **not** a free-form game-version field — it's an engine-owned
 number that pins the project format (the `game.imge` schema, the scene/object JSON
