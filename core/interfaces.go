@@ -56,6 +56,19 @@ type Renderer interface {
 	// Returns (0, 0) when the font cannot be loaded.
 	MeasureText(text string, fontID string, size float64) (width, height float64)
 
+	// DrawTextWrapped draws text constrained to maxWidth, wrapping or clipping it
+	// into multiple lines according to wrap. position is the top-left corner of the
+	// whole block; each line advances by the font's line height. A maxWidth <= 0
+	// disables width-based breaking (explicit "\n" still starts a new line). Like
+	// DrawText, an empty fontID selects the built-in font and size <= 0 the default.
+	DrawTextWrapped(text string, fontID string, size float64, maxWidth float64, wrap WrapMode, position math.Vector2, color math.Color)
+
+	// MeasureTextWrapped returns the width (the widest line) and height (line count
+	// × line height) the given text occupies once wrapped to maxWidth with the
+	// given wrap mode — the same box DrawTextWrapped places. Returns (0, 0) when
+	// the font cannot be loaded.
+	MeasureTextWrapped(text string, fontID string, size float64, maxWidth float64, wrap WrapMode) (width, height float64)
+
 	// SetCamera applies a world-to-screen camera transform to subsequent draw
 	// calls. (cx, cy) is the view center in world coordinates and zoom is the scale
 	// factor (1 = 1:1). A zoom <= 0 disables the transform (raw screen space).

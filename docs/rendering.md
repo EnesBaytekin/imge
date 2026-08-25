@@ -190,6 +190,35 @@ renderer.DrawText("Play", "", 0, math.NewVector2(320-w/2, 180-h/2), math.White)
 Any component can draw text through its `Draw(renderer core.Renderer)` method, the
 same way it draws shapes or textures.
 
+### Wrapping text to a width
+
+`DrawTextWrapped` fits text into a maximum width, wrapping or clipping it the way
+terminal output, dialogue boxes, and UI paragraphs need:
+
+```go
+// Word-wrap: break on spaces, keep whole words together (dialogue / UI).
+renderer.DrawTextWrapped("the quick brown fox jumps over", "", 0, 120, core.WrapWord, pos, math.White)
+
+// Hard-wrap: break exactly at the width, splitting words mid-way (terminal / log).
+renderer.DrawTextWrapped("error: something went wrong", "", 0, 96, core.WrapChar, pos, math.Red)
+
+// Clip: a single line truncated to the width, nothing wrapped.
+renderer.DrawTextWrapped("a very long menu title", "", 0, 80, core.WrapClip, pos, math.White)
+```
+
+`position` is the **top-left corner of the whole block**; each line advances by the
+font's line height. `maxWidth <= 0` disables width-based breaking (explicit `\n`
+still starts a new line). The three `core.WrapMode` values:
+
+- **`WrapWord`** — break on whitespace so whole words stay together. A lone word
+  wider than `maxWidth` is still placed on its own line (and overflows).
+- **`WrapChar`** — hard-break exactly at `maxWidth`, splitting a word mid-way.
+- **`WrapClip`** — don't wrap: truncate to one line that fits `maxWidth`, drop the rest.
+
+`MeasureTextWrapped(text, fontID, size, maxWidth, wrap)` returns the width (the
+widest line) and height (line count × line height) of the wrapped block, so you can
+center a paragraph the same way `MeasureText` centers a single line.
+
 ## Which setting for which need
 
 | You want… | `pixel_per_unit` | `smooth_shapes` |
@@ -221,7 +250,7 @@ A few practical notes to keep in mind:
 | `DrawCircle` / `DrawCircleOutline` | yes | chunky (default) or fine |
 | `DrawLine` | yes | chunky (default) or fine |
 | `@Sprite` / `DrawTexture` | no | always chunky |
-| `DrawText` | no | always chunky |
+| `DrawText` / `DrawTextWrapped` | no | always chunky |
 
 > The images on this page are produced by a small software rasterizer that
 > reproduces the engine's two models (`go run ./cmd/renderdemo`). They are
