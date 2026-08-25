@@ -212,8 +212,10 @@ renderer.DrawTextWrapped("a very long menu title", "", 0, 80, core.WrapClip, tru
 font's line height. `maxWidth <= 0` disables width-based breaking (explicit `\n`
 still starts a new line). The three `core.WrapMode` values:
 
-- **`WrapWord`** — break on whitespace so whole words stay together. A lone word
-  wider than `maxWidth` is still placed on its own line (and overflows).
+- **`WrapWord`** — break on whitespace so whole words stay together. Whitespace is
+  preserved verbatim — leading and repeated spaces are kept, only the space at a
+  wrap point is dropped. A lone word wider than `maxWidth` is still placed on its
+  own line (and overflows).
 - **`WrapChar`** — hard-break exactly at `maxWidth`, splitting a word mid-way.
 - **`WrapClip`** — don't wrap: truncate to one line that fits `maxWidth`, drop the
   rest. With `ellipsis: true` (the default) a trailing `"..."` is appended so the

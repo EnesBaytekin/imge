@@ -139,23 +139,79 @@ func breakChar(text string, maxWidth float64, measure func(string) float64) []st
 	return lines
 }
 
-// breakWord breaks text into lines on whitespace, keeping whole words together
-// (single spaces between them). A lone word wider than maxWidth is placed on its own
-// line and overflows.
+// breakWord breaks text into lines on whitespace, keeping whole words together,
+// while preserving the whitespace exactly as it appears: leading spaces (indentation),
+// repeated spaces between words, and trailing spaces are all kept verbatim. Only the
+// space at a wrap point is dropped. A lone word wider than maxWidth is placed on its
+// own line and overflows.
 func breakWord(text string, maxWidth float64, measure func(string) float64) []string {
-	words := strings.Fields(text)
-	if len(words) == 0 {
-		return []string{""}
-	}
 	var lines []string
-	line := words[0]
-	for _, word := range words[1:] {
-		if candidate := line + " " + word; measure(candidate) <= maxWidth {
-			line = candidate
+	var line strings.Builder
+	var pendingSpaces string // spaces between the current line and the next word
+
+	flush := func() {
+		lines = append(lines, line.String())
+		line.Reset()
+	}
+
+	for i := 0; i < len(text); {
+		r, size := utf8.DecodeRuneInString(text[i:])
+		if isWordSpace(r) {
+			// A run of spaces: leading ones are indentation (kept on the line);
+			// ones after a word are held as the separator and dropped only if the
+			// next word wraps to a new line.
+			j := i + size
+			for j < len(text) {
+				r2, sz := utf8.DecodeRuneInString(text[j:])
+				if !isWordSpace(r2) {
+					break
+				}
+				j += sz
+			}
+			if line.Len() == 0 {
+				line.WriteString(text[i:j])
+			} else {
+				pendingSpaces = text[i:j]
+			}
+			i = j
 			continue
 		}
-		lines = append(lines, line)
-		line = word
+
+		// A run of non-space characters: one word.
+		j := i + size
+		for j < len(text) {
+			r2, sz := utf8.DecodeRuneInString(text[j:])
+			if isWordSpace(r2) {
+				break
+			}
+			j += sz
+		}
+		word := text[i:j]
+
+		switch {
+		case line.Len() == 0:
+			line.WriteString(word)
+		case measure(line.String()+pendingSpaces+word) <= maxWidth:
+			line.WriteString(pendingSpaces)
+			line.WriteString(word)
+		default:
+			flush()
+			line.WriteString(word)
+		}
+		pendingSpaces = ""
+		i = j
 	}
-	return append(lines, line)
+
+	// Trailing spaces (after the last word) are preserved.
+	line.WriteString(pendingSpaces)
+	if line.Len() > 0 || len(lines) == 0 {
+		flush()
+	}
+	return lines
+}
+
+// isWordSpace reports whether r is whitespace that breakWord treats as a word
+// boundary. Newlines are split by wrapLines before a paragraph reaches breakWord.
+func isWordSpace(r rune) bool {
+	return r == ' ' || r == '\t'
 }

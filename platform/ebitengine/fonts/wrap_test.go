@@ -24,6 +24,28 @@ func TestWrapWordLoneOversizedWordOverflows(t *testing.T) {
 	assertLines(t, got, []string{"ok", "supercalifragilistic", "end"})
 }
 
+func TestWrapWordPreservesWhitespace(t *testing.T) {
+	measure := func(s string) float64 { return float64(len(s)) }
+	// Leading spaces, repeated internal spaces, and trailing spaces are kept verbatim.
+	got := wrapLines("   a  b   ", 100, core.WrapWord, false, measure)
+	assertLines(t, got, []string{"   a  b   "})
+}
+
+func TestWrapWordKeepsLeadingSpaces(t *testing.T) {
+	measure := func(s string) float64 { return float64(len(s)) }
+	// Two leading spaces stay on the first line; the break-space is dropped.
+	got := wrapLines("  ab cd", 4, core.WrapWord, false, measure)
+	assertLines(t, got, []string{"  ab", "cd"})
+}
+
+func TestWrapWordPreservesLeadingSpacesBuiltin(t *testing.T) {
+	l := NewLibrary()
+	w := l.Wrap(nil, "", 6, "     selam", 280, core.WrapWord, false)
+	if len(w.Lines) != 1 || w.Lines[0] != "     selam" {
+		t.Fatalf("Wrap(word) = %q, want [\"     selam\"]", w.Lines)
+	}
+}
+
 func TestWrapCharSplitsWords(t *testing.T) {
 	measure := func(s string) float64 { return float64(len(s)) }
 	got := wrapLines("abcdefgh", 3, core.WrapChar, false, measure)
