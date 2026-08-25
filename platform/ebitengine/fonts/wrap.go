@@ -23,7 +23,11 @@ type WrappedText struct {
 // the given font and size, honoring explicit newlines. maxWidth <= 0 disables
 // width-based breaking (each "\n" still starts a new line). An empty text returns a
 // zero WrappedText.
-func (l *Library) Wrap(fsys fs.FS, fontID string, size float64, text string, maxWidth float64, mode core.WrapMode) WrappedText {
+//
+// ellipsis only affects WrapClip: when a line is truncated and ellipsis is true, a
+// trailing "..." is appended (the result still fits maxWidth); when false, the line
+// is cut with no marker.
+func (l *Library) Wrap(fsys fs.FS, fontID string, size float64, text string, maxWidth float64, mode core.WrapMode, ellipsis bool) WrappedText {
 	if text == "" {
 		return WrappedText{}
 	}
@@ -38,7 +42,7 @@ func (l *Library) Wrap(fsys fs.FS, fontID string, size float64, text string, max
 		return float64(font.MeasureString(face, s)) / 64
 	}
 
-	lines := wrapLines(text, maxWidth, mode, measure)
+	lines := wrapLines(text, maxWidth, mode, ellipsis, measure)
 	res := WrappedText{Lines: lines, LineHeight: lineHeight}
 	for _, ln := range lines {
 		if w := measure(ln); w > res.Width {
@@ -52,7 +56,7 @@ func (l *Library) Wrap(fsys fs.FS, fontID string, size float64, text string, max
 // wrapLines is the pure line-breaking core: it takes a measure callback (advance
 // width of a substring, in logical units) so the algorithm is unit-testable without
 // a font. Explicit "\n" always produce hard breaks (and empty lines).
-func wrapLines(text string, maxWidth float64, mode core.WrapMode, measure func(string) float64) []string {
+func wrapLines(text string, maxWidth float64, mode core.WrapMode, ellipsis bool, measure func(string) float64) []string {
 	paragraphs := strings.Split(text, "\n")
 	if maxWidth <= 0 {
 		return paragraphs
@@ -62,7 +66,7 @@ func wrapLines(text string, maxWidth float64, mode core.WrapMode, measure func(s
 	for _, para := range paragraphs {
 		switch mode {
 		case core.WrapClip:
-			lines = append(lines, clipLine(para, maxWidth, measure))
+			lines = append(lines, clipLine(para, maxWidth, ellipsis, measure))
 		case core.WrapChar:
 			lines = append(lines, breakChar(para, maxWidth, measure)...)
 		default: // core.WrapWord
@@ -72,11 +76,30 @@ func wrapLines(text string, maxWidth float64, mode core.WrapMode, measure func(s
 	return lines
 }
 
+// ellipsisMark is appended to a truncated WrapClip line when ellipsis is requested.
+const ellipsisMark = "..."
+
 // clipLine truncates text to the longest prefix (on a rune boundary) that fits
-// maxWidth, dropping the rest — no wrapping.
-func clipLine(text string, maxWidth float64, measure func(string) float64) string {
+// maxWidth, dropping the rest — no wrapping. When ellipsis is true and the text is
+// truncated, a trailing "..." is appended so the result still fits maxWidth.
+func clipLine(text string, maxWidth float64, ellipsis bool, measure func(string) float64) string {
 	if measure(text) <= maxWidth {
 		return text
+	}
+	if ellipsis {
+		if measure(ellipsisMark) > maxWidth {
+			return ""
+		}
+		cut := 0
+		for end := 0; end < len(text); {
+			_, size := utf8.DecodeRuneInString(text[end:])
+			end += size
+			if measure(text[:end]+ellipsisMark) > maxWidth {
+				break
+			}
+			cut = end
+		}
+		return text[:cut] + ellipsisMark
 	}
 	cut := 0
 	for end := 0; end < len(text); {

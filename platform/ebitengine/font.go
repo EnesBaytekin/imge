@@ -88,8 +88,8 @@ func (r *Renderer) MeasureText(str string, fontID string, size float64) (float64
 
 // DrawTextWrapped draws text constrained to maxWidth, wrapping or clipping it into
 // multiple lines according to wrap. See core.Renderer.DrawTextWrapped.
-func (r *Renderer) DrawTextWrapped(str string, fontID string, size float64, maxWidth float64, wrap core.WrapMode, position math.Vector2, clr math.Color) {
-	w := r.fonts.lib.Wrap(r.assetFS, fontID, size, str, maxWidth, wrap)
+func (r *Renderer) DrawTextWrapped(str string, fontID string, size float64, maxWidth float64, wrap core.WrapMode, ellipsis bool, position math.Vector2, clr math.Color) {
+	w := r.fonts.lib.Wrap(r.assetFS, fontID, size, str, maxWidth, wrap, ellipsis)
 	for i, line := range w.Lines {
 		r.drawLine(line, fontID, size, position.X, position.Y+float64(i)*w.LineHeight, clr)
 	}
@@ -97,7 +97,7 @@ func (r *Renderer) DrawTextWrapped(str string, fontID string, size float64, maxW
 
 // MeasureTextWrapped returns the width (widest line) and height (line count × line
 // height) of wrapped text. See core.Renderer.MeasureTextWrapped.
-func (r *Renderer) MeasureTextWrapped(str string, fontID string, size float64, maxWidth float64, wrap core.WrapMode) (float64, float64) {
-	w := r.fonts.lib.Wrap(r.assetFS, fontID, size, str, maxWidth, wrap)
+func (r *Renderer) MeasureTextWrapped(str string, fontID string, size float64, maxWidth float64, wrap core.WrapMode, ellipsis bool) (float64, float64) {
+	w := r.fonts.lib.Wrap(r.assetFS, fontID, size, str, maxWidth, wrap, ellipsis)
 	return w.Width, w.Height
 }

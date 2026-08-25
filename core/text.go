@@ -14,6 +14,8 @@ const (
 	WrapChar
 
 	// WrapClip does not wrap at all: the text is truncated to a single line that
-	// fits within maxWidth, and anything past that is dropped.
+	// fits within maxWidth, and anything past that is dropped. A trailing "..." is
+	// appended by default (ellipsis=true) so the cut is visible; pass ellipsis=false
+	// to truncate with no marker.
 	WrapClip
 )
