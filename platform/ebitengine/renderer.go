@@ -45,6 +45,10 @@ type Renderer struct {
 	// shape's chunky pixels depend only on its geometry and color — not its
 	// position — so the same buffer is reused every frame (like the texture cache).
 	shapeCache map[string]*ebiten.Image
+
+	// fonts caches parsed fonts and size-specific text faces for DrawText and
+	// MeasureText. See font.go.
+	fonts fontState
 }
 
 // textureEntry caches a decoded texture together with its dominant hue, computed
@@ -59,6 +63,7 @@ func newRenderer() *Renderer {
 		textures:   make(map[string]textureEntry),
 		missing:    make(map[string]bool),
 		shapeCache: make(map[string]*ebiten.Image),
+		fonts:      newFontState(),
 		pixelScale: 1,
 	}
 }

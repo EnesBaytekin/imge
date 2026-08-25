@@ -143,6 +143,53 @@ vector circle rendered with `smooth_shapes: true`. The sprite keeps its blocky
 is what keeps your pixel art crisp and aligned to the game grid regardless of the
 rendering settings.
 
+## Text is always chunky too
+
+`DrawText` renders a line of text the same way sprites render: the glyphs are
+rasterized at the font's **logical** size, then upscaled by `pixel_per_unit ×
+camera.zoom` with nearest-neighbor. `smooth_shapes` has no effect on text — a
+pixel font drawn at an integer size stays crisp at any `pixel_per_unit`.
+
+### Fonts: the built-in default and your own
+
+`DrawText` takes a *font ID* the same way `DrawTexture` takes a texture ID:
+
+- `""` (or `"imge-font"`) selects the **built-in default font**, a small pixel
+  font whose glyphs are 4 units wide × 6 units tall. Call text with no font and
+  no size and you get a crisp pixel font.
+- Anything else is a **project-root-relative path** to a `.ttf`/`.otf` you dropped
+  into your project, resolved through the asset filesystem exactly like a texture:
+
+  ```go
+  renderer.DrawText("SCORE 100", "assets/fonts/arcade.ttf", 8, pos, color)
+  ```
+
+Fonts load on demand and are cached, so a font file is read once.
+
+### Size and integer scaling
+
+`size` is the font size in **logical units**. For a pixel font it should be the
+font's **design size or an integer multiple of it**, so every glyph lands on the
+unit grid and the text stays crisp. The built-in font's design size is 6 units
+(a 4×6 glyph), so its crisp sizes are 6, 12, 18, … — an 8px font would use 8, 16,
+24 instead. At the design size, one font pixel is exactly one game pixel. A
+non-integer, off-grid size re-rasterizes the glyphs off-grid and blurs them,
+exactly like scaling a sprite by 1.5×. Passing `size <= 0` selects the font's
+native (default) size.
+
+### Measuring text
+
+`MeasureText(text, fontID, size)` returns the width and height (in logical units)
+of the box `DrawText` places, so you can center or right-align text:
+
+```go
+w, h := renderer.MeasureText("Play", "", 0)
+renderer.DrawText("Play", "", 0, math.NewVector2(320-w/2, 180-h/2), math.White)
+```
+
+Any component can draw text through its `Draw(renderer core.Renderer)` method, the
+same way it draws shapes or textures.
+
 ## Which setting for which need
 
 | You want… | `pixel_per_unit` | `smooth_shapes` |
@@ -174,6 +221,7 @@ A few practical notes to keep in mind:
 | `DrawCircle` / `DrawCircleOutline` | yes | chunky (default) or fine |
 | `DrawLine` | yes | chunky (default) or fine |
 | `@Sprite` / `DrawTexture` | no | always chunky |
+| `DrawText` | no | always chunky |
 
 > The images on this page are produced by a small software rasterizer that
 > reproduces the engine's two models (`go run ./cmd/renderdemo`). They are

@@ -42,6 +42,20 @@ type Renderer interface {
 	// Returns (0, 0) if the texture cannot be loaded.
 	GetTextureSize(textureID string) (width, height float64)
 
+	// DrawText draws a single line of text with its top-left corner at position.
+	// fontID "" (or "imge-font") selects the built-in default font; otherwise it is
+	// a project-root-relative path to a .ttf/.otf font file, loaded on demand.
+	// size is the font size in logical units; size <= 0 selects the font's default
+	// size. Text is always rendered chunky (like textures and sprites), so a pixel
+	// font drawn at an integer size stays crisp at any pixel_per_unit.
+	DrawText(text string, fontID string, size float64, position math.Vector2, color math.Color)
+
+	// MeasureText returns the width and height (in logical units) the given text
+	// occupies at the given size — the same box DrawText places starting at
+	// position. Use it for layout (centering, wrapping, hit-testing).
+	// Returns (0, 0) when the font cannot be loaded.
+	MeasureText(text string, fontID string, size float64) (width, height float64)
+
 	// SetCamera applies a world-to-screen camera transform to subsequent draw
 	// calls. (cx, cy) is the view center in world coordinates and zoom is the scale
 	// factor (1 = 1:1). A zoom <= 0 disables the transform (raw screen space).
