@@ -147,6 +147,8 @@ const (
 	KeyRight
 	KeyUp
 	KeyDown
+	KeyHome
+	KeyEnd
 	KeyF1
 	KeyF2
 	KeyF3

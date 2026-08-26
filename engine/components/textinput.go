@@ -10,9 +10,14 @@ import (
 
 // TextInput is a single-line editable text field. Click to focus (blinking caret),
 // type to insert characters at the caret, Left/Right move the caret, Backspace
-// deletes the rune before it, Enter submits. When the text grows wider than the
-// box it scrolls horizontally so the caret stays visible — the classic single-line
-// textbox behavior.
+// deletes the rune before it, Home/End jump to the start/end, Ctrl+Left/Right jump
+// word by word, and Enter submits. Holding a key auto-repeats (one action on press,
+// then a pause, then rapid repeats) for arrows, Backspace, Home/End, and printable
+// characters alike — the classic single-line textbox behavior.
+//
+// When the text grows wider than the box it scrolls horizontally, but the text only
+// moves when the caret leaves the visible window: while the caret is inside the box
+// the text stays put, and it scrolls left/right only when the caret crosses an edge.
 //
 // Background: a flat color, or a nine-sliced texture when texture + border are set.
 // Placeholder draws (in placeholder_color) when empty and not focused.
@@ -44,11 +49,34 @@ type TextInputComponent struct {
 	blink     float64
 
 	// caret is the rune index (0..len) where input is inserted/deleted and the
-	// caret is drawn.
-	caret int
+	// caret is drawn. scroll is the rune index of the first visible rune; it only
+	// moves when the caret leaves the visible window, so the text stays put while
+	// the caret moves inside the box.
+	caret  int
+	scroll int
+
+	// Key auto-repeat state for the control keys (arrows/backspace/home/end):
+	// holdKey is the key currently held, holdTime how long it has been held, and
+	// holdPhase 0 when no key is held, 1 during the initial repeat delay, 2 while
+	// repeating rapidly.
+	holdKey   core.KeyCode
+	holdTime  float64
+	holdPhase int
+
+	// Character auto-repeat state: lastChar repeats while its key is held.
+	lastChar     rune
+	charHoldTime float64
+	charPhase    int
 }
 
 const inputPadX = 2.0
+
+// Key auto-repeat timing: one action on the initial press, then a pause, then rapid
+// repeats while held (the OS textbox rhythm).
+const (
+	keyRepeatDelay = 0.5
+	keyRepeatRate  = 0.05
+)
 
 // Initialize marks the input focusable and defaults its text/placeholder colors.
 func (t *TextInputComponent) Initialize() {
@@ -64,6 +92,7 @@ func (t *TextInputComponent) Initialize() {
 func (t *TextInputComponent) Update(ctx *core.Context) {
 	if !t.IsVisible() || !t.IsEnabled() {
 		t.focused = false
+		t.resetRepeat()
 		return
 	}
 
@@ -71,6 +100,7 @@ func (t *TextInputComponent) Update(ctx *core.Context) {
 		t.focused = t.Contains(ctx.Input.GetMousePosition())
 	}
 	if !t.focused {
+		t.resetRepeat()
 		return
 	}
 
@@ -78,22 +108,143 @@ func (t *TextInputComponent) Update(ctx *core.Context) {
 	t.blink += ctx.DeltaTime()
 	t.showCaret = int(t.blink*2)%2 == 0
 
-	if ctx.Input.IsKeyJustPressed(core.KeyLeft) {
-		t.moveCaret(-1)
-	}
-	if ctx.Input.IsKeyJustPressed(core.KeyRight) {
-		t.moveCaret(+1)
-	}
+	t.updateControlKeys(ctx)
+	t.updateTyping(ctx)
 
-	for _, r := range ctx.Input.InputChars() {
-		t.appendRune(r)
-	}
-	if ctx.Input.IsKeyJustPressed(core.KeyBackspace) {
-		t.deleteRuneBeforeCaret()
-	}
 	if ctx.Input.IsKeyJustPressed(core.KeyEnter) {
 		if t.Event != "" {
 			t.Emit(t.Event, t.Text)
+		}
+	}
+}
+
+// resetRepeat clears the key/character auto-repeat state (on blur or disable).
+func (t *TextInputComponent) resetRepeat() {
+	t.holdKey = core.KeyUnknown
+	t.holdTime = 0
+	t.holdPhase = 0
+	t.lastChar = 0
+	t.charHoldTime = 0
+	t.charPhase = 0
+}
+
+// updateControlKeys handles the held control keys with OS-style auto-repeat: an
+// immediate action on the first held frame, then a pause, then rapid repeats.
+func (t *TextInputComponent) updateControlKeys(ctx *core.Context) {
+	key := t.heldControlKey(ctx.Input)
+	dt := ctx.DeltaTime()
+	ctrl := ctx.Input.IsKeyPressed(core.KeyControl)
+
+	if key != t.holdKey {
+		t.holdKey = key
+		t.holdTime = 0
+		t.holdPhase = 0
+		if key != core.KeyUnknown {
+			t.doControlKey(key, ctrl) // immediate first action
+			t.holdPhase = 1
+		}
+		return
+	}
+	if key == core.KeyUnknown {
+		return
+	}
+
+	t.holdTime += dt
+	switch t.holdPhase {
+	case 1: // waiting out the initial repeat delay
+		if t.holdTime >= keyRepeatDelay {
+			t.doControlKey(key, ctrl)
+			t.holdTime -= keyRepeatDelay
+			t.holdPhase = 2
+		}
+	case 2: // rapid repeat
+		for t.holdTime >= keyRepeatRate {
+			t.doControlKey(key, ctrl)
+			t.holdTime -= keyRepeatRate
+		}
+	}
+}
+
+// heldControlKey returns the control key currently held, or KeyUnknown. Ordering
+// matters only if several are held at once; the first match wins.
+func (t *TextInputComponent) heldControlKey(in core.Input) core.KeyCode {
+	switch {
+	case in.IsKeyPressed(core.KeyLeft):
+		return core.KeyLeft
+	case in.IsKeyPressed(core.KeyRight):
+		return core.KeyRight
+	case in.IsKeyPressed(core.KeyBackspace):
+		return core.KeyBackspace
+	case in.IsKeyPressed(core.KeyHome):
+		return core.KeyHome
+	case in.IsKeyPressed(core.KeyEnd):
+		return core.KeyEnd
+	}
+	return core.KeyUnknown
+}
+
+// doControlKey applies one control-key action. ctrl is whether Control is held,
+// which turns Left/Right into word jumps.
+func (t *TextInputComponent) doControlKey(key core.KeyCode, ctrl bool) {
+	switch key {
+	case core.KeyLeft:
+		if ctrl {
+			t.moveCaretWord(-1)
+		} else {
+			t.moveCaret(-1)
+		}
+	case core.KeyRight:
+		if ctrl {
+			t.moveCaretWord(+1)
+		} else {
+			t.moveCaret(+1)
+		}
+	case core.KeyBackspace:
+		t.deleteRuneBeforeCaret()
+	case core.KeyHome:
+		t.caret = 0
+	case core.KeyEnd:
+		t.caret = utf8.RuneCountInString(t.Text)
+	}
+}
+
+// updateTyping inserts freshly typed characters and auto-repeats the last one while
+// its key stays held.
+func (t *TextInputComponent) updateTyping(ctx *core.Context) {
+	dt := ctx.DeltaTime()
+	chars := ctx.Input.InputChars()
+	if len(chars) > 0 {
+		for _, r := range chars {
+			t.appendRune(r)
+		}
+		t.lastChar = chars[len(chars)-1]
+		t.charHoldTime = 0
+		t.charPhase = 1
+		return
+	}
+
+	if t.lastChar == 0 {
+		return
+	}
+	key, ok := charKeyCode(t.lastChar)
+	if !ok || !ctx.Input.IsKeyPressed(key) {
+		t.lastChar = 0
+		t.charPhase = 0
+		return
+	}
+
+	t.charHoldTime += dt
+	switch t.charPhase {
+	case 1:
+		if t.charHoldTime >= keyRepeatDelay {
+			t.appendRune(t.lastChar)
+			t.charHoldTime -= keyRepeatDelay
+			t.charPhase = 2
+		}
+	case 2:
+		for t.charHoldTime >= keyRepeatRate {
+			t.appendRune(t.lastChar)
+			t.charHoldTime -= keyRepeatRate
 		}
 	}
 }
@@ -107,6 +258,34 @@ func (t *TextInputComponent) moveCaret(delta int) {
 	if n := utf8.RuneCountInString(t.Text); t.caret > n {
 		t.caret = n
 	}
+}
+
+// moveCaretWord moves the caret to the next/previous word boundary, where words are
+// runs of non-space runes separated by spaces. delta > 0 moves right, < 0 moves left.
+func (t *TextInputComponent) moveCaretWord(delta int) {
+	runes := []rune(t.Text)
+	n := len(runes)
+	i := t.caret
+	if delta > 0 {
+		for i < n && !isSpaceRune(runes[i]) {
+			i++
+		}
+		for i < n && isSpaceRune(runes[i]) {
+			i++
+		}
+	} else {
+		for i > 0 && isSpaceRune(runes[i-1]) {
+			i--
+		}
+		for i > 0 && !isSpaceRune(runes[i-1]) {
+			i--
+		}
+	}
+	t.caret = i
+}
+
+func isSpaceRune(r rune) bool {
+	return r == ' ' || r == '\t' || r == '\n'
 }
 
 // appendRune inserts a rune at the caret, respecting MaxLength (0 = unlimited).
@@ -157,13 +336,11 @@ func (t *TextInputComponent) Draw(r core.Renderer) {
 		return w
 	}
 	inner := rect.Width() - 2*inputPadX
-	visible := t.Text
-	caretX := x + measure(sliceRunes(t.Text, 0, t.caret))
-	if inner > 0 {
-		v, cx := t.visibleAndCaretX(inner, measure)
-		visible = v
-		caretX = x + cx
-	}
+
+	t.syncScroll(inner, measure)
+
+	visible := t.visibleFromScroll(inner, measure)
+	caretX := x + measure(sliceRunes(t.Text, t.scroll, t.caret))
 
 	r.DrawText(visible, t.FontID, t.Size, math.NewVector2(x, y), t.TextColor)
 
@@ -172,36 +349,62 @@ func (t *TextInputComponent) Draw(r core.Renderer) {
 	}
 }
 
-// visibleAndCaretX returns the substring to draw (scrolled so the caret stays
-// visible within innerWidth) and the caret's x offset from the text origin.
-func (t *TextInputComponent) visibleAndCaretX(innerWidth float64, measure func(string) float64) (string, float64) {
-	n := utf8.RuneCountInString(t.Text)
+// syncScroll keeps scroll such that the caret stays inside the visible window of
+// innerWidth logical units. It changes scroll only when the caret crosses an edge
+// (or the whole text shrinks to fit) — never while the caret moves within the box.
+func (t *TextInputComponent) syncScroll(inner float64, measure func(string) float64) {
 	t.moveCaret(0) // clamp caret to a valid range
+	if inner <= 0 {
+		return
+	}
+	// If the whole text fits there is nothing to scroll.
+	if measure(t.Text) <= inner {
+		t.scroll = 0
+	}
+	if t.caret < t.scroll {
+		t.scroll = t.caret
+	}
+	for t.scroll < t.caret && measure(sliceRunes(t.Text, t.scroll, t.caret)) > inner {
+		t.scroll++
+	}
+}
 
-	// Advance the scroll start until the caret fits inside innerWidth.
-	scroll := 0
-	for scroll < t.caret {
-		if measure(sliceRunes(t.Text, scroll, t.caret)) <= innerWidth {
+// visibleFromScroll returns the runes starting at scroll that fit within innerWidth
+// (always at least one rune when scroll is valid).
+func (t *TextInputComponent) visibleFromScroll(inner float64, measure func(string) float64) string {
+	if inner <= 0 {
+		return t.Text
+	}
+	n := utf8.RuneCountInString(t.Text)
+	if t.scroll >= n {
+		return ""
+	}
+	var sb strings.Builder
+	for _, r := range sliceRunes(t.Text, t.scroll, n) {
+		next := sb.String() + string(r)
+		if sb.Len() > 0 && measure(next) > inner {
 			break
 		}
-		scroll++
+		sb.WriteRune(r)
 	}
+	return sb.String()
+}
 
-	// Visible text: the runes from scroll that fit innerWidth (at least one rune).
-	visible := t.Text
-	if scroll > 0 || measure(t.Text) > innerWidth {
-		var sb strings.Builder
-		for _, r := range sliceRunes(t.Text, scroll, n) {
-			next := sb.String() + string(r)
-			if sb.Len() > 0 && measure(next) > innerWidth {
-				break
-			}
-			sb.WriteRune(r)
-		}
-		visible = sb.String()
+// charKeyCode maps an ASCII rune back to its key so a held character key can be
+// detected for auto-repeat. Returns (KeyUnknown, false) for runes without a
+// dedicated key (symbols, IME input), which simply do not auto-repeat.
+func charKeyCode(r rune) (core.KeyCode, bool) {
+	switch {
+	case r >= 'a' && r <= 'z':
+		return core.KeyA + core.KeyCode(r-'a'), true
+	case r >= 'A' && r <= 'Z':
+		return core.KeyA + core.KeyCode(r-'A'), true
+	case r >= '0' && r <= '9':
+		return core.Key0 + core.KeyCode(r-'0'), true
+	case r == ' ':
+		return core.KeySpace, true
 	}
-
-	return visible, measure(sliceRunes(t.Text, scroll, t.caret))
+	return core.KeyUnknown, false
 }
 
 // sliceRunes returns the substring from the a-th rune (inclusive) to the b-th rune

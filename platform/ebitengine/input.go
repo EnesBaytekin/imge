@@ -70,6 +70,8 @@ var keyMap = map[core.KeyCode]ebiten.Key{
 	core.KeyRight:     ebiten.KeyArrowRight,
 	core.KeyUp:        ebiten.KeyArrowUp,
 	core.KeyDown:      ebiten.KeyArrowDown,
+	core.KeyHome:      ebiten.KeyHome,
+	core.KeyEnd:       ebiten.KeyEnd,
 
 	core.KeyF1: ebiten.KeyF1, core.KeyF2: ebiten.KeyF2, core.KeyF3: ebiten.KeyF3,
 	core.KeyF4: ebiten.KeyF4, core.KeyF5: ebiten.KeyF5, core.KeyF6: ebiten.KeyF6,

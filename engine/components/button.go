@@ -11,17 +11,19 @@ import (
 //
 // Background: normal/hover/pressed/disabled are optional texture paths. When
 // normal is set the button nine-slices it with border; hover/pressed/disabled
-// override it for their state, and a state with no texture falls back to normal.
-// When normal is empty the button fills with color instead. There is no automatic
-// tinting on hover — each visual state is an explicit texture you provide.
+// override it for their state. When normal is empty the button fills with color.
+//
+// State tinting (the default when a state has no texture of its own): the flat
+// color — or the base/normal texture, when a state falls back to it — is tinted per
+// state so transitions stay visible: hover brightens, pressed darkens, disabled
+// desaturates. A state that provides its own texture is drawn untinted.
 //
 // Interaction: hovering and clicking are detected against the button's rect. On
 // click (press then release inside) the button emits Event (if non-empty) with the
 // button itself as the data, so a handler can reach the owner via GetOwner(). A
-// disabled button (enabled: false) still draws but ignores input; give it a
-// disabled texture so the non-interactive state is visually distinct. enabled is
-// the flag you control for "interactive or not" — e.g. disable a Next button until
-// the form is valid. Occlusion (a button behind another panel) is a separate,
+// disabled button (enabled: false) still draws but ignores input. enabled is the
+// flag you control for "interactive or not" — e.g. disable a Next button until the
+// form is valid. Occlusion (a button behind another panel) is a separate,
 // manager-level concern, not this flag.
 //
 // Export variables (JSON args): text, font_id, size, text_color, normal, hover,
@@ -86,11 +88,17 @@ func (b *ButtonComponent) Draw(r core.Renderer) {
 		return
 	}
 	rect := b.Rect()
-	if tex := b.currentTexture(); tex != "" {
-		core.DrawNineSlice(r, tex, b.Border, rect)
+
+	if tex, explicit := b.currentState(); tex != "" {
+		transform := math.ColorTransform{}
+		if !explicit {
+			transform = b.stateTransform()
+		}
+		core.DrawNineSliceTransform(r, tex, b.Border, rect, transform)
 	} else {
-		r.DrawRect(rect, b.Color)
+		r.DrawRect(rect, b.stateColor())
 	}
+
 	if b.Text == "" {
 		return
 	}
@@ -100,22 +108,65 @@ func (b *ButtonComponent) Draw(r core.Renderer) {
 	r.DrawText(b.Text, b.FontID, b.Size, math.NewVector2(x, y), b.TextColor)
 }
 
-// currentTexture returns the texture for the current visual state, falling back to
-// normal and finally to "" (flat color). A disabled button shows its disabled
-// texture (falling back to normal) regardless of hover/pressed.
-func (b *ButtonComponent) currentTexture() string {
+// currentState returns the texture to draw and whether it is an explicit
+// state-specific texture. A state with no texture of its own falls back to the
+// base/normal texture (or "" for flat color) with explicit=false, so the caller can
+// apply the state tint as the default behavior.
+func (b *ButtonComponent) currentState() (texture string, explicit bool) {
 	if !b.IsEnabled() {
 		if b.DisabledTexture != "" {
-			return b.DisabledTexture
+			return b.DisabledTexture, true
 		}
-		return b.NormalTexture
+		return b.NormalTexture, false
 	}
 	switch {
 	case b.pressed && b.PressedTexture != "":
-		return b.PressedTexture
+		return b.PressedTexture, true
 	case b.hovered && b.HoverTexture != "":
-		return b.HoverTexture
+		return b.HoverTexture, true
 	default:
-		return b.NormalTexture
+		return b.NormalTexture, false
 	}
+}
+
+// stateColor returns the flat (no-texture) background color for the current state:
+// base color for normal, lighter on hover, darker when pressed, desaturated when
+// disabled.
+func (b *ButtonComponent) stateColor() math.Color {
+	c := b.Color
+	switch {
+	case !b.IsEnabled():
+		return desaturate(c).Scale(0.65)
+	case b.pressed:
+		return c.Lerp(math.Black, 0.2)
+	case b.hovered:
+		return c.Lerp(math.White, 0.15)
+	default:
+		return c
+	}
+}
+
+// stateTransform returns the color transform applied to a base texture when the
+// current state has no texture of its own, mirroring stateColor's look: brighten on
+// hover, darken when pressed, desaturate when disabled. The identity transform for
+// normal.
+func (b *ButtonComponent) stateTransform() math.ColorTransform {
+	switch {
+	case !b.IsEnabled():
+		return math.ColorTransform{Grayscale: true, Brightness: -0.3}
+	case b.pressed:
+		return math.ColorTransform{Brightness: -0.25}
+	case b.hovered:
+		return math.ColorTransform{Brightness: 0.15}
+	default:
+		return math.ColorTransform{}
+	}
+}
+
+// desaturate returns the color's grayscale equivalent (luma in all three RGB
+// channels), keeping alpha.
+func desaturate(c math.Color) math.Color {
+	r, g, b, a := c.ToFloats()
+	luma := 0.299*r + 0.587*g + 0.114*b
+	return math.NewColorFromFloats(luma, luma, luma, a)
 }

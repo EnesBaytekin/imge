@@ -15,38 +15,45 @@ type stubInput struct {
 	justPressedLeft  bool
 	justReleasedLeft bool
 	chars            []rune
-	backspace        bool
 	enter            bool
-	left             bool
-	right            bool
+	held             map[core.KeyCode]bool // keys currently pressed
 }
 
-func (s *stubInput) IsKeyPressed(core.KeyCode) bool                 { return false }
-func (s *stubInput) IsKeyJustReleased(core.KeyCode) bool            { return false }
-func (s *stubInput) IsMouseButtonPressed(core.MouseButton) bool     { return false }
-func (s *stubInput) IsMouseButtonJustPressed(core.MouseButton) bool { return s.justPressedLeft }
-func (s *stubInput) IsMouseButtonJustReleased(core.MouseButton) bool {
-	return s.justReleasedLeft
-}
-func (s *stubInput) GetMousePosition() math.Vector2 { return s.mouse }
-func (s *stubInput) GetMouseDelta() math.Vector2    { return math.Vector2{} }
-func (s *stubInput) GetMouseScroll() math.Vector2   { return math.Vector2{} }
-func (s *stubInput) InputChars() []rune             { return s.chars }
-func (s *stubInput) Update()                        {}
+func (s *stubInput) IsKeyPressed(k core.KeyCode) bool                { return s.held[k] }
+func (s *stubInput) IsKeyJustReleased(core.KeyCode) bool             { return false }
+func (s *stubInput) IsMouseButtonPressed(core.MouseButton) bool      { return false }
+func (s *stubInput) IsMouseButtonJustPressed(core.MouseButton) bool  { return s.justPressedLeft }
+func (s *stubInput) IsMouseButtonJustReleased(core.MouseButton) bool { return s.justReleasedLeft }
+func (s *stubInput) GetMousePosition() math.Vector2                  { return s.mouse }
+func (s *stubInput) GetMouseDelta() math.Vector2                     { return math.Vector2{} }
+func (s *stubInput) GetMouseScroll() math.Vector2                    { return math.Vector2{} }
+func (s *stubInput) InputChars() []rune                              { return s.chars }
+func (s *stubInput) Update()                                         {}
 
 func (s *stubInput) IsKeyJustPressed(k core.KeyCode) bool {
-	switch k {
-	case core.KeyBackspace:
-		return s.backspace
-	case core.KeyEnter:
+	if k == core.KeyEnter {
 		return s.enter
-	case core.KeyLeft:
-		return s.left
-	case core.KeyRight:
-		return s.right
 	}
 	return false
 }
+
+// heldKeys builds a held-key set for stubInput.held.
+func heldKeys(keys ...core.KeyCode) map[core.KeyCode]bool {
+	m := make(map[core.KeyCode]bool, len(keys))
+	for _, k := range keys {
+		m[k] = true
+	}
+	return m
+}
+
+// stubTime is a minimal core.Time whose delta can be set per test.
+type stubTime struct{ delta float64 }
+
+func (t *stubTime) DeltaTime() float64 { return t.delta }
+func (t *stubTime) TotalTime() float64 { return 0 }
+func (t *stubTime) FPS() float64       { return 60 }
+func (t *stubTime) Tick()              {}
+func (t *stubTime) Sleep(float64)      {}
 
 func newButtonInScene() (*core.Scene, *ButtonComponent) {
 	scene := core.NewScene("test")
@@ -197,18 +204,18 @@ func TestTextInputArrowKeys(t *testing.T) {
 		t.Fatal("expected focused after click inside")
 	}
 
-	// Left → caret 2.
-	scene.Update(&core.Context{Input: &stubInput{mouse: math.NewVector2(50, 30), left: true}})
+	// Left (held one frame) → caret 2.
+	scene.Update(&core.Context{Input: &stubInput{mouse: math.NewVector2(50, 30), held: heldKeys(core.KeyLeft)}})
 	if ti.caret != 2 {
 		t.Fatalf("caret = %d, want 2", ti.caret)
 	}
-	// Right → caret 3.
-	scene.Update(&core.Context{Input: &stubInput{mouse: math.NewVector2(50, 30), right: true}})
+	// Right (held one frame) → caret 3.
+	scene.Update(&core.Context{Input: &stubInput{mouse: math.NewVector2(50, 30), held: heldKeys(core.KeyRight)}})
 	if ti.caret != 3 {
 		t.Fatalf("caret = %d, want 3", ti.caret)
 	}
 	// Right at the end stays clamped.
-	scene.Update(&core.Context{Input: &stubInput{mouse: math.NewVector2(50, 30), right: true}})
+	scene.Update(&core.Context{Input: &stubInput{mouse: math.NewVector2(50, 30), held: heldKeys(core.KeyRight)}})
 	if ti.caret != 3 {
 		t.Fatalf("caret = %d, want 3", ti.caret)
 	}
@@ -220,12 +227,14 @@ func TestButtonDisabledTexture(t *testing.T) {
 	btn.SetEnabled(false)
 	scene.Update(&core.Context{Input: &stubInput{}})
 
-	if got := btn.currentTexture(); got != "assets/btn_disabled.png" {
-		t.Fatalf("currentTexture() = %q, want disabled texture", got)
+	tex, explicit := btn.currentState()
+	if tex != "assets/btn_disabled.png" || !explicit {
+		t.Fatalf("currentState() = (%q, %v), want disabled texture, explicit", tex, explicit)
 	}
 	btn.SetEnabled(true)
-	if got := btn.currentTexture(); got != "" {
-		t.Fatalf("currentTexture() = %q, want empty (no normal texture)", got)
+	tex, explicit = btn.currentState()
+	if tex != "" || explicit {
+		t.Fatalf("currentState() = (%q, %v), want empty (no normal texture), non-explicit", tex, explicit)
 	}
 }
 
@@ -254,7 +263,7 @@ func TestTextInputFocusAndTyping(t *testing.T) {
 	if ti.Text != "hi" {
 		t.Fatalf("Text = %q, want %q", ti.Text, "hi")
 	}
-	scene.Update(&core.Context{Input: &stubInput{mouse: math.NewVector2(50, 30), backspace: true}})
+	scene.Update(&core.Context{Input: &stubInput{mouse: math.NewVector2(50, 30), held: heldKeys(core.KeyBackspace)}})
 	if ti.Text != "h" {
 		t.Fatalf("Text = %q, want %q", ti.Text, "h")
 	}
@@ -328,5 +337,193 @@ func TestUIComponentsDecodeJSONArgs(t *testing.T) {
 	}
 	if input.Border != (math.Border{Left: 4, Top: 4, Right: 4, Bottom: 4}) {
 		t.Errorf("@TextInput border = %v", input.Border)
+	}
+}
+
+// TestTextInputHeldKeyRepeat verifies the OS-style auto-repeat: one action on the
+// initial held frame, then a pause, then rapid repeats while the key stays held.
+func TestTextInputHeldKeyRepeat(t *testing.T) {
+	scene, ti := newTextInputInScene()
+	ti.Text = "abcdef"
+	ti.caret = 6
+	in := &stubInput{mouse: math.NewVector2(50, 30)}
+	tm := &stubTime{}
+
+	scene.Update(&core.Context{Input: in, Time: tm}) // initialize
+
+	// Focus.
+	in.justPressedLeft = true
+	scene.Update(&core.Context{Input: in, Time: tm})
+	in.justPressedLeft = false
+
+	// Hold Left: immediate move on the first held frame.
+	in.held = heldKeys(core.KeyLeft)
+	tm.delta = 0.1
+	scene.Update(&core.Context{Input: in, Time: tm})
+	if ti.caret != 5 {
+		t.Fatalf("immediate: caret = %d, want 5", ti.caret)
+	}
+
+	// Cross the initial repeat delay → one repeat.
+	tm.delta = 0.5
+	scene.Update(&core.Context{Input: in, Time: tm})
+	if ti.caret != 4 {
+		t.Fatalf("after delay: caret = %d, want 4", ti.caret)
+	}
+
+	// Now rapid: one repeat per rate interval.
+	tm.delta = 0.05
+	scene.Update(&core.Context{Input: in, Time: tm})
+	if ti.caret != 3 {
+		t.Fatalf("repeat: caret = %d, want 3", ti.caret)
+	}
+
+	// Release stops repeating.
+	in.held = nil
+	tm.delta = 0.05
+	scene.Update(&core.Context{Input: in, Time: tm})
+	if ti.caret != 3 {
+		t.Fatalf("released: caret = %d, want 3", ti.caret)
+	}
+}
+
+func TestTextInputHomeEnd(t *testing.T) {
+	scene, ti := newTextInputInScene()
+	ti.Text = "hello world"
+	ti.caret = 5
+	scene.Update(&core.Context{Input: &stubInput{}})
+	scene.Update(&core.Context{Input: &stubInput{mouse: math.NewVector2(50, 30), justPressedLeft: true}})
+
+	scene.Update(&core.Context{Input: &stubInput{mouse: math.NewVector2(50, 30), held: heldKeys(core.KeyEnd)}})
+	if ti.caret != 11 {
+		t.Fatalf("End: caret = %d, want 11", ti.caret)
+	}
+	scene.Update(&core.Context{Input: &stubInput{mouse: math.NewVector2(50, 30), held: heldKeys(core.KeyHome)}})
+	if ti.caret != 0 {
+		t.Fatalf("Home: caret = %d, want 0", ti.caret)
+	}
+}
+
+func TestTextInputCtrlWordJump(t *testing.T) {
+	scene, ti := newTextInputInScene()
+	ti.Text = "one two three"
+	scene.Update(&core.Context{Input: &stubInput{}})
+	scene.Update(&core.Context{Input: &stubInput{mouse: math.NewVector2(50, 30), justPressedLeft: true}})
+
+	// Ctrl+Right jumps to the start of the next word. Release between presses so
+	// each is a fresh key press (holding the same key would auto-repeat instead).
+	press := func(keys ...core.KeyCode) {
+		scene.Update(&core.Context{Input: &stubInput{mouse: math.NewVector2(50, 30), held: heldKeys(keys...)}})
+		scene.Update(&core.Context{Input: &stubInput{mouse: math.NewVector2(50, 30)}}) // release
+	}
+
+	press(core.KeyRight, core.KeyControl)
+	if ti.caret != 4 {
+		t.Fatalf("Ctrl+Right: caret = %d, want 4", ti.caret)
+	}
+	press(core.KeyRight, core.KeyControl)
+	if ti.caret != 8 {
+		t.Fatalf("Ctrl+Right: caret = %d, want 8", ti.caret)
+	}
+	press(core.KeyLeft, core.KeyControl)
+	if ti.caret != 4 {
+		t.Fatalf("Ctrl+Left: caret = %d, want 4", ti.caret)
+	}
+}
+
+// TestTextInputScrollStaysPut verifies the scroll anchor: moving the caret within
+// the visible window must not scroll the text; only crossing an edge scrolls it.
+func TestTextInputScrollStaysPut(t *testing.T) {
+	ti := &TextInputComponent{}
+	ti.Text = "abcdefgh"
+	measure := func(s string) float64 { return float64(len([]rune(s))) } // 1 unit/run
+
+	// Box shows 3 runes; caret at the end scrolls to rune 5 ("fgh").
+	ti.caret = 8
+	ti.syncScroll(3, measure)
+	if ti.scroll != 5 {
+		t.Fatalf("scroll = %d, want 5", ti.scroll)
+	}
+
+	// Caret moves left within the window → text must stay put.
+	for _, want := range []struct{ caret, scroll int }{{7, 5}, {6, 5}, {5, 5}} {
+		ti.caret = want.caret
+		ti.syncScroll(3, measure)
+		if ti.scroll != want.scroll {
+			t.Fatalf("caret=%d: scroll = %d, want %d (text stays put)", want.caret, ti.scroll, want.scroll)
+		}
+	}
+
+	// Caret crosses the left edge → scroll left by one.
+	ti.caret = 4
+	ti.syncScroll(3, measure)
+	if ti.scroll != 4 {
+		t.Fatalf("caret=4 (left of window): scroll = %d, want 4", ti.scroll)
+	}
+}
+
+func TestButtonStateTint(t *testing.T) {
+	btn := &ButtonComponent{}
+	btn.Color = math.NewColor(100, 100, 100, 255)
+
+	if got := btn.stateColor(); got != btn.Color {
+		t.Fatalf("normal stateColor = %v, want base %v", got, btn.Color)
+	}
+
+	btn.hovered = true
+	if hover := btn.stateColor(); !(hover.R > btn.Color.R && hover.G > btn.Color.G && hover.B > btn.Color.B) {
+		t.Fatalf("hover should brighten: %v vs base %v", hover, btn.Color)
+	}
+
+	btn.hovered = false
+	btn.pressed = true
+	if pressed := btn.stateColor(); !(pressed.R < btn.Color.R) {
+		t.Fatalf("pressed should darken: %v vs base %v", pressed, btn.Color)
+	}
+	btn.pressed = false
+
+	btn.SetEnabled(false)
+	if dis := btn.stateColor(); dis.R != dis.G || dis.G != dis.B {
+		t.Fatalf("disabled should desaturate to gray: %v", dis)
+	} else if dis.R >= btn.Color.R {
+		t.Fatalf("disabled should dim: %v vs base %v", dis, btn.Color)
+	}
+}
+
+func TestButtonStateTransform(t *testing.T) {
+	btn := &ButtonComponent{}
+
+	if btn.stateTransform().Brightness != 0 {
+		t.Fatal("normal transform should be identity")
+	}
+	btn.hovered = true
+	if btn.stateTransform().Brightness <= 0 {
+		t.Fatal("hover transform should brighten")
+	}
+	btn.hovered = false
+	btn.pressed = true
+	if btn.stateTransform().Brightness >= 0 {
+		t.Fatal("pressed transform should darken")
+	}
+	btn.pressed = false
+	btn.SetEnabled(false)
+	if !btn.stateTransform().Grayscale {
+		t.Fatal("disabled transform should desaturate")
+	}
+}
+
+func TestButtonStateTextureFallbackTint(t *testing.T) {
+	btn := &ButtonComponent{NormalTexture: "assets/btn.png"}
+	btn.hovered = true // no hover texture → fall back to normal, non-explicit
+
+	tex, explicit := btn.currentState()
+	if tex != "assets/btn.png" || explicit {
+		t.Fatalf("hover fallback: currentState = (%q, %v), want (normal, false)", tex, explicit)
+	}
+
+	btn.HoverTexture = "assets/btn_hover.png"
+	tex, explicit = btn.currentState()
+	if tex != "assets/btn_hover.png" || !explicit {
+		t.Fatalf("explicit hover: currentState = (%q, %v), want (hover, true)", tex, explicit)
 	}
 }

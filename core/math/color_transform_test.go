@@ -20,9 +20,9 @@ func apply(t ColorTransform, r, g, b, a float64) (float64, float64, float64, flo
 
 func TestHueOf(t *testing.T) {
 	cases := []struct {
-		name       string
-		r, g, b    float64
-		want       float64
+		name    string
+		r, g, b float64
+		want    float64
 	}{
 		{"red", 1, 0, 0, 0},
 		{"yellow", 1, 1, 0, 60},
@@ -208,5 +208,38 @@ func TestMatrixHueTo(t *testing.T) {
 	r, g, b, _ = tr2.Matrix(0).Apply(1, 0, 0, 1)
 	if !almost(r, 1) || !almost(g, 0) || !almost(b, 0) {
 		t.Fatalf("hue_to blue + hue 120 of red -> (%v,%v,%v), want red", r, g, b)
+	}
+}
+
+func TestMatrixBrightness(t *testing.T) {
+	// Identity brightness does nothing.
+	r, g, b, a := apply(ColorTransform{}, 0.5, 0.5, 0.5, 1)
+	if !almost(r, 0.5) || !almost(g, 0.5) || !almost(b, 0.5) || !almost(a, 1) {
+		t.Fatalf("identity -> (%v,%v,%v,%v), want unchanged", r, g, b, a)
+	}
+
+	// Positive brightness lightens toward white (clamped to [0,1]).
+	r, g, b, _ = apply(ColorTransform{Brightness: 0.3}, 0.2, 0.4, 0.6, 1)
+	if !almost(r, 0.5) || !almost(g, 0.7) || !almost(b, 0.9) {
+		t.Fatalf("brightness 0.3 -> (%v,%v,%v), want (0.5,0.7,0.9)", r, g, b)
+	}
+	if r, _, _, _ := apply(ColorTransform{Brightness: 0.5}, 0.8, 0, 0, 1); !almost(r, 1) {
+		t.Fatalf("brightness clamps: r = %v, want 1", r)
+	}
+
+	// Negative brightness darkens toward black.
+	r, g, b, _ = apply(ColorTransform{Brightness: -0.2}, 0.5, 0.5, 0.5, 1)
+	if !almost(r, 0.3) || !almost(g, 0.3) || !almost(b, 0.3) {
+		t.Fatalf("brightness -0.2 -> (%v,%v,%v), want (0.3,0.3,0.3)", r, g, b)
+	}
+
+	// Alpha is unaffected by brightness.
+	if _, _, _, a := apply(ColorTransform{Brightness: 0.3}, 0.2, 0.2, 0.2, 0.7); !almost(a, 0.7) {
+		t.Fatalf("brightness changed alpha: a = %v, want 0.7", a)
+	}
+
+	// A non-zero brightness is not identity.
+	if (ColorTransform{Brightness: 0.1}).IsIdentity() {
+		t.Fatal("brightness should not be identity")
 	}
 }

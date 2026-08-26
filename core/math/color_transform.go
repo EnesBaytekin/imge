@@ -29,11 +29,17 @@ type ColorTransform struct {
 	// Solid replaces the opaque pixels' RGB with Tint, keeping the source alpha
 	// (the sprite's shape). Hue/Grayscale are ignored in this mode.
 	Solid bool `json:"solid"`
+
+	// Brightness adds a constant to each RGB channel after the grayscale/hue/tint
+	// pipeline, in [-1, 1]. Positive lightens toward white, negative darkens toward
+	// black. Unlike Tint (a multiply that can only darken), this can brighten, so it
+	// is used for state tinting such as a hover highlight.
+	Brightness float64 `json:"brightness"`
 }
 
 // IsIdentity reports whether the transform does nothing (a plain draw).
 func (t ColorTransform) IsIdentity() bool {
-	if t.Grayscale || t.Solid || t.Hue != 0 || t.HueTo != nil {
+	if t.Grayscale || t.Solid || t.Hue != 0 || t.HueTo != nil || t.Brightness != 0 {
 		return false
 	}
 	return t.Tint == (Color{}) || t.Tint == White
@@ -81,6 +87,12 @@ func (t ColorTransform) Matrix(dominantHue float64) ColorMatrix {
 	} else {
 		r, g, b, a := t.tintOrDefault().ToFloats()
 		m = scaleMatrix(r, g, b, a).Mul(m)
+	}
+
+	if t.Brightness != 0 {
+		m.T[0] += t.Brightness
+		m.T[1] += t.Brightness
+		m.T[2] += t.Brightness
 	}
 
 	return m

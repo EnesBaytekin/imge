@@ -419,8 +419,13 @@ then release inside) it emits its `event`.
 `disabled` — each nine-sliced with `border` when set. On each frame the button picks
 one texture for its current state, and a state with no texture **falls back to
 `normal`**. If `normal` is also empty, the button fills with flat `color` instead.
-There is **no automatic tinting**: hover/pressed/disabled are explicit textures you
-supply, not color effects applied to `normal`.
+
+**State tinting is the default** for whatever visual is actually drawn. With flat
+`color` only, the base color is tinted per state — hover brightens, pressed darkens,
+disabled desaturates — so transitions stay visible with no textures at all. With
+textures, a state that *does* provide its own texture is drawn untinted, while a
+state that falls back to `normal` gets the same tint applied to that base texture.
+So give a state its own texture only to opt out of the tint for that state.
 
 ```json
 {
@@ -442,26 +447,29 @@ supply, not color effects applied to `normal`.
 - Args: `text`, `font_id`, `size`, `text_color` (white),
   `normal`/`hover`/`pressed`/`disabled` (texture paths; a state with no texture
   falls back to `normal`, and `normal = ""` falls back to `color`), `border`,
-  `color` (flat fill used only when `normal` is empty), `event` (event name emitted
-  on click; empty = none).
+  `color` (flat fill used only when `normal` is empty; tinted per state), `event`
+  (event name emitted on click; empty = none).
 - The click event's data is the **button component** (reach its owner via
   `GetOwner()`), so a handler can tell which button was pressed and act on the
   window it belongs to.
 - **`enabled: false`** means "draws but not clickable". Set it from code
-  (`SetEnabled(false)`) for logic like "disable Next until the form is valid", and
-  give the button a `disabled` texture so the non-interactive state is visually
-  distinct. Occlusion (a button *behind* another panel) is a separate,
-  `@UIManager`-level concern, not this flag.
+  (`SetEnabled(false)`) for logic like "disable Next until the form is valid". With
+  no `disabled` texture the base is automatically desaturated; provide a `disabled`
+  texture for a fully custom look instead. Occlusion (a button *behind* another
+  panel) is a separate, `@UIManager`-level concern, not this flag.
 
 ### `@TextInput`
 A single-line editable text field with classic textbox behavior:
 
 - **Click** to focus (blinking caret); click elsewhere to blur.
 - **Type** to insert characters at the caret; **Backspace** deletes the rune before
-  it; **←/→** move the caret; **Enter** submits.
-- When the text grows wider than the box it **scrolls horizontally** so the caret
-  stays visible (the beginning or end scrolls out of view, exactly like a normal
-  one-line field).
+  it; **←/→** move the caret; **Home/End** jump to the start/end; **Ctrl+←/→** jump
+  word-by-word; **Enter** submits. Holding any of these keys **auto-repeats** (one
+  action on press, a short pause, then rapid repeats) — arrows, Backspace, Home/End,
+  and printable characters alike.
+- When the text grows wider than the box it **scrolls horizontally, but only when
+  the caret crosses an edge**: while the caret moves inside the box the text stays
+  put, and it scrolls left/right only once the caret leaves the visible window.
 - When empty and unfocused it can show a `placeholder` (in `placeholder_color`).
 
 ```json
