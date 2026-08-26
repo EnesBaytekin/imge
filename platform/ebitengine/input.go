@@ -62,6 +62,7 @@ var keyMap = map[core.KeyCode]ebiten.Key{
 	core.KeyEnter:     ebiten.KeyEnter,
 	core.KeyEscape:    ebiten.KeyEscape,
 	core.KeyBackspace: ebiten.KeyBackspace,
+	core.KeyDelete:    ebiten.KeyDelete,
 	core.KeyTab:       ebiten.KeyTab,
 	core.KeyShift:     ebiten.KeyShift,
 	core.KeyControl:   ebiten.KeyControl,

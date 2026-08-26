@@ -462,11 +462,15 @@ So give a state its own texture only to opt out of the tint for that state.
 A single-line editable text field with classic textbox behavior:
 
 - **Click** to focus (blinking caret); click elsewhere to blur.
-- **Type** to insert characters at the caret; **Backspace** deletes the rune before
-  it; **←/→** move the caret; **Home/End** jump to the start/end; **Ctrl+←/→** jump
-  word-by-word; **Enter** submits. Holding any of these keys **auto-repeats** (one
-  action on press, a short pause, then rapid repeats) — arrows, Backspace, Home/End,
-  and printable characters alike.
+- **Type** to insert characters at the caret; **Backspace**/**Delete** delete the rune
+  before/after it; **←/→** move the caret; **Home/End** jump to the start/end;
+  **Ctrl+←** jumps to a word's start, **Ctrl+→** to its end (the space stays to the
+  right of the caret); **Ctrl+Backspace**/**Ctrl+Delete** delete a whole word;
+  **Enter** submits. Holding any of these keys **auto-repeats** (one action on press,
+  a short pause, then rapid repeats) — arrows, Backspace, Delete, Home/End, and
+  printable characters alike.
+- The blinking caret is drawn as the font's **`|` glyph** (centered on the insertion
+  point), so its height matches the text rather than a full-height line.
 - When the text grows wider than the box it **scrolls horizontally, but only when
   the caret crosses an edge**: while the caret moves inside the box the text stays
   put, and it scrolls left/right only once the caret leaves the visible window.
@@ -482,6 +486,7 @@ A single-line editable text field with classic textbox behavior:
     "background_color": "#1e1e28",
     "texture": "", "border": { "left": 4, "top": 4, "right": 4, "bottom": 4 },
     "placeholder": "Enter name…", "max_length": 0,
+    "padding_left": 2, "padding_right": 2,
     "event": "submitted",
     "width": 160, "height": 24
   }
@@ -491,13 +496,11 @@ A single-line editable text field with classic textbox behavior:
 - Args: `text` (initial value), `font_id`, `size`, `text_color` (white),
   `placeholder_color` (gray), `background_color` (transparent = none), `texture` +
   `border` (nine-sliced background; `""` = flat `background_color`), `placeholder`,
-  `max_length` (0 = unlimited), `event` (event name emitted on Enter; empty = none).
+  `max_length` (0 = unlimited), `padding_left`/`padding_right` (horizontal text inset
+  in logical units, default 2 each — set them to match a texture's border so the text
+  starts inside the frame), `event` (event name emitted on Enter; empty = none).
 - The submit event's data is the **text string**.
-- The caret is a rune index, so Unicode input inserts and deletes by rune. A
-  two-pixel horizontal padding (`inputPadX`) is reserved inside the box, so the text
-  never touches the border/edge.
-- Focuses itself on click (per-component for now; Faz 3's `@UIManager` will
-  coordinate focus across elements).
+- The caret is a rune index, so Unicode input inserts and deletes by rune.
 
 ## Logic
 

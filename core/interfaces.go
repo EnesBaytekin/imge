@@ -139,6 +139,7 @@ const (
 	KeyEnter
 	KeyEscape
 	KeyBackspace
+	KeyDelete
 	KeyTab
 	KeyShift
 	KeyControl

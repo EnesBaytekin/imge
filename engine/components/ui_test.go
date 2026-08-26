@@ -410,24 +410,82 @@ func TestTextInputCtrlWordJump(t *testing.T) {
 	scene.Update(&core.Context{Input: &stubInput{}})
 	scene.Update(&core.Context{Input: &stubInput{mouse: math.NewVector2(50, 30), justPressedLeft: true}})
 
-	// Ctrl+Right jumps to the start of the next word. Release between presses so
-	// each is a fresh key press (holding the same key would auto-repeat instead).
+	// Ctrl+Right jumps to the END of the word to the right (the space stays right of
+	// the caret); Ctrl+Left to the START of the word to the left. Release between
+	// presses so each is a fresh key press (holding the same key would auto-repeat).
 	press := func(keys ...core.KeyCode) {
 		scene.Update(&core.Context{Input: &stubInput{mouse: math.NewVector2(50, 30), held: heldKeys(keys...)}})
 		scene.Update(&core.Context{Input: &stubInput{mouse: math.NewVector2(50, 30)}}) // release
 	}
 
-	press(core.KeyRight, core.KeyControl)
-	if ti.caret != 4 {
-		t.Fatalf("Ctrl+Right: caret = %d, want 4", ti.caret)
+	press(core.KeyRight, core.KeyControl) // end of "one"
+	if ti.caret != 3 {
+		t.Fatalf("Ctrl+Right: caret = %d, want 3", ti.caret)
 	}
-	press(core.KeyRight, core.KeyControl)
-	if ti.caret != 8 {
-		t.Fatalf("Ctrl+Right: caret = %d, want 8", ti.caret)
+	press(core.KeyRight, core.KeyControl) // end of "two"
+	if ti.caret != 7 {
+		t.Fatalf("Ctrl+Right: caret = %d, want 7", ti.caret)
 	}
-	press(core.KeyLeft, core.KeyControl)
+	press(core.KeyLeft, core.KeyControl) // start of "two"
 	if ti.caret != 4 {
 		t.Fatalf("Ctrl+Left: caret = %d, want 4", ti.caret)
+	}
+}
+
+// TestTextInputDeleteAndWordDelete verifies Delete (runes to the right) plus
+// Ctrl+Backspace/Ctrl+Delete (whole words, preserving adjacent spaces).
+func TestTextInputDeleteAndWordDelete(t *testing.T) {
+	ti := &TextInputComponent{}
+	ti.Text = "one two three"
+	ti.caret = 3 // between "one" and " two"
+
+	ti.deleteRuneAfterCaret() // delete the space → "onetwo three", caret 3
+	if ti.Text != "onetwo three" {
+		t.Fatalf("Delete: Text = %q, want %q", ti.Text, "onetwo three")
+	}
+	if ti.caret != 3 {
+		t.Fatalf("Delete: caret = %d, want 3 (stays put)", ti.caret)
+	}
+
+	// Ctrl+Delete from caret 3 deletes forward to the end of the next word, keeping
+	// the space after that word (" three") intact.
+	ti.Text = "one two three"
+	ti.caret = 3
+	ti.deleteWordAfterCaret() // deletes " two" → "one three", caret 3
+	if ti.Text != "one three" {
+		t.Fatalf("Ctrl+Delete: Text = %q, want %q", ti.Text, "one three")
+	}
+	if ti.caret != 3 {
+		t.Fatalf("Ctrl+Delete: caret = %d, want 3", ti.caret)
+	}
+
+	// Ctrl+Backspace from caret 3 deletes "one" (the space after it stays).
+	ti.Text = "one two three"
+	ti.caret = 3
+	ti.deleteWordBeforeCaret() // deletes "one" → " two three", caret 0
+	if ti.Text != " two three" {
+		t.Fatalf("Ctrl+Backspace: Text = %q, want %q", ti.Text, " two three")
+	}
+	if ti.caret != 0 {
+		t.Fatalf("Ctrl+Backspace: caret = %d, want 0", ti.caret)
+	}
+}
+
+// TestTextInputDeleteKey verifies the Delete control key removes the rune to the
+// right of the caret through the normal input path.
+func TestTextInputDeleteKey(t *testing.T) {
+	scene, ti := newTextInputInScene()
+	ti.Text = "abc"
+	ti.caret = 1
+	scene.Update(&core.Context{Input: &stubInput{}})
+	scene.Update(&core.Context{Input: &stubInput{mouse: math.NewVector2(50, 30), justPressedLeft: true}})
+
+	scene.Update(&core.Context{Input: &stubInput{mouse: math.NewVector2(50, 30), held: heldKeys(core.KeyDelete)}})
+	if ti.Text != "ac" {
+		t.Fatalf("Delete key: Text = %q, want %q", ti.Text, "ac")
+	}
+	if ti.caret != 1 {
+		t.Fatalf("Delete key: caret = %d, want 1", ti.caret)
 	}
 }
 

@@ -8,12 +8,14 @@ import (
 	"github.com/EnesBaytekin/imge/core/math"
 )
 
-// TextInput is a single-line editable text field. Click to focus (blinking caret),
-// type to insert characters at the caret, Left/Right move the caret, Backspace
-// deletes the rune before it, Home/End jump to the start/end, Ctrl+Left/Right jump
-// word by word, and Enter submits. Holding a key auto-repeats (one action on press,
-// then a pause, then rapid repeats) for arrows, Backspace, Home/End, and printable
-// characters alike — the classic single-line textbox behavior.
+// TextInput is a single-line editable text field. Click to focus (blinking caret,
+// drawn as the font's "|" glyph so its height matches the text), type to insert
+// characters at the caret, Left/Right move the caret, Backspace/Delete delete the
+// rune before/after it, Home/End jump to the start/end, Ctrl+Left/Right jump word
+// by word (Ctrl+Left to a word's start, Ctrl+Right to its end), Ctrl+Backspace/
+// Ctrl+Delete delete a whole word, and Enter submits. Holding a key auto-repeats
+// (one action on press, then a pause, then rapid repeats) for arrows, Backspace,
+// Delete, Home/End, and printable characters alike — the classic textbox behavior.
 //
 // When the text grows wider than the box it scrolls horizontally, but the text only
 // moves when the caret leaves the visible window: while the caret is inside the box
@@ -24,8 +26,8 @@ import (
 //
 // Export variables (JSON args): text, font_id, size, text_color, placeholder_color,
 // background_color, texture, border {left, top, right, bottom}, placeholder,
-// max_length, event, offset, width, height, visible, enabled, focusable, group,
-// draw_layer.
+// padding_left, padding_right, max_length, event, offset, width, height, visible,
+// enabled, focusable, group, draw_layer.
 type TextInputComponent struct {
 	core.BaseUIComponent
 
@@ -43,6 +45,12 @@ type TextInputComponent struct {
 	Placeholder string `json:"placeholder"`
 	MaxLength   int    `json:"max_length"`
 	Event       string `json:"event"`
+
+	// PaddingLeft/Right inset the text from the box's left/right edge (logical
+	// units). nil means the default (2). Set them to match a nine-slice border so
+	// the text starts inside the frame.
+	PaddingLeft  *float64 `json:"padding_left"`
+	PaddingRight *float64 `json:"padding_right"`
 
 	focused   bool
 	showCaret bool
@@ -69,7 +77,7 @@ type TextInputComponent struct {
 	charPhase    int
 }
 
-const inputPadX = 2.0
+const defaultInputPadX = 2.0
 
 // Key auto-repeat timing: one action on the initial press, then a pause, then rapid
 // repeats while held (the OS textbox rhythm).
@@ -116,6 +124,22 @@ func (t *TextInputComponent) Update(ctx *core.Context) {
 			t.Emit(t.Event, t.Text)
 		}
 	}
+}
+
+// padLeft/padRight return the horizontal inset for the text, defaulting to
+// defaultInputPadX when not configured.
+func (t *TextInputComponent) padLeft() float64 {
+	if t.PaddingLeft != nil {
+		return *t.PaddingLeft
+	}
+	return defaultInputPadX
+}
+
+func (t *TextInputComponent) padRight() float64 {
+	if t.PaddingRight != nil {
+		return *t.PaddingRight
+	}
+	return defaultInputPadX
 }
 
 // resetRepeat clears the key/character auto-repeat state (on blur or disable).
@@ -175,6 +199,8 @@ func (t *TextInputComponent) heldControlKey(in core.Input) core.KeyCode {
 		return core.KeyRight
 	case in.IsKeyPressed(core.KeyBackspace):
 		return core.KeyBackspace
+	case in.IsKeyPressed(core.KeyDelete):
+		return core.KeyDelete
 	case in.IsKeyPressed(core.KeyHome):
 		return core.KeyHome
 	case in.IsKeyPressed(core.KeyEnd):
@@ -184,7 +210,7 @@ func (t *TextInputComponent) heldControlKey(in core.Input) core.KeyCode {
 }
 
 // doControlKey applies one control-key action. ctrl is whether Control is held,
-// which turns Left/Right into word jumps.
+// which turns Left/Right into word jumps and Backspace/Delete into word deletes.
 func (t *TextInputComponent) doControlKey(key core.KeyCode, ctrl bool) {
 	switch key {
 	case core.KeyLeft:
@@ -200,7 +226,17 @@ func (t *TextInputComponent) doControlKey(key core.KeyCode, ctrl bool) {
 			t.moveCaret(+1)
 		}
 	case core.KeyBackspace:
-		t.deleteRuneBeforeCaret()
+		if ctrl {
+			t.deleteWordBeforeCaret()
+		} else {
+			t.deleteRuneBeforeCaret()
+		}
+	case core.KeyDelete:
+		if ctrl {
+			t.deleteWordAfterCaret()
+		} else {
+			t.deleteRuneAfterCaret()
+		}
 	case core.KeyHome:
 		t.caret = 0
 	case core.KeyEnd:
@@ -260,28 +296,44 @@ func (t *TextInputComponent) moveCaret(delta int) {
 	}
 }
 
-// moveCaretWord moves the caret to the next/previous word boundary, where words are
-// runs of non-space runes separated by spaces. delta > 0 moves right, < 0 moves left.
+// moveCaretWord moves the caret word by word. delta > 0 jumps to the end of the word
+// to the right (so a following space stays right of the caret); delta < 0 jumps to the
+// start of the word to the left (so a preceding space stays left of the caret).
 func (t *TextInputComponent) moveCaretWord(delta int) {
+	if delta > 0 {
+		t.caret = t.wordEnd(t.caret)
+	} else {
+		t.caret = t.wordStart(t.caret)
+	}
+}
+
+// wordStart returns the index of the start of the word to the left of i (skipping any
+// spaces between), the target of Ctrl+Left and Ctrl+Backspace. Spaces before that word
+// are preserved.
+func (t *TextInputComponent) wordStart(i int) int {
+	runes := []rune(t.Text)
+	for i > 0 && isSpaceRune(runes[i-1]) {
+		i--
+	}
+	for i > 0 && !isSpaceRune(runes[i-1]) {
+		i--
+	}
+	return i
+}
+
+// wordEnd returns the index just past the end of the word to the right of i (skipping
+// any spaces between), the target of Ctrl+Right and Ctrl+Delete. Spaces after that word
+// are preserved.
+func (t *TextInputComponent) wordEnd(i int) int {
 	runes := []rune(t.Text)
 	n := len(runes)
-	i := t.caret
-	if delta > 0 {
-		for i < n && !isSpaceRune(runes[i]) {
-			i++
-		}
-		for i < n && isSpaceRune(runes[i]) {
-			i++
-		}
-	} else {
-		for i > 0 && isSpaceRune(runes[i-1]) {
-			i--
-		}
-		for i > 0 && !isSpaceRune(runes[i-1]) {
-			i--
-		}
+	for i < n && isSpaceRune(runes[i]) {
+		i++
 	}
-	t.caret = i
+	for i < n && !isSpaceRune(runes[i]) {
+		i++
+	}
+	return i
 }
 
 func isSpaceRune(r rune) bool {
@@ -311,6 +363,49 @@ func (t *TextInputComponent) deleteRuneBeforeCaret() {
 	t.caret--
 }
 
+// deleteRuneAfterCaret removes the rune after the caret (Delete), if any. The caret
+// stays put.
+func (t *TextInputComponent) deleteRuneAfterCaret() {
+	t.moveCaret(0) // clamp caret to a valid range
+	b := byteOffset(t.Text, t.caret)
+	if b >= len(t.Text) {
+		return
+	}
+	_, size := utf8.DecodeRuneInString(t.Text[b:])
+	t.Text = t.Text[:b] + t.Text[b+size:]
+}
+
+// deleteRange removes the runes in [a, b) and moves the caret to a.
+func (t *TextInputComponent) deleteRange(a, b int) {
+	t.moveCaret(0) // clamp caret to a valid range
+	n := utf8.RuneCountInString(t.Text)
+	if a < 0 {
+		a = 0
+	}
+	if b > n {
+		b = n
+	}
+	if a >= b {
+		return
+	}
+	ab := byteOffset(t.Text, a)
+	bb := byteOffset(t.Text, b)
+	t.Text = t.Text[:ab] + t.Text[bb:]
+	t.caret = a
+}
+
+// deleteWordBeforeCaret removes the word ending at the caret (Ctrl+Backspace), leaving
+// any spaces between the caret and the word. The caret moves to the word's start.
+func (t *TextInputComponent) deleteWordBeforeCaret() {
+	t.deleteRange(t.wordStart(t.caret), t.caret)
+}
+
+// deleteWordAfterCaret removes the word starting at the caret (Ctrl+Delete), leaving any
+// spaces after it. The caret stays put.
+func (t *TextInputComponent) deleteWordAfterCaret() {
+	t.deleteRange(t.caret, t.wordEnd(t.caret))
+}
+
 func (t *TextInputComponent) Draw(r core.Renderer) {
 	if !t.IsVisible() {
 		return
@@ -323,7 +418,7 @@ func (t *TextInputComponent) Draw(r core.Renderer) {
 	}
 
 	_, lineH := r.MeasureText("M", t.FontID, t.Size)
-	x := rect.X() + inputPadX
+	x := rect.X() + t.padLeft()
 	y := rect.Y() + (rect.Height()-lineH)/2
 
 	if t.Text == "" && !t.focused && t.Placeholder != "" {
@@ -335,7 +430,7 @@ func (t *TextInputComponent) Draw(r core.Renderer) {
 		w, _ := r.MeasureText(s, t.FontID, t.Size)
 		return w
 	}
-	inner := rect.Width() - 2*inputPadX
+	inner := rect.Width() - t.padLeft() - t.padRight()
 
 	t.syncScroll(inner, measure)
 
@@ -345,8 +440,19 @@ func (t *TextInputComponent) Draw(r core.Renderer) {
 	r.DrawText(visible, t.FontID, t.Size, math.NewVector2(x, y), t.TextColor)
 
 	if t.focused && t.showCaret {
-		r.DrawRect(math.NewRect(caretX, rect.Y()+2, 1, rect.Height()-4), t.TextColor)
+		t.drawCaret(r, caretX, y, rect)
 	}
+}
+
+// drawCaret draws the blinking caret as the font's "|" glyph (centered on x) so its
+// height matches the text instead of a full-height line. Falls back to a thin rectangle
+// if the font has no "|".
+func (t *TextInputComponent) drawCaret(r core.Renderer, x, y float64, rect math.Rect) {
+	if cw, _ := r.MeasureText("|", t.FontID, t.Size); cw > 0 {
+		r.DrawText("|", t.FontID, t.Size, math.NewVector2(x-cw/2, y), t.TextColor)
+		return
+	}
+	r.DrawRect(math.NewRect(x, rect.Y()+2, 1, rect.Height()-4), t.TextColor)
 }
 
 // syncScroll keeps scroll such that the caret stays inside the visible window of
