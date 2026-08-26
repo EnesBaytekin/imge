@@ -201,6 +201,12 @@ type Input interface {
 	// GetMouseScroll returns the mouse wheel scroll delta.
 	GetMouseScroll() math.Vector2
 
+	// InputChars returns the characters typed this frame (runes from the keyboard,
+	// including IME input). Use it for text entry: the platform maps physical keys
+	// to characters, so shift/case/layout are handled for you. Returns nil when
+	// nothing was typed.
+	InputChars() []rune
+
 	// Update should be called once per frame to update input state.
 	Update()
 }

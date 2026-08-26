@@ -93,6 +93,12 @@ type BaseComponent struct {
 	// order. Populated from the "draw_layer" JSON arg.
 	DrawLayer int `json:"draw_layer"`
 
+	// Group is an optional developer-facing label that groups related components on
+	// an object (e.g. "movement", "combat", "ui"). It is metadata only: it does not
+	// affect update/draw order or any runtime behavior. The editor uses it to present
+	// components as though they were organized in folders while they still run flat.
+	Group string `json:"group"`
+
 	// handlers maps event name -> registered handler functions, populated via On().
 	handlers map[string][]func(any)
 }

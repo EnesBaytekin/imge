@@ -141,6 +141,12 @@ func (i *Input) GetMouseScroll() math.Vector2 {
 	return i.mouseScroll
 }
 
+// InputChars returns the runes typed this frame. Ebitengine synthesizes characters
+// from the keyboard and IME, so shift, case, and keyboard layout are handled.
+func (i *Input) InputChars() []rune {
+	return ebiten.AppendInputChars(nil)
+}
+
 // Update snapshots the mouse state for this frame. Called once per frame by the runner.
 func (i *Input) Update() {
 	// Mirror the primary touch into the mouse so touch-only games work on

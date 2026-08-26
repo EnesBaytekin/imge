@@ -98,8 +98,8 @@ func findRequires(src []byte) []string {
 	return requires
 }
 
-// embedsBaseComponent reports whether a struct has an embedded core.BaseComponent
-// field (e.g. `core.BaseComponent` or `BaseComponent`).
+// embedsBaseComponent reports whether a struct embeds a component base type
+// (core.BaseComponent, or core.BaseUIComponent which itself embeds BaseComponent).
 func embedsBaseComponent(st *ast.StructType) bool {
 	for _, field := range st.Fields.List {
 		if len(field.Names) != 0 {
@@ -107,16 +107,21 @@ func embedsBaseComponent(st *ast.StructType) bool {
 		}
 		switch t := field.Type.(type) {
 		case *ast.SelectorExpr:
-			if t.Sel.Name == "BaseComponent" {
+			if isComponentBase(t.Sel.Name) {
 				return true
 			}
 		case *ast.Ident:
-			if t.Name == "BaseComponent" {
+			if isComponentBase(t.Name) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+// isComponentBase reports whether an embedded type name marks a component.
+func isComponentBase(name string) bool {
+	return name == "BaseComponent" || name == "BaseUIComponent"
 }
 
 // componentKinds derives the (kind, typeName, source) triples for every component

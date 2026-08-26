@@ -61,6 +61,34 @@ adjust. Every arg has a default except a few marked **(required)**.
 | `@StateMachine` | Named states + event-driven transitions |
 | `@Sound` | One-shot sound effect or looping music |
 | `@TimedDespawn` | Destroys the owner after N seconds |
+| `@Panel` | Filled rectangle: flat color or nine-sliced texture, optional outline |
+| `@Label` | Single-line or width-wrapped text |
+| `@Button` | Clickable element (state textures + centered text) that emits an event on click |
+| `@TextInput` | Single-line editable text field with caret, focus, and placeholder |
+
+## Colors
+
+Every color arg — `color`, `text_color`, `background_color`, `outline_color`, the
+predefined sprite tint fields, and a scene's `background_color` — accepts a color in
+**either** of two forms:
+
+- **Hex string** — `"#RRGGBB"` or `"#RRGGBBAA"`. Alpha is optional and defaults to
+  opaque (255). Shorthand `#RGB` / `#RGBA` works, and the leading `#` is optional:
+  `"#f00"`, `"ff0000"`, and `"#ff000080"` are all valid.
+- **RGBA object** — `{ "r": 255, "g": 0, "b": 0, "a": 255 }`. `a` is optional
+  (defaults to 255); `r`/`g`/`b` default to 0.
+
+The examples in this reference use hex (shorter and more readable), but both forms
+decode to the same color and are interchangeable:
+
+```json
+{ "color": "#ff4a6b" }                                        // opaque pink-red
+{ "color": "#ff4a6b80" }                                      // 50% alpha
+{ "color": { "r": 255, "g": 74, "b": 107, "a": 255 } }        // same as the first
+```
+
+Alpha `0` is fully transparent — e.g. a panel's `outline_color` defaults to
+transparent so there is no outline unless you give it one.
 
 ## Rendering
 
@@ -302,6 +330,167 @@ for collision resolution.** Without a `@Mover`, they move the position directly
   that have `@Health`, filtered by `target_tags`, once per `cooldown` seconds.
   Requires `@Trigger`.
 
+## UI
+
+UI is built the same way as everything else, with one convention: **an object with
+`"ui": true` is a window or container, and each element inside it is a UI
+component.** The object's `Position` is the window's top-left; each element's
+`offset {x,y}` is its own top-left *relative to that window*, and its `width` /
+`height` are its extent. This keeps a whole window (and its many buttons, labels,
+panels) on a single object instead of one object per element.
+
+Every UI component embeds `BaseUIComponent`, which adds these common args on top of
+`draw_layer`:
+
+| Arg | Default | Meaning |
+|-----|---------|---------|
+| `offset {x,y}` | 0,0 | element top-left, relative to the owner object's position |
+| `width` / `height` | 0 | element extent in logical units |
+| `visible` | true | whether the element draws |
+| `enabled` | true | whether the element receives input (a disabled element still draws) |
+| `focusable` | false | whether it can take keyboard focus (used by the upcoming `@UIManager`) |
+| `group` | "" | free-form label; the editor renders same-`group` elements as a folder |
+
+### `@Panel`
+Draws a filled rectangle. It has two mutually exclusive fills, plus an optional
+outline drawn **over** whichever fill is used:
+
+- **Flat color** — when `texture` is empty, it fills with `color`.
+- **Nine-slice** — when `texture` is set, it nine-slices that texture with `border`
+  (corners keep their natural size, edges and center stretch). `color` is ignored.
+- **Outline** — when `outline_color` is non-transparent and `outline_thickness > 0`,
+  a stroke is drawn over the fill, independent of the fill choice.
+
+Works in world space too (e.g. a platform block on a non-UI object).
+
+**Flat color fill:**
+```json
+{ "kind": "@Panel", "name": "bg", "args": { "color": "#14141e", "width": 200, "height": 100 } }
+```
+
+**Nine-sliced texture** (corners stay sharp at any size):
+```json
+{ "kind": "@Panel", "name": "bg", "args": {
+  "texture": "assets/panel.png",
+  "border": { "left": 4, "top": 4, "right": 4, "bottom": 4 },
+  "width": 200, "height": 100
+} }
+```
+
+**Flat color + outline** (a bordered box):
+```json
+{ "kind": "@Panel", "name": "bg", "args": {
+  "color": "#14141e",
+  "outline_color": "#3b3b4d", "outline_thickness": 1,
+  "width": 200, "height": 100
+} }
+```
+
+- Args: `color` (opaque black; the flat fill when no texture), `texture` (`""` =
+  flat fill), `border {left,top,right,bottom}` (slice inset in texture pixels),
+  `outline_color` (transparent = none), `outline_thickness` (0).
+
+### `@Label`
+Draws a single line of text, or wraps to `max_width` when `max_width > 0`. No
+interaction, no background. Text is left-aligned (alignment is deferred to a later
+phase).
+
+```json
+{
+  "kind": "@Label", "name": "title",
+  "args": {
+    "text": "Inventory", "font_id": "", "size": 0,
+    "color": "#ffffff",
+    "max_width": 0, "wrap": "word"
+  }
+}
+```
+
+- Args: `text`, `font_id` (`""` = built-in pixel font), `size` (0 = font default),
+  `color` (white), `max_width` (0 = single line), `wrap` (`"word"` \| `"char"` \|
+  `"clip"`). See [Rendering → Text](rendering.md) for `wrap` behavior.
+
+### `@Button`
+A clickable element: a background (flat `color`, or nine-sliced textures per state)
+and centered text. Hover and click are detected against its rect; on click (press
+then release inside) it emits its `event`.
+
+**The background** is a set of texture paths — `normal`, `hover`, `pressed`,
+`disabled` — each nine-sliced with `border` when set. On each frame the button picks
+one texture for its current state, and a state with no texture **falls back to
+`normal`**. If `normal` is also empty, the button fills with flat `color` instead.
+There is **no automatic tinting**: hover/pressed/disabled are explicit textures you
+supply, not color effects applied to `normal`.
+
+```json
+{
+  "kind": "@Button", "name": "ok",
+  "args": {
+    "text": "OK", "font_id": "", "size": 0,
+    "text_color": "#ffffff",
+    "normal": "assets/btn.png",
+    "hover": "assets/btn_hover.png",
+    "pressed": "assets/btn_pressed.png",
+    "disabled": "assets/btn_disabled.png",
+    "border": { "left": 4, "top": 4, "right": 4, "bottom": 4 },
+    "color": "#3c3c46",
+    "event": "confirm"
+  }
+}
+```
+
+- Args: `text`, `font_id`, `size`, `text_color` (white),
+  `normal`/`hover`/`pressed`/`disabled` (texture paths; a state with no texture
+  falls back to `normal`, and `normal = ""` falls back to `color`), `border`,
+  `color` (flat fill used only when `normal` is empty), `event` (event name emitted
+  on click; empty = none).
+- The click event's data is the **button component** (reach its owner via
+  `GetOwner()`), so a handler can tell which button was pressed and act on the
+  window it belongs to.
+- **`enabled: false`** means "draws but not clickable". Set it from code
+  (`SetEnabled(false)`) for logic like "disable Next until the form is valid", and
+  give the button a `disabled` texture so the non-interactive state is visually
+  distinct. Occlusion (a button *behind* another panel) is a separate,
+  `@UIManager`-level concern, not this flag.
+
+### `@TextInput`
+A single-line editable text field with classic textbox behavior:
+
+- **Click** to focus (blinking caret); click elsewhere to blur.
+- **Type** to insert characters at the caret; **Backspace** deletes the rune before
+  it; **←/→** move the caret; **Enter** submits.
+- When the text grows wider than the box it **scrolls horizontally** so the caret
+  stays visible (the beginning or end scrolls out of view, exactly like a normal
+  one-line field).
+- When empty and unfocused it can show a `placeholder` (in `placeholder_color`).
+
+```json
+{
+  "kind": "@TextInput", "name": "name_field",
+  "args": {
+    "text": "", "font_id": "", "size": 0,
+    "text_color": "#ffffff",
+    "placeholder_color": "#808080",
+    "background_color": "#1e1e28",
+    "texture": "", "border": { "left": 4, "top": 4, "right": 4, "bottom": 4 },
+    "placeholder": "Enter name…", "max_length": 0,
+    "event": "submitted",
+    "width": 160, "height": 24
+  }
+}
+```
+
+- Args: `text` (initial value), `font_id`, `size`, `text_color` (white),
+  `placeholder_color` (gray), `background_color` (transparent = none), `texture` +
+  `border` (nine-sliced background; `""` = flat `background_color`), `placeholder`,
+  `max_length` (0 = unlimited), `event` (event name emitted on Enter; empty = none).
+- The submit event's data is the **text string**.
+- The caret is a rune index, so Unicode input inserts and deletes by rune. A
+  two-pixel horizontal padding (`inputPadX`) is reserved inside the box, so the text
+  never touches the border/edge.
+- Focuses itself on click (per-component for now; Faz 3's `@UIManager` will
+  coordinate focus across elements).
+
 ## Logic
 
 ### `@StateMachine`
@@ -369,6 +558,11 @@ state lists the transitions that may leave it.
 | `damaged` / `died` | `@Health` | amount / owner |
 | `animation_finished` | `@Animator` | sprite name |
 | `state_entered` / `state_exited` | `@StateMachine` | state name |
+
+`@Button` and `@TextInput` emit a **configurable** event — the name is whatever you
+put in their `event` arg, not a fixed name. `@Button` emits it on click with the
+button component as data; `@TextInput` emits it on Enter with the text string as
+data.
 
 ## How they combine
 

@@ -28,6 +28,19 @@ type Foo struct {
 			want: "Foo",
 		},
 		{
+			name: "ui component struct",
+			src: `package components
+
+import "github.com/EnesBaytekin/imge/core"
+
+type Button struct {
+	core.BaseUIComponent
+	Text string
+}
+`,
+			want: "Button",
+		},
+		{
 			name: "multiple component structs",
 			src: `package components
 
@@ -190,6 +203,10 @@ type PlayerComponent struct {
 		{"@Trigger", "Trigger"},
 		{"@Velocity", "Velocity"},
 		{"@Wander", "Wander"},
+		{"@Button", "ButtonComponent"},
+		{"@Label", "LabelComponent"},
+		{"@Panel", "PanelComponent"},
+		{"@TextInput", "TextInputComponent"},
 		{"PlayerComponent", "PlayerComponent"},
 	} {
 		if got[want.kind] != want.typeName {
