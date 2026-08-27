@@ -51,35 +51,31 @@ type ButtonComponent struct {
 	pressed bool
 }
 
-// Initialize defaults the text color to white when not specified.
+// Initialize defaults the text color to white when not specified, and makes the
+// button block pointer events (so it occludes whatever is drawn behind it).
 func (b *ButtonComponent) Initialize() {
 	if b.TextColor == (math.Color{}) {
 		b.TextColor = math.White
 	}
+	if b.Blocking == nil {
+		block := true
+		b.Blocking = &block
+	}
 }
 
-func (b *ButtonComponent) Update(ctx *core.Context) {
-	b.hovered = false
-	if !b.IsVisible() || !b.IsEnabled() {
-		b.pressed = false
-		return
-	}
+// SetHovered sets the hover state, driven by a @UIManager (the button no longer
+// reads the mouse itself).
+func (b *ButtonComponent) SetHovered(hovered bool) { b.hovered = hovered }
 
-	pos := ctx.Input.GetMousePosition()
-	b.hovered = b.Contains(pos)
+// SetPressed sets the pressed state, driven by a @UIManager.
+func (b *ButtonComponent) SetPressed(pressed bool) { b.pressed = pressed }
 
-	if ctx.Input.IsMouseButtonJustPressed(core.MouseButtonLeft) {
-		if b.hovered {
-			b.pressed = true
-		}
-	}
-	if ctx.Input.IsMouseButtonJustReleased(core.MouseButtonLeft) {
-		if b.pressed && b.hovered {
-			if b.Event != "" {
-				b.Emit(b.Event, b)
-			}
-		}
-		b.pressed = false
+// Activate fires the button's click: it emits Event (if non-empty) with the button
+// itself as the data. Called by a @UIManager when a press is released inside the
+// button.
+func (b *ButtonComponent) Activate() {
+	if b.Event != "" {
+		b.Emit(b.Event, b)
 	}
 }
 

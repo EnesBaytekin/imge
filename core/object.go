@@ -46,6 +46,11 @@ type Object struct {
 	// ignores the camera, and it draws after all world objects.
 	UI bool
 
+	// Draggable lets a @UIManager drag this object by its non-interactive surface
+	// (the window background), used for moving UI windows. Ignored for non-UI
+	// objects. Default false.
+	Draggable bool
+
 	// Active controls whether the object is updated and drawn
 	Active bool
 
@@ -354,6 +359,13 @@ func (obj *Object) drawComponents() []Component {
 	return comps
 }
 
+// ComponentsInDrawOrder returns the object's components in draw order (ascending
+// draw layer, stable for equal layers) — the same order Draw renders them. A
+// @UIManager uses this to hit-test elements back-to-front within an object.
+func (obj *Object) ComponentsInDrawOrder() []Component {
+	return obj.drawComponents()
+}
+
 // drawLayer returns a component's draw layer, defaulting to 0 for components that
 // don't declare one.
 func drawLayer(c Component) int {
@@ -446,6 +458,7 @@ func LoadObjectFromJSON(data []byte) (*Object, error) {
 
 	obj := NewObject(config.Name)
 	obj.UI = config.UI
+	obj.Draggable = config.Draggable
 
 	// Set depth if specified
 	if config.Depth != 0 {
@@ -484,8 +497,10 @@ func LoadObjectFromFile(path string) (*Object, error) {
 // Note: Transform is not included in ObjectConfig (only in scene references).
 func (obj *Object) ToJSONConfig() *corejson.ObjectConfig {
 	config := &corejson.ObjectConfig{
-		Name:  obj.Name,
-		Depth: obj.Depth,
+		Name:      obj.Name,
+		Depth:     obj.Depth,
+		UI:        obj.UI,
+		Draggable: obj.Draggable,
 	}
 
 	// Convert components (in deterministic insertion order)

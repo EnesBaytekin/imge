@@ -86,9 +86,14 @@ const (
 	keyRepeatRate  = 0.05
 )
 
-// Initialize marks the input focusable and defaults its text/placeholder colors.
+// Initialize marks the input focusable and blocking, and defaults its text/placeholder
+// colors.
 func (t *TextInputComponent) Initialize() {
 	t.Focusable = true
+	if t.Blocking == nil {
+		b := true
+		t.Blocking = &b
+	}
 	if t.TextColor == (math.Color{}) {
 		t.TextColor = math.White
 	}
@@ -97,17 +102,21 @@ func (t *TextInputComponent) Initialize() {
 	}
 }
 
-func (t *TextInputComponent) Update(ctx *core.Context) {
-	if !t.IsVisible() || !t.IsEnabled() {
-		t.focused = false
+// SetFocused sets the focus state, driven by a @UIManager. Losing focus clears the
+// key/character auto-repeat state.
+func (t *TextInputComponent) SetFocused(focused bool) {
+	t.focused = focused
+	if !focused {
 		t.resetRepeat()
-		return
 	}
+}
 
-	if ctx.Input.IsMouseButtonJustPressed(core.MouseButtonLeft) {
-		t.focused = t.Contains(ctx.Input.GetMousePosition())
-	}
-	if !t.focused {
+// HandleInput processes keyboard input while focused. Called each frame by a
+// @UIManager when this input holds focus. The text input no longer reads input
+// itself; the manager owns focus and routes key/character input here.
+func (t *TextInputComponent) HandleInput(ctx *core.Context) {
+	if !t.focused || !t.IsVisible() || !t.IsEnabled() {
+		t.focused = false
 		t.resetRepeat()
 		return
 	}

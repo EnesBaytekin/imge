@@ -526,6 +526,7 @@ func createObjectFromSceneObject(objConfig corejson.SceneObject, fsys fs.FS) (*O
 			obj.SetDepth(objConfigFile.Depth)
 		}
 		obj.UI = objConfigFile.UI || objConfig.UI
+		obj.Draggable = objConfigFile.Draggable || objConfig.Draggable
 
 		// Add components from template
 		for _, compConfig := range objConfigFile.Components {
@@ -570,6 +571,7 @@ func createObjectFromSceneObject(objConfig corejson.SceneObject, fsys fs.FS) (*O
 
 	obj = NewObject(objConfig.Name)
 	obj.UI = objConfig.UI
+	obj.Draggable = objConfig.Draggable
 
 	// Add components
 	for _, compConfig := range objConfig.Components {

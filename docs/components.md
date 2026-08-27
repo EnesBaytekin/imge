@@ -348,7 +348,8 @@ Every UI component embeds `BaseUIComponent`, which adds these common args on top
 | `width` / `height` | 0 | element extent in logical units |
 | `visible` | true | whether the element draws |
 | `enabled` | true | whether the element receives input (a disabled element still draws) |
-| `focusable` | false | whether it can take keyboard focus (used by the upcoming `@UIManager`) |
+| `focusable` | false | whether it can take keyboard focus (a `@UIManager` tabs between these) |
+| `blocking` | type default | whether it swallows pointer events (occludes what's drawn behind it). `@Panel`/`@Button`/`@TextInput` default to `true`, `@Label` to `false`; set it in JSON to override |
 | `group` | "" | free-form label; the editor renders same-`group` elements as a folder |
 
 ### `@Panel`
@@ -412,8 +413,9 @@ phase).
 
 ### `@Button`
 A clickable element: a background (flat `color`, or nine-sliced textures per state)
-and centered text. Hover and click are detected against its rect; on click (press
-then release inside) it emits its `event`.
+and centered text. A `@UIManager` drives its hover/press state and fires the click:
+on a press-then-release inside the button it emits its `event`. The button itself
+does not read the mouse.
 
 **The background** is a set of texture paths — `normal`, `hover`, `pressed`,
 `disabled` — each nine-sliced with `border` when set. On each frame the button picks
@@ -456,7 +458,7 @@ So give a state its own texture only to opt out of the tint for that state.
   (`SetEnabled(false)`) for logic like "disable Next until the form is valid". With
   no `disabled` texture the base is automatically desaturated; provide a `disabled`
   texture for a fully custom look instead. Occlusion (a button *behind* another
-  panel) is a separate, `@UIManager`-level concern, not this flag.
+  panel) is handled by the `@UIManager`'s blocking/occlusion, not this flag.
 
 ### `@TextInput`
 A single-line editable text field with classic textbox behavior:
@@ -501,6 +503,48 @@ A single-line editable text field with classic textbox behavior:
   starts inside the frame), `event` (event name emitted on Enter; empty = none).
 - The submit event's data is the **text string**.
 - The caret is a rune index, so Unicode input inserts and deletes by rune.
+- Focus and typing are routed by a `@UIManager`; the input doesn't read the
+  mouse/keyboard itself.
+
+### `@UIManager`
+Routes pointer and keyboard input across the scene's UI elements. Put it on a
+dedicated carrier object (e.g. one named `ui_root` holding only this component); it
+becomes the **single reader of `ctx.Input`**, so `@Button`/`@TextInput` never read
+the mouse or keyboard themselves — the manager pushes input to them. There is
+normally one manager per scene.
+
+Each frame it discovers the elements it manages — every component on every
+`"ui": true` object matching `tags` — and then:
+
+- **Hit-tests the pointer** back to front (topmost first), honoring each element's
+  `blocking` flag for occlusion: a blocking element under the cursor is the exclusive
+  target, so a `@Panel` drawn over a button swallows the click.
+- **Pushes hover/press/click** to the target button (`SetHovered` / `SetPressed` /
+  `Activate`), so a button emits its `event` only on a press-and-release inside it.
+- **Owns keyboard focus**: clicking a focusable focuses it, clicking elsewhere blurs,
+  **Tab/Shift+Tab** move focus through the focusables in **geometric row-reading
+  order** (elements whose vertical extents overlap form a row, read top-to-bottom;
+  each row is read left-to-right), and the focused element receives the key input.
+- **Drags** any `"draggable": true` object by its non-interactive surface (its
+  window background), moving it under the pointer until release.
+- **Raises the clicked object to the front** (normal window behavior): clicking a
+  window — its background or any control — lifts it above its siblings, and it stays
+  on top while you drag it. Disable with `"auto_raise": false`.
+
+```json
+{ "kind": "@UIManager", "name": "ui", "args": {} }
+```
+
+```json
+{ "kind": "@UIManager", "name": "modal_ui", "args": { "tags": ["modal"] } }
+```
+
+- Args: `tags` (optional). When set, only UI objects carrying at least one of these
+  tags are managed; when empty, **every** UI object is managed. Give two managers
+  different tags to drive disjoint sets of UI objects (e.g. separate windows) without
+  interfering.
+- Args: `auto_raise` (optional, default `true`). Click-to-front window behavior; set
+  `false` to keep the scene's manual depth order.
 
 ## Logic
 
@@ -600,6 +644,9 @@ data.
   from a custom component via `scene.Camera.Follow(obj)`.
 - **`ui` flag** — an object with `"ui": true` is drawn in screen space (pixels),
   ignores the camera, and draws on top of all world objects.
+- **`draggable` flag** — a UI object with `"draggable": true` can be moved by a
+  `@UIManager`: press its non-interactive surface (the window background) and drag.
+  Interactive elements on the object (buttons, text inputs) keep their own behavior.
 
 ## Related
 

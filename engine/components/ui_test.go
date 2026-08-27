@@ -14,28 +14,27 @@ type stubInput struct {
 	mouse            math.Vector2
 	justPressedLeft  bool
 	justReleasedLeft bool
+	mouseHeld        bool
 	chars            []rune
-	enter            bool
 	held             map[core.KeyCode]bool // keys currently pressed
+	justPressed      map[core.KeyCode]bool // keys pressed this frame
 }
 
-func (s *stubInput) IsKeyPressed(k core.KeyCode) bool                { return s.held[k] }
-func (s *stubInput) IsKeyJustReleased(core.KeyCode) bool             { return false }
-func (s *stubInput) IsMouseButtonPressed(core.MouseButton) bool      { return false }
-func (s *stubInput) IsMouseButtonJustPressed(core.MouseButton) bool  { return s.justPressedLeft }
-func (s *stubInput) IsMouseButtonJustReleased(core.MouseButton) bool { return s.justReleasedLeft }
-func (s *stubInput) GetMousePosition() math.Vector2                  { return s.mouse }
-func (s *stubInput) GetMouseDelta() math.Vector2                     { return math.Vector2{} }
-func (s *stubInput) GetMouseScroll() math.Vector2                    { return math.Vector2{} }
-func (s *stubInput) InputChars() []rune                              { return s.chars }
-func (s *stubInput) Update()                                         {}
-
-func (s *stubInput) IsKeyJustPressed(k core.KeyCode) bool {
-	if k == core.KeyEnter {
-		return s.enter
-	}
-	return false
+func (s *stubInput) IsKeyPressed(k core.KeyCode) bool           { return s.held[k] }
+func (s *stubInput) IsKeyJustPressed(k core.KeyCode) bool       { return s.justPressed[k] }
+func (s *stubInput) IsKeyJustReleased(core.KeyCode) bool        { return false }
+func (s *stubInput) IsMouseButtonPressed(core.MouseButton) bool { return s.mouseHeld }
+func (s *stubInput) IsMouseButtonJustPressed(core.MouseButton) bool {
+	return s.justPressedLeft
 }
+func (s *stubInput) IsMouseButtonJustReleased(core.MouseButton) bool {
+	return s.justReleasedLeft
+}
+func (s *stubInput) GetMousePosition() math.Vector2 { return s.mouse }
+func (s *stubInput) GetMouseDelta() math.Vector2    { return math.Vector2{} }
+func (s *stubInput) GetMouseScroll() math.Vector2   { return math.Vector2{} }
+func (s *stubInput) InputChars() []rune             { return s.chars }
+func (s *stubInput) Update()                        {}
 
 // heldKeys builds a held-key set for stubInput.held.
 func heldKeys(keys ...core.KeyCode) map[core.KeyCode]bool {
@@ -44,6 +43,11 @@ func heldKeys(keys ...core.KeyCode) map[core.KeyCode]bool {
 		m[k] = true
 	}
 	return m
+}
+
+// justPressedKeys builds a just-pressed set for stubInput.justPressed.
+func justPressedKeys(keys ...core.KeyCode) map[core.KeyCode]bool {
+	return heldKeys(keys...)
 }
 
 // stubTime is a minimal core.Time whose delta can be set per test.
@@ -55,10 +59,22 @@ func (t *stubTime) FPS() float64       { return 60 }
 func (t *stubTime) Tick()              {}
 func (t *stubTime) Sleep(float64)      {}
 
-func newButtonInScene() (*core.Scene, *ButtonComponent) {
+// newManagedScene builds a scene with a single @UIManager on a carrier object.
+func newManagedScene() (*core.Scene, *UIManagerComponent) {
 	scene := core.NewScene("test")
+	root := core.NewObject("ui_root")
+	mgr := &UIManagerComponent{}
+	mgr.SetName("manager")
+	_ = root.AddComponent(mgr)
+	_ = scene.AddObject(root)
+	return scene, mgr
+}
+
+// newManagedButton adds a 100×40 button (event "clicked") on a UI object at pos.
+func newManagedButton(scene *core.Scene, pos math.Vector2) *ButtonComponent {
 	obj := core.NewObject("btn")
-	obj.Transform.Position = math.NewVector2(10, 20)
+	obj.UI = true
+	obj.Transform.Position = pos
 	btn := &ButtonComponent{}
 	btn.Width = 100
 	btn.Height = 40
@@ -66,20 +82,21 @@ func newButtonInScene() (*core.Scene, *ButtonComponent) {
 	btn.SetName("button")
 	_ = obj.AddComponent(btn)
 	_ = scene.AddObject(obj)
-	return scene, btn
+	return btn
 }
 
-func newTextInputInScene() (*core.Scene, *TextInputComponent) {
-	scene := core.NewScene("test")
+// newManagedTextInput adds a 100×24 text input on a UI object at pos.
+func newManagedTextInput(scene *core.Scene, pos math.Vector2) *TextInputComponent {
 	obj := core.NewObject("input")
-	obj.Transform.Position = math.NewVector2(10, 20)
+	obj.UI = true
+	obj.Transform.Position = pos
 	ti := &TextInputComponent{}
 	ti.Width = 100
 	ti.Height = 24
 	ti.SetName("input")
 	_ = obj.AddComponent(ti)
 	_ = scene.AddObject(obj)
-	return scene, ti
+	return ti
 }
 
 func TestBaseUIComponentRect(t *testing.T) {
@@ -104,24 +121,34 @@ func TestBaseUIComponentRect(t *testing.T) {
 	if !c.IsVisible() || !c.IsEnabled() {
 		t.Fatal("nil Visible/Enabled must default to true")
 	}
+	if c.IsFocusable() {
+		t.Fatal("a bare BaseUIComponent must not be focusable")
+	}
+	if c.BlocksPointer() {
+		t.Fatal("a bare BaseUIComponent must not block")
+	}
 }
 
 func TestButtonClickEmitsEvent(t *testing.T) {
-	scene, btn := newButtonInScene()
+	scene, _ := newManagedScene()
+	btn := newManagedButton(scene, math.NewVector2(10, 20))
 	var clicked any
 	btn.On("clicked", func(data any) { clicked = data })
 
-	// First update initializes components and subscribes handlers.
+	// First update initializes components and discovers elements.
 	scene.Update(&core.Context{Input: &stubInput{}})
 
 	// Hover + press inside.
-	scene.Update(&core.Context{Input: &stubInput{mouse: math.NewVector2(50, 40), justPressedLeft: true}})
+	in := &stubInput{mouse: math.NewVector2(50, 40), justPressedLeft: true}
+	scene.Update(&core.Context{Input: in})
 	if !btn.hovered || !btn.pressed {
 		t.Fatalf("after press: hovered=%v pressed=%v, want both true", btn.hovered, btn.pressed)
 	}
 
 	// Release inside → click.
-	scene.Update(&core.Context{Input: &stubInput{mouse: math.NewVector2(50, 40), justReleasedLeft: true}})
+	in.justPressedLeft = false
+	in.justReleasedLeft = true
+	scene.Update(&core.Context{Input: in})
 	if clicked != btn {
 		t.Fatalf("click event data = %v, want the button", clicked)
 	}
@@ -131,7 +158,8 @@ func TestButtonClickEmitsEvent(t *testing.T) {
 }
 
 func TestButtonReleaseOutsideDoesNotClick(t *testing.T) {
-	scene, btn := newButtonInScene()
+	scene, _ := newManagedScene()
+	btn := newManagedButton(scene, math.NewVector2(10, 20))
 	var clicked any
 	btn.On("clicked", func(data any) { clicked = data })
 	scene.Update(&core.Context{Input: &stubInput{}})
@@ -145,7 +173,8 @@ func TestButtonReleaseOutsideDoesNotClick(t *testing.T) {
 }
 
 func TestButtonDisabledIgnoresInput(t *testing.T) {
-	scene, btn := newButtonInScene()
+	scene, _ := newManagedScene()
+	btn := newManagedButton(scene, math.NewVector2(10, 20))
 	btn.SetEnabled(false)
 	scene.Update(&core.Context{Input: &stubInput{}})
 
@@ -193,7 +222,8 @@ func TestTextInputCaretInsertAndDelete(t *testing.T) {
 }
 
 func TestTextInputArrowKeys(t *testing.T) {
-	scene, ti := newTextInputInScene()
+	scene, _ := newManagedScene()
+	ti := newManagedTextInput(scene, math.NewVector2(10, 20))
 	ti.Text = "abc"
 	ti.caret = 3
 	scene.Update(&core.Context{Input: &stubInput{}})
@@ -222,10 +252,9 @@ func TestTextInputArrowKeys(t *testing.T) {
 }
 
 func TestButtonDisabledTexture(t *testing.T) {
-	scene, btn := newButtonInScene()
+	btn := &ButtonComponent{}
 	btn.DisabledTexture = "assets/btn_disabled.png"
 	btn.SetEnabled(false)
-	scene.Update(&core.Context{Input: &stubInput{}})
 
 	tex, explicit := btn.currentState()
 	if tex != "assets/btn_disabled.png" || !explicit {
@@ -249,7 +278,8 @@ func TestTextInputMaxLength(t *testing.T) {
 }
 
 func TestTextInputFocusAndTyping(t *testing.T) {
-	scene, ti := newTextInputInScene()
+	scene, _ := newManagedScene()
+	ti := newManagedTextInput(scene, math.NewVector2(10, 20))
 	scene.Update(&core.Context{Input: &stubInput{}})
 
 	// Click inside → focus.
@@ -276,8 +306,8 @@ func TestTextInputFocusAndTyping(t *testing.T) {
 }
 
 // TestUIComponentsDecodeJSONArgs exercises the exact JSON arg shape shown in the
-// docs — hex colors, string wrap modes, and snake_case border keys — so a change to
-// a color/wrap/border decode can't silently break scene loading.
+// docs — hex colors, string wrap modes, snake_case border keys, and blocking — so a
+// change to a color/wrap/border/blocking decode can't silently break scene loading.
 func TestUIComponentsDecodeJSONArgs(t *testing.T) {
 	decode := func(name string, args map[string]any, dst any) {
 		t.Helper()
@@ -318,6 +348,12 @@ func TestUIComponentsDecodeJSONArgs(t *testing.T) {
 		t.Errorf("@Panel outline_thickness = %v", panel.OutlineThickness)
 	}
 
+	var panelNoBlock PanelComponent
+	decode("@Panel", map[string]any{"blocking": false}, &panelNoBlock)
+	if panelNoBlock.Blocking == nil || *panelNoBlock.Blocking {
+		t.Errorf("@Panel blocking:false should decode to a non-nil false")
+	}
+
 	var btn ButtonComponent
 	decode("@Button", map[string]any{
 		"text": "OK", "color": "#2e7d32", "event": "login",
@@ -343,13 +379,14 @@ func TestUIComponentsDecodeJSONArgs(t *testing.T) {
 // TestTextInputHeldKeyRepeat verifies the OS-style auto-repeat: one action on the
 // initial held frame, then a pause, then rapid repeats while the key stays held.
 func TestTextInputHeldKeyRepeat(t *testing.T) {
-	scene, ti := newTextInputInScene()
+	scene, _ := newManagedScene()
+	ti := newManagedTextInput(scene, math.NewVector2(10, 20))
 	ti.Text = "abcdef"
 	ti.caret = 6
 	in := &stubInput{mouse: math.NewVector2(50, 30)}
 	tm := &stubTime{}
 
-	scene.Update(&core.Context{Input: in, Time: tm}) // initialize
+	scene.Update(&core.Context{Input: in, Time: tm}) // initialize + discover
 
 	// Focus.
 	in.justPressedLeft = true
@@ -388,7 +425,8 @@ func TestTextInputHeldKeyRepeat(t *testing.T) {
 }
 
 func TestTextInputHomeEnd(t *testing.T) {
-	scene, ti := newTextInputInScene()
+	scene, _ := newManagedScene()
+	ti := newManagedTextInput(scene, math.NewVector2(10, 20))
 	ti.Text = "hello world"
 	ti.caret = 5
 	scene.Update(&core.Context{Input: &stubInput{}})
@@ -405,7 +443,8 @@ func TestTextInputHomeEnd(t *testing.T) {
 }
 
 func TestTextInputCtrlWordJump(t *testing.T) {
-	scene, ti := newTextInputInScene()
+	scene, _ := newManagedScene()
+	ti := newManagedTextInput(scene, math.NewVector2(10, 20))
 	ti.Text = "one two three"
 	scene.Update(&core.Context{Input: &stubInput{}})
 	scene.Update(&core.Context{Input: &stubInput{mouse: math.NewVector2(50, 30), justPressedLeft: true}})
@@ -472,9 +511,10 @@ func TestTextInputDeleteAndWordDelete(t *testing.T) {
 }
 
 // TestTextInputDeleteKey verifies the Delete control key removes the rune to the
-// right of the caret through the normal input path.
+// right of the caret through the manager routing path.
 func TestTextInputDeleteKey(t *testing.T) {
-	scene, ti := newTextInputInScene()
+	scene, _ := newManagedScene()
+	ti := newManagedTextInput(scene, math.NewVector2(10, 20))
 	ti.Text = "abc"
 	ti.caret = 1
 	scene.Update(&core.Context{Input: &stubInput{}})
@@ -583,5 +623,244 @@ func TestButtonStateTextureFallbackTint(t *testing.T) {
 	tex, explicit = btn.currentState()
 	if tex != "assets/btn_hover.png" || !explicit {
 		t.Fatalf("explicit hover: currentState = (%q, %v), want (hover, true)", tex, explicit)
+	}
+}
+
+// TestUIManagerBlockingOcclusion verifies that a blocking panel drawn over a button
+// swallows the click, so the button behind it does not fire.
+func TestUIManagerBlockingOcclusion(t *testing.T) {
+	scene, _ := newManagedScene()
+
+	// A button (bottom, depth 0) covering (0,0)-(100,40).
+	behind := core.NewObject("behind")
+	behind.UI = true
+	behind.Depth = 0
+	behindBtn := &ButtonComponent{Event: "behind"}
+	behindBtn.Width = 100
+	behindBtn.Height = 40
+	behindBtn.SetName("button")
+	_ = behind.AddComponent(behindBtn)
+	_ = scene.AddObject(behind)
+
+	// A blocking panel (top, depth 1) covering the same area.
+	front := core.NewObject("front")
+	front.UI = true
+	front.Depth = 1
+	panel := &PanelComponent{}
+	panel.Width = 100
+	panel.Height = 40
+	panel.SetName("panel")
+	_ = front.AddComponent(panel)
+	_ = scene.AddObject(front)
+
+	var behindFired bool
+	behindBtn.On("behind", func(any) { behindFired = true })
+
+	scene.Update(&core.Context{Input: &stubInput{}})
+
+	// Click where both overlap: the panel blocks the button.
+	in := &stubInput{mouse: math.NewVector2(50, 20), justPressedLeft: true}
+	scene.Update(&core.Context{Input: in})
+	if behindBtn.hovered {
+		t.Fatal("button behind a blocking panel must not hover")
+	}
+	in.justPressedLeft = false
+	in.justReleasedLeft = true
+	scene.Update(&core.Context{Input: in})
+	if behindFired {
+		t.Fatal("button behind a blocking panel must not click")
+	}
+}
+
+// TestUIManagerFocusAndTab verifies geometric row-reading tab order and wrapping.
+func TestUIManagerFocusAndTab(t *testing.T) {
+	scene, _ := newManagedScene()
+	win := core.NewObject("win")
+	win.UI = true
+	_ = scene.AddObject(win)
+
+	mk := func(name string, off math.Vector2) *TextInputComponent {
+		ti := &TextInputComponent{}
+		ti.Width = 50
+		ti.Height = 20
+		ti.Offset = off
+		ti.SetName(name)
+		_ = win.AddComponent(ti)
+		return ti
+	}
+	a := mk("a", math.NewVector2(0, 0))
+	b := mk("b", math.NewVector2(100, 0))
+	c := mk("c", math.NewVector2(0, 100))
+
+	scene.Update(&core.Context{Input: &stubInput{}}) // initialize + discover
+
+	// First Tab focuses the top-left element.
+	scene.Update(&core.Context{Input: &stubInput{justPressed: justPressedKeys(core.KeyTab)}})
+	if !a.focused || b.focused || c.focused {
+		t.Fatalf("first Tab: a=%v b=%v c=%v, want only a", a.focused, b.focused, c.focused)
+	}
+
+	// Same row (left to right): a → b.
+	scene.Update(&core.Context{Input: &stubInput{justPressed: justPressedKeys(core.KeyTab)}})
+	if !b.focused || a.focused {
+		t.Fatalf("second Tab: a=%v b=%v, want only b", a.focused, b.focused)
+	}
+
+	// Next row: b → c.
+	scene.Update(&core.Context{Input: &stubInput{justPressed: justPressedKeys(core.KeyTab)}})
+	if !c.focused || b.focused {
+		t.Fatalf("third Tab: b=%v c=%v, want only c", b.focused, c.focused)
+	}
+
+	// Wraps around: c → a.
+	scene.Update(&core.Context{Input: &stubInput{justPressed: justPressedKeys(core.KeyTab)}})
+	if !a.focused || c.focused {
+		t.Fatalf("wrap Tab: a=%v c=%v, want only a", a.focused, c.focused)
+	}
+
+	// Shift+Tab goes backwards and wraps: a → c.
+	scene.Update(&core.Context{Input: &stubInput{justPressed: justPressedKeys(core.KeyTab), held: heldKeys(core.KeyShift)}})
+	if !c.focused || a.focused {
+		t.Fatalf("Shift+Tab: a=%v c=%v, want only c", a.focused, c.focused)
+	}
+}
+
+// TestUIManagerDragWindow verifies a Draggable object follows the pointer while its
+// non-interactive surface is held, and stops on release.
+func TestUIManagerDragWindow(t *testing.T) {
+	scene, _ := newManagedScene()
+	win := core.NewObject("window")
+	win.UI = true
+	win.Draggable = true
+	win.Transform.Position = math.NewVector2(10, 20)
+	_ = scene.AddObject(win)
+
+	panel := &PanelComponent{}
+	panel.Width = 200
+	panel.Height = 150
+	panel.SetName("bg")
+	_ = win.AddComponent(panel)
+
+	scene.Update(&core.Context{Input: &stubInput{}})
+
+	// Press on the panel (non-interactive) begins a drag.
+	in := &stubInput{mouse: math.NewVector2(50, 40), justPressedLeft: true, mouseHeld: true}
+	scene.Update(&core.Context{Input: in})
+
+	// Move while held: the object follows the pointer.
+	in.justPressedLeft = false
+	in.mouse = math.NewVector2(80, 65)
+	scene.Update(&core.Context{Input: in})
+	if win.Transform.Position != (math.Vector2{X: 40, Y: 45}) {
+		t.Fatalf("after drag: position = %v, want (40, 45)", win.Transform.Position)
+	}
+
+	// Release, then move again: the window must not move.
+	in.mouseHeld = false
+	in.justReleasedLeft = true
+	scene.Update(&core.Context{Input: in})
+	in.justReleasedLeft = false
+	in.mouse = math.NewVector2(200, 200)
+	scene.Update(&core.Context{Input: in})
+	if win.Transform.Position != (math.Vector2{X: 40, Y: 45}) {
+		t.Fatalf("after release: position = %v, want unchanged (40, 45)", win.Transform.Position)
+	}
+}
+
+// TestUIManagerTagsScope verifies a manager restricted by tags only routes to UI
+// objects carrying one of those tags.
+func TestUIManagerTagsScope(t *testing.T) {
+	scene, mgr := newManagedScene()
+	mgr.Tags = []string{"modal"}
+
+	managed := core.NewObject("managed")
+	managed.UI = true
+	managed.AddTag("modal")
+	managed.Transform.Position = math.NewVector2(10, 20)
+	mBtn := &ButtonComponent{Event: "managed"}
+	mBtn.Width = 100
+	mBtn.Height = 40
+	mBtn.SetName("button")
+	_ = managed.AddComponent(mBtn)
+	_ = scene.AddObject(managed)
+
+	unmanaged := core.NewObject("unmanaged")
+	unmanaged.UI = true
+	unmanaged.Transform.Position = math.NewVector2(300, 20)
+	uBtn := &ButtonComponent{Event: "unmanaged"}
+	uBtn.Width = 100
+	uBtn.Height = 40
+	uBtn.SetName("button")
+	_ = unmanaged.AddComponent(uBtn)
+	_ = scene.AddObject(unmanaged)
+
+	var managedFired, unmanagedFired bool
+	mBtn.On("managed", func(any) { managedFired = true })
+	uBtn.On("unmanaged", func(any) { unmanagedFired = true })
+
+	scene.Update(&core.Context{Input: &stubInput{}})
+
+	// Click the tagged button → fires.
+	in := &stubInput{mouse: math.NewVector2(50, 40), justPressedLeft: true}
+	scene.Update(&core.Context{Input: in})
+	in.justPressedLeft = false
+	in.justReleasedLeft = true
+	scene.Update(&core.Context{Input: in})
+	if !managedFired {
+		t.Fatal("expected the tagged button to fire")
+	}
+
+	// Click the untagged button → out of scope, ignored.
+	in = &stubInput{mouse: math.NewVector2(340, 40), justPressedLeft: true}
+	scene.Update(&core.Context{Input: in})
+	in.justPressedLeft = false
+	in.justReleasedLeft = true
+	scene.Update(&core.Context{Input: in})
+	if unmanagedFired {
+		t.Fatal("untagged button should be outside the manager's scope")
+	}
+}
+
+// TestUIManagerRaiseToFront verifies click-to-front window behavior: clicking an
+// object lifts it above its siblings, and toggling back and forth keeps the last
+// clicked object on top. auto_raise:false disables it.
+func TestUIManagerRaiseToFront(t *testing.T) {
+	scene, mgr := newManagedScene()
+
+	// Two partially-overlapping windows. back covers x∈[0,100]; front covers
+	// x∈[50,150], so x=25 hits only back and x=120 hits only front.
+	back := newManagedButton(scene, math.NewVector2(0, 0))
+	front := newManagedButton(scene, math.NewVector2(50, 0))
+
+	scene.Update(&core.Context{Input: &stubInput{}})
+
+	// Click the exposed part of the back window → it rises above the front.
+	scene.Update(&core.Context{Input: &stubInput{mouse: math.NewVector2(25, 20), justPressedLeft: true}})
+	if back.GetOwner().Depth <= front.GetOwner().Depth {
+		t.Fatalf("after clicking back: back depth %v <= front depth %v, want back on top",
+			back.GetOwner().Depth, front.GetOwner().Depth)
+	}
+
+	// Click the exposed part of the front window → now it rises above the back.
+	scene.Update(&core.Context{Input: &stubInput{mouse: math.NewVector2(120, 20), justPressedLeft: true}})
+	if front.GetOwner().Depth <= back.GetOwner().Depth {
+		t.Fatalf("after clicking front: front depth %v <= back depth %v, want front on top",
+			front.GetOwner().Depth, back.GetOwner().Depth)
+	}
+
+	// Clicking the already-top window must not lower it.
+	topDepth := front.GetOwner().Depth
+	scene.Update(&core.Context{Input: &stubInput{mouse: math.NewVector2(120, 20), justPressedLeft: true}})
+	if front.GetOwner().Depth != topDepth {
+		t.Fatalf("re-clicking the top window changed its depth %v → %v", topDepth, front.GetOwner().Depth)
+	}
+
+	// With auto_raise disabled, clicking the back window leaves depth alone.
+	disabled := false
+	mgr.AutoRaise = &disabled
+	backDepth := back.GetOwner().Depth
+	scene.Update(&core.Context{Input: &stubInput{mouse: math.NewVector2(25, 20), justPressedLeft: true}})
+	if back.GetOwner().Depth != backDepth {
+		t.Fatalf("auto_raise:false still raised the window: %v → %v", backDepth, back.GetOwner().Depth)
 	}
 }

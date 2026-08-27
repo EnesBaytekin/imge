@@ -33,6 +33,15 @@ type PanelComponent struct {
 	OutlineThickness float64    `json:"outline_thickness"`
 }
 
+// Initialize makes the panel block pointer events by default (a window background
+// occludes the elements drawn behind it). Set "blocking": false in JSON to disable.
+func (p *PanelComponent) Initialize() {
+	if p.Blocking == nil {
+		b := true
+		p.Blocking = &b
+	}
+}
+
 func (p *PanelComponent) Draw(r core.Renderer) {
 	if !p.IsVisible() {
 		return

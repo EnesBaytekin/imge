@@ -37,6 +37,7 @@ type SceneObject struct {
 	Transform  *TransformConfig          `json:"transform,omitempty"`
 	Depth      float64                   `json:"depth,omitempty"`
 	UI         bool                      `json:"ui,omitempty"`
+	Draggable  bool                      `json:"draggable,omitempty"`
 	Tags       []string                  `json:"tags,omitempty"`
 	Components []ComponentInstanceConfig `json:"components,omitempty"`
 }

@@ -33,6 +33,13 @@ type BaseUIComponent struct {
 	// Focusable reports whether the element can take keyboard focus (e.g. a text
 	// input). Default false.
 	Focusable bool `json:"focusable"`
+
+	// Blocking reports whether the element swallows pointer events: when it is the
+	// topmost element under the cursor it is the exclusive target, so nothing drawn
+	// behind it receives hover/click. A nil Blocking defaults to false here; the
+	// built-in interactive components (@Panel/@Button/@TextInput) opt into blocking
+	// in Initialize, and a JSON "blocking": true/false overrides any component.
+	Blocking *bool `json:"blocking"`
 }
 
 // IsVisible reports whether the element draws.
@@ -46,6 +53,13 @@ func (c *BaseUIComponent) IsEnabled() bool { return c.Enabled == nil || *c.Enabl
 
 // SetEnabled sets whether the element receives input.
 func (c *BaseUIComponent) SetEnabled(v bool) { b := v; c.Enabled = &b }
+
+// IsFocusable reports whether the element can take keyboard focus.
+func (c *BaseUIComponent) IsFocusable() bool { return c.Focusable }
+
+// BlocksPointer reports whether the element swallows pointer events (occludes the
+// elements drawn behind it). See the Blocking field.
+func (c *BaseUIComponent) BlocksPointer() bool { return c.Blocking != nil && *c.Blocking }
 
 // Position returns the element's top-left corner in screen space.
 func (c *BaseUIComponent) Position() math.Vector2 {
