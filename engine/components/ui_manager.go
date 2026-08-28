@@ -46,6 +46,7 @@ type UIManagerComponent struct {
 	hovered    uiPointer
 	pressed    uiPointer
 	focused    uiFocusable
+	adjusting  uiSlider
 	dragging   *core.Object
 	dragOffset math.Vector2
 }
@@ -78,6 +79,17 @@ type uiFocusable interface {
 	HandleInput(*core.Context)
 }
 
+// uiSlider is a UI element the user adjusts by pressing and dragging — a slider or
+// any continuous control. The manager owns the gesture: on press it calls
+// BeginAdjust, then Adjust every held frame, then EndAdjust on release (or when the
+// button is no longer held). The element itself maps pointer positions to its value.
+type uiSlider interface {
+	uiElement
+	BeginAdjust(pos math.Vector2)
+	Adjust(pos math.Vector2)
+	EndAdjust()
+}
+
 func (m *UIManagerComponent) Update(ctx *core.Context) {
 	scene := m.GetScene()
 	if scene == nil {
@@ -105,6 +117,18 @@ func (m *UIManagerComponent) Update(ctx *core.Context) {
 			m.dragging.Transform.Position = pos.Add(m.dragOffset)
 		} else {
 			m.dragging = nil
+		}
+	}
+
+	// Keep adjusting a slider (or any uiSlider) while the left button stays held,
+	// and end the gesture when it is released. onRelease already cleared it on the
+	// release frame, so this only drives the held frames in between.
+	if m.adjusting != nil {
+		if ctx.Input.IsMouseButtonPressed(core.MouseButtonLeft) {
+			m.adjusting.Adjust(pos)
+		} else {
+			m.adjusting.EndAdjust()
+			m.adjusting = nil
 		}
 	}
 
@@ -228,11 +252,19 @@ func (m *UIManagerComponent) onPress(target uiElement, pos math.Vector2) {
 		m.pressed = nil
 	}
 
+	// A slider (or any continuous control) begins its drag gesture on press.
+	if a, ok := target.(uiSlider); ok {
+		m.adjusting = a
+		a.BeginAdjust(pos)
+	}
+
 	if target != nil && target.GetOwner() != nil && target.GetOwner().Draggable {
 		if _, ok := target.(uiPointer); !ok {
 			if _, ok := target.(uiFocusable); !ok {
-				m.dragging = target.GetOwner()
-				m.dragOffset = m.dragging.Transform.Position.Subtract(pos)
+				if _, ok := target.(uiSlider); !ok {
+					m.dragging = target.GetOwner()
+					m.dragOffset = m.dragging.Transform.Position.Subtract(pos)
+				}
 			}
 		}
 	}
@@ -249,6 +281,12 @@ func (m *UIManagerComponent) onRelease(target uiElement) {
 		m.pressed = nil
 	}
 	m.dragging = nil
+
+	// End any slider adjustment on release, regardless of where the cursor is.
+	if m.adjusting != nil {
+		m.adjusting.EndAdjust()
+		m.adjusting = nil
+	}
 }
 
 // RaiseToFront lifts obj above every other managed object in its own layer so it
