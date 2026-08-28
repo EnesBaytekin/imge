@@ -26,6 +26,11 @@ type Input struct {
 	touchJustPressed  bool
 	touchJustReleased bool
 	prevTouchActive   bool
+	// touchPosition is the last primary-touch position in logical units. It is
+	// remembered so the frame a finger lifts still reports that position (there is
+	// no cursor to read on a touch device), letting a tap release onto the element
+	// it pressed instead of onto nothing.
+	touchPosition math.Vector2
 }
 
 func newInput() *Input {
@@ -163,6 +168,13 @@ func (i *Input) Update() {
 	if i.touchActive {
 		tx, ty := ebiten.TouchPosition(ids[0])
 		i.mousePosition = math.NewVector2(float64(tx)/i.pixelScale, float64(ty)/i.pixelScale)
+		i.touchPosition = i.mousePosition
+	} else if i.touchJustReleased {
+		// The finger just lifted this frame: there is no touch to read a position
+		// from, and no cursor on a touch device. Report the last touch position so
+		// the release lands where the finger was, not on a stale/garbage cursor
+		// position.
+		i.mousePosition = i.touchPosition
 	} else {
 		x, y := ebiten.CursorPosition()
 		i.mousePosition = math.NewVector2(float64(x)/i.pixelScale, float64(y)/i.pixelScale)
