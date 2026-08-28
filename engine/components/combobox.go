@@ -1,0 +1,447 @@
+package components
+
+import (
+	"github.com/EnesBaytekin/imge/core"
+	"github.com/EnesBaytekin/imge/core/math"
+)
+
+// ComboBox is a dropdown selector: a read-only field that, when opened, shows a
+// list of items below (or above, when there is no room) for the user to pick one.
+// The items are plain strings — the text shown and the value returned on selection
+// are the same string. A handler reads the result via GetValue() (or GetIndex()).
+//
+// Opening and choosing:
+//   - click the field to open/close the list; clicking an item selects it,
+//   - click anywhere else (or press Escape) to close without selecting,
+//   - with keyboard focus, Enter/Space opens, ↑/↓ move the highlight, Enter selects,
+//     Escape closes.
+//
+// Dropdown placement is the native-combobox behavior: it opens below the field by
+// default, flips above when it would overflow the bottom of the screen, and when it
+// fits neither side it opens on the side with more room.
+//
+// Appearance: the field and the list are flat colors by default, or nine-sliced
+// textures (Texture/Border for the field, DropdownTexture/DropdownBorder for the
+// list) so a styled control stretches. HoverColor highlights the item under the
+// pointer (or keyboard cursor); SelectedColor marks the current value while the
+// list is open. Like @Button and @Panel, defaults can be supplied from styles.imge
+// under the "@ComboBox" key (a style body fills any of these json-tagged fields).
+//
+// Export variables (JSON args): items, value, event, placeholder, font_id, size,
+// text_color, color, hover_color, selected_color, dropdown_color, texture, border
+// {left, top, right, bottom}, dropdown_texture, dropdown_border, outline_color,
+// outline_thickness, item_height, offset, width, height, visible, enabled,
+// blocking, group, draw_layer.
+type ComboBoxComponent struct {
+	core.BaseUIComponent
+
+	// Items is the list of choices; the shown text and the selected value are the
+	// same string.
+	Items []string `json:"items"`
+
+	// Value is the currently selected item (one of Items, or "" for none).
+	Value string `json:"value"`
+
+	// Event is emitted on selection, with the combobox itself as the data (so a
+	// handler can read GetValue()/GetIndex() and GetName()/GetOwner()), matching
+	// @Button and @Slider.
+	Event string `json:"event"`
+
+	// Placeholder is drawn in the field when Value is empty.
+	Placeholder string `json:"placeholder"`
+
+	// FontID and Size set the text font; Size 0 (default) = 14.
+	FontID string  `json:"font_id"`
+	Size   float64 `json:"size"`
+
+	// TextColor is the field and item text color.
+	TextColor math.Color `json:"text_color"`
+
+	// Color is the field's flat fill when Texture is empty.
+	Color math.Color `json:"color"`
+
+	// HoverColor highlights the item under the pointer / keyboard cursor.
+	HoverColor math.Color `json:"hover_color"`
+
+	// SelectedColor marks the currently selected item while the list is open.
+	SelectedColor math.Color `json:"selected_color"`
+
+	// DropdownColor is the list's flat fill when DropdownTexture is empty.
+	DropdownColor math.Color `json:"dropdown_color"`
+
+	// Texture/Border opt the field into nine-slice rendering; DropdownTexture/
+	// DropdownBorder do the same for the list. An empty texture means a flat fill.
+	Texture         string      `json:"texture"`
+	Border          math.Border `json:"border"`
+	DropdownTexture string      `json:"dropdown_texture"`
+	DropdownBorder  math.Border `json:"dropdown_border"`
+
+	// OutlineColor/OutlineThickness stroke the field and list. A transparent color
+	// (the default) means no outline; thickness 0 defaults to 1.
+	OutlineColor     math.Color `json:"outline_color"`
+	OutlineThickness float64    `json:"outline_thickness"`
+
+	// ItemHeight is the height of one list row; 0 (default) = 22.
+	ItemHeight float64 `json:"item_height"`
+
+	// open is whether the list is currently shown; highlight is the item index under
+	// the pointer or keyboard cursor (-1 = none); viewportH is the logical screen
+	// height, captured each frame in Draw and used to decide the open direction.
+	open      bool
+	highlight int
+	viewportH float64
+}
+
+// Initialize defaults the colors, sizes, and flags, then opts into blocking and
+// keyboard focus (a combobox is inherently focusable for ↑/↓/Enter).
+func (c *ComboBoxComponent) Initialize() {
+	if c.Color == (math.Color{}) {
+		c.Color = math.NewColor(42, 42, 56, 255)
+	}
+	if c.DropdownColor == (math.Color{}) {
+		c.DropdownColor = math.NewColor(30, 30, 42, 255)
+	}
+	if c.HoverColor == (math.Color{}) {
+		c.HoverColor = math.NewColor(70, 90, 130, 255)
+	}
+	if c.SelectedColor == (math.Color{}) {
+		c.SelectedColor = math.NewColor(90, 158, 90, 255)
+	}
+	if c.TextColor == (math.Color{}) {
+		c.TextColor = math.White
+	}
+	if c.OutlineColor == (math.Color{}) {
+		c.OutlineColor = math.NewColor(74, 74, 106, 255)
+	}
+	if c.OutlineThickness <= 0 {
+		c.OutlineThickness = 1
+	}
+	if c.Size <= 0 {
+		c.Size = 14
+	}
+	if c.ItemHeight <= 0 {
+		c.ItemHeight = 22
+	}
+	if c.Blocking == nil {
+		b := true
+		c.Blocking = &b
+	}
+	c.Focusable = true
+}
+
+// GetValue returns the currently selected item string ("" when none).
+func (c *ComboBoxComponent) GetValue() string { return c.Value }
+
+// GetIndex returns the index of the current value in Items, or -1 when the value is
+// not present (or the list is empty).
+func (c *ComboBoxComponent) GetIndex() int { return c.selectedIndex() }
+
+// SetValue sets the selection silently (no Event) to the given item if it is in
+// Items; otherwise it clears the selection.
+func (c *ComboBoxComponent) SetValue(v string) {
+	c.Value = ""
+	for _, item := range c.Items {
+		if item == v {
+			c.Value = v
+			return
+		}
+	}
+}
+
+// Contains reports whether p is over the field or, when open, the list — so the
+// manager hit-tests the whole dropdown as one element.
+func (c *ComboBoxComponent) Contains(p math.Vector2) bool {
+	if c.headerRect().ContainsPoint(p) {
+		return true
+	}
+	if c.open {
+		return c.dropdownRect().ContainsPoint(p)
+	}
+	return false
+}
+
+// PointerMove updates the highlighted item from the pointer position. Called by a
+// @UIManager every frame the pointer is over the element.
+func (c *ComboBoxComponent) PointerMove(pos math.Vector2) {
+	if c.open {
+		c.highlight = c.itemAt(pos)
+	}
+}
+
+// PointerLeave resets the highlight to the current selection when the pointer
+// leaves the element. Called by a @UIManager.
+func (c *ComboBoxComponent) PointerLeave() {
+	c.highlight = c.selectedIndex()
+}
+
+// Press opens or closes the list and selects items, hit-testing the exact press
+// position. Called by a @UIManager on a left-button press.
+func (c *ComboBoxComponent) Press(pos math.Vector2) {
+	if !c.IsEnabled() {
+		return
+	}
+	if !c.open {
+		c.openDropdown()
+		return
+	}
+	if idx := c.itemAt(pos); idx >= 0 {
+		c.selectIndex(idx)
+		return
+	}
+	if c.headerRect().ContainsPoint(pos) {
+		c.closeDropdown()
+	}
+}
+
+// SetFocused closes the list when focus leaves the combobox (e.g. a click outside).
+// Opening stays on Press/Enter so the first click doesn't both focus and open.
+func (c *ComboBoxComponent) SetFocused(focused bool) {
+	if !focused {
+		c.closeDropdown()
+	}
+}
+
+// HandleInput handles keyboard: Enter/Space opens, ↑/↓ move the highlight, Enter
+// selects, Escape closes. Called by a @UIManager while the combobox has focus.
+func (c *ComboBoxComponent) HandleInput(ctx *core.Context) {
+	if !c.IsEnabled() {
+		return
+	}
+	in := ctx.Input
+
+	if c.open {
+		switch {
+		case in.IsKeyJustPressed(core.KeyEscape):
+			c.closeDropdown()
+		case in.IsKeyJustPressed(core.KeyUp):
+			c.moveHighlight(-1)
+		case in.IsKeyJustPressed(core.KeyDown):
+			c.moveHighlight(1)
+		case in.IsKeyJustPressed(core.KeyEnter):
+			if c.highlight >= 0 {
+				c.selectIndex(c.highlight)
+			} else {
+				c.closeDropdown()
+			}
+		}
+		return
+	}
+
+	if in.IsKeyJustPressed(core.KeyEnter) || in.IsKeyJustPressed(core.KeySpace) {
+		c.openDropdown()
+	}
+}
+
+// openDropdown opens the list, highlighting the current selection (or the first
+// item when nothing is selected).
+func (c *ComboBoxComponent) openDropdown() {
+	c.open = true
+	c.highlight = c.selectedIndex()
+	if c.highlight < 0 && len(c.Items) > 0 {
+		c.highlight = 0
+	}
+}
+
+// closeDropdown closes the list and clears the highlight.
+func (c *ComboBoxComponent) closeDropdown() {
+	c.open = false
+	c.highlight = -1
+}
+
+// selectIndex sets Value to Items[i], closes the list, and emits Event (only when
+// the value actually changed).
+func (c *ComboBoxComponent) selectIndex(i int) {
+	if i < 0 || i >= len(c.Items) {
+		return
+	}
+	c.closeDropdown()
+	if c.Items[i] == c.Value {
+		return
+	}
+	c.Value = c.Items[i]
+	if c.Event != "" {
+		c.Emit(c.Event, c)
+	}
+}
+
+// moveHighlight moves the keyboard cursor by delta, wrapping around.
+func (c *ComboBoxComponent) moveHighlight(delta int) {
+	n := len(c.Items)
+	if n == 0 {
+		return
+	}
+	if c.highlight < 0 {
+		if delta < 0 {
+			c.highlight = n - 1
+		} else {
+			c.highlight = 0
+		}
+		return
+	}
+	c.highlight = (c.highlight + delta) % n
+	if c.highlight < 0 {
+		c.highlight += n
+	}
+}
+
+// selectedIndex returns the index of Value in Items, or -1 when absent.
+func (c *ComboBoxComponent) selectedIndex() int {
+	for i, item := range c.Items {
+		if item == c.Value {
+			return i
+		}
+	}
+	return -1
+}
+
+// itemAt returns the index of the item under pos, or -1.
+func (c *ComboBoxComponent) itemAt(pos math.Vector2) int {
+	dr := c.dropdownRect()
+	if !dr.ContainsPoint(pos) {
+		return -1
+	}
+	idx := int((pos.Y - dr.Top()) / c.itemHeight())
+	if idx < 0 || idx >= len(c.Items) {
+		return -1
+	}
+	return idx
+}
+
+// headerRect returns the field rectangle (the element's own rect).
+func (c *ComboBoxComponent) headerRect() math.Rect { return c.Rect() }
+
+// dropdownRect returns the open list rectangle, below or above the field.
+func (c *ComboBoxComponent) dropdownRect() math.Rect {
+	hr := c.headerRect()
+	h := c.dropdownHeight()
+	if c.openUp() {
+		return math.NewRect(hr.Left(), hr.Top()-h, hr.Width(), h)
+	}
+	return math.NewRect(hr.Left(), hr.Bottom(), hr.Width(), h)
+}
+
+// dropdownHeight returns the list height (items × row height).
+func (c *ComboBoxComponent) dropdownHeight() float64 {
+	return float64(len(c.Items)) * c.itemHeight()
+}
+
+// itemHeight returns the row height.
+func (c *ComboBoxComponent) itemHeight() float64 {
+	if c.ItemHeight <= 0 {
+		return 22
+	}
+	return c.ItemHeight
+}
+
+// textSize returns the font size.
+func (c *ComboBoxComponent) textSize() float64 {
+	if c.Size <= 0 {
+		return 14
+	}
+	return c.Size
+}
+
+// openUp reports whether the list should open above the field: no (the default)
+// when it fits below, yes when it only fits above, and whichever side has more room
+// when it fits neither. Unknown viewport (viewportH == 0) defaults to below.
+func (c *ComboBoxComponent) openUp() bool {
+	if c.viewportH <= 0 {
+		return false
+	}
+	h := c.dropdownHeight()
+	hr := c.headerRect()
+	below := c.viewportH - hr.Bottom()
+	above := hr.Top()
+	if h <= below {
+		return false
+	}
+	if h <= above {
+		return true
+	}
+	return above > below
+}
+
+// Draw renders the field, then the open list.
+func (c *ComboBoxComponent) Draw(r core.Renderer) {
+	if !c.IsVisible() {
+		return
+	}
+	if _, h := r.GetViewportSize(); h > 0 {
+		c.viewportH = float64(h)
+	}
+
+	hr := c.headerRect()
+	if c.Texture != "" {
+		core.DrawNineSlice(r, c.Texture, c.Border, hr)
+	} else {
+		r.DrawRect(hr, c.Color)
+	}
+	c.drawOutline(r, hr)
+
+	c.drawFieldText(r, hr)
+	c.drawArrow(r, hr)
+
+	if c.open {
+		c.drawDropdown(r)
+	}
+}
+
+// drawOutline strokes rect with the outline color.
+func (c *ComboBoxComponent) drawOutline(r core.Renderer, rect math.Rect) {
+	if c.OutlineThickness > 0 && c.OutlineColor.A > 0 {
+		r.DrawRectOutline(rect, c.OutlineColor, c.OutlineThickness)
+	}
+}
+
+// drawFieldText draws the value (or placeholder) in the field, left-aligned.
+func (c *ComboBoxComponent) drawFieldText(r core.Renderer, hr math.Rect) {
+	text := c.Value
+	if text == "" {
+		text = c.Placeholder
+	}
+	if text == "" {
+		return
+	}
+	size := c.textSize()
+	_, th := r.MeasureText(text, c.FontID, size)
+	x := hr.Left() + 8
+	y := hr.Center().Y - th/2
+	r.DrawText(text, c.FontID, size, math.NewVector2(x, y), c.TextColor)
+}
+
+// drawArrow draws a small "∨" chevron on the right edge of the field.
+func (c *ComboBoxComponent) drawArrow(r core.Renderer, hr math.Rect) {
+	cx := hr.Right() - 12
+	cy := hr.Center().Y
+	w := 4.0
+	h := 2.5
+	r.DrawLine(math.NewVector2(cx-w, cy-h), math.NewVector2(cx, cy+h), c.TextColor, 2)
+	r.DrawLine(math.NewVector2(cx+w, cy-h), math.NewVector2(cx, cy+h), c.TextColor, 2)
+}
+
+// drawDropdown draws the list and its items with their highlights.
+func (c *ComboBoxComponent) drawDropdown(r core.Renderer) {
+	dr := c.dropdownRect()
+	if c.DropdownTexture != "" {
+		core.DrawNineSlice(r, c.DropdownTexture, c.DropdownBorder, dr)
+	} else {
+		r.DrawRect(dr, c.DropdownColor)
+	}
+	c.drawOutline(r, dr)
+
+	ih := c.itemHeight()
+	size := c.textSize()
+	sel := c.selectedIndex()
+	for i, item := range c.Items {
+		row := math.NewRect(dr.Left(), dr.Top()+float64(i)*ih, dr.Width(), ih)
+		if i == c.highlight {
+			r.DrawRect(row, c.HoverColor)
+		} else if i == sel {
+			r.DrawRect(row, c.SelectedColor)
+		}
+		_, th := r.MeasureText(item, c.FontID, size)
+		x := row.Left() + 8
+		y := row.Center().Y - th/2
+		r.DrawText(item, c.FontID, size, math.NewVector2(x, y), c.TextColor)
+	}
+}

@@ -47,6 +47,7 @@ type UIManagerComponent struct {
 	pressed    uiPointer
 	focused    uiFocusable
 	adjusting  uiSlider
+	pointed    uiPointable
 	dragging   *core.Object
 	dragOffset math.Vector2
 }
@@ -90,6 +91,19 @@ type uiSlider interface {
 	EndAdjust()
 }
 
+// uiPointable is a UI element that acts on the exact pointer position, so it can
+// hit-test its own sub-regions — a combobox's dropdown items, a menu's entries, a
+// color wheel. Unlike uiPointer (any click = one action), a pointable element
+// decides what to do from where the pointer is. The manager calls PointerMove every
+// frame the pointer is over the element, PointerLeave once when it leaves, and
+// Press once per left-button press, each with the position.
+type uiPointable interface {
+	uiElement
+	PointerMove(pos math.Vector2)
+	PointerLeave()
+	Press(pos math.Vector2)
+}
+
 func (m *UIManagerComponent) Update(ctx *core.Context) {
 	scene := m.GetScene()
 	if scene == nil {
@@ -103,6 +117,7 @@ func (m *UIManagerComponent) Update(ctx *core.Context) {
 	pos := ctx.Input.GetMousePosition()
 	target := m.targetAt(pos)
 	m.updateHover(target)
+	m.updatePointed(target, pos)
 
 	if ctx.Input.IsMouseButtonJustPressed(core.MouseButtonLeft) {
 		m.onPress(target, pos)
@@ -231,6 +246,25 @@ func (m *UIManagerComponent) updateHover(target uiElement) {
 	}
 }
 
+// updatePointed routes per-frame pointer position to a pointable target (a
+// combobox, menu) so it can highlight its own sub-regions, and clears that hover
+// when the pointer moves off it.
+func (m *UIManagerComponent) updatePointed(target uiElement, pos math.Vector2) {
+	pt, ok := target.(uiPointable)
+	if !ok {
+		if m.pointed != nil {
+			m.pointed.PointerLeave()
+			m.pointed = nil
+		}
+		return
+	}
+	if m.pointed != nil && m.pointed != pt {
+		m.pointed.PointerLeave()
+	}
+	m.pointed = pt
+	pt.PointerMove(pos)
+}
+
 // onPress handles a left-button press: it focuses a focusable target (or blurs on
 // anything else), marks a pointer target pressed, and starts a drag on a draggable
 // object's non-interactive surface.
@@ -258,16 +292,35 @@ func (m *UIManagerComponent) onPress(target uiElement, pos math.Vector2) {
 		a.BeginAdjust(pos)
 	}
 
-	if target != nil && target.GetOwner() != nil && target.GetOwner().Draggable {
-		if _, ok := target.(uiPointer); !ok {
-			if _, ok := target.(uiFocusable); !ok {
-				if _, ok := target.(uiSlider); !ok {
-					m.dragging = target.GetOwner()
-					m.dragOffset = m.dragging.Transform.Position.Subtract(pos)
-				}
-			}
-		}
+	// A combobox (or any pointable control) acts on the exact press position, so it
+	// can hit-test its own sub-regions (dropdown items, menu entries).
+	if pt, ok := target.(uiPointable); ok {
+		pt.Press(pos)
 	}
+
+	if target != nil && target.GetOwner() != nil && target.GetOwner().Draggable && !m.isInteractive(target) {
+		m.dragging = target.GetOwner()
+		m.dragOffset = m.dragging.Transform.Position.Subtract(pos)
+	}
+}
+
+// isInteractive reports whether a UI element handles the pointer itself (a button,
+// text input, slider, or pointable control). Such elements never start an object
+// drag, even when their owner is Draggable.
+func (m *UIManagerComponent) isInteractive(el uiElement) bool {
+	if _, ok := el.(uiPointer); ok {
+		return true
+	}
+	if _, ok := el.(uiFocusable); ok {
+		return true
+	}
+	if _, ok := el.(uiSlider); ok {
+		return true
+	}
+	if _, ok := el.(uiPointable); ok {
+		return true
+	}
+	return false
 }
 
 // onRelease handles a left-button release: it activates the pressed pointer if the
