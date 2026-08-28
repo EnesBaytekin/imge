@@ -94,6 +94,21 @@ The single source of truth for window and game settings. See
   `name` field inside the `.scene` file** (or its filename if the `name` field is
   absent — see [scenes](scenes-and-camera.md#loading-scenes)).
 
+## `styles.imge`
+
+An optional file at the project root that holds **named styles** — reusable
+defaults for component args, referenced by name from components (a `"style"` arg)
+so a whole set of windows or buttons can share one design. Change the style in one
+place and every component that references it changes. See
+[styles.imge reference](json-format.md#stylesimge).
+
+```json
+{
+  "@Panel":  { "window": { "texture": "assets/panel.png", "border": { "left": 4, "top": 4, "right": 4, "bottom": 4 } } },
+  "@Button": { "accent": { "color": "#3c6b3c" } }
+}
+```
+
 ## Scene files (`.scene`)
 
 Each `.scene` file is one scene. Every `*.scene` file under the project root is

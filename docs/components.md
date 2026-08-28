@@ -26,6 +26,10 @@ adjust. Every arg has a default except a few marked **(required)**.
 - **Universal arg** — every component (built-in and custom) accepts one extra arg
   inherited from `BaseComponent`: `draw_layer` (int, default 0), which orders its
   `Draw` relative to the object's other components.
+- **Named styles** — a component may take a `"style": "<name>"` arg referencing a
+  style defined in `styles.imge`. The style supplies default arg values (matched by
+  kind), overridden by the component's own args. See
+  [JSON format → styles.imge](json-format.md#stylesimge).
 - **Accessing siblings** — `core.GetFrom[*T](owner)` (first by insertion order),
   `core.GetAllFrom[*T](owner)`, `core.GetFromNamed[*T](owner, name)`. All return a
   nil pointer when nothing matches; nil-check. See

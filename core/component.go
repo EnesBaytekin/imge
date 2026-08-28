@@ -254,6 +254,20 @@ func CreateComponent(kind string, args map[string]interface{}) (Component, error
 
 	component := factory()
 
+	// Apply a named style first: it supplies defaults, which the component's own
+	// args then override. Styles are matched by kind, so a @Button style only
+	// applies to buttons. The `style` arg itself is not a component field — it is
+	// consumed here as a reference and ignored during the args unmarshal below.
+	if styleName, ok := args["style"].(string); ok && styleName != "" {
+		raw := resolveStyle(kind, styleName)
+		if raw == nil {
+			return nil, &ComponentError{Kind: kind, Reason: "style not found: " + styleName}
+		}
+		if err := json.Unmarshal(raw, component); err != nil {
+			return nil, &ComponentError{Kind: kind, Reason: "failed to apply style " + styleName + ": " + err.Error()}
+		}
+	}
+
 	if len(args) > 0 {
 		data, err := json.Marshal(args)
 		if err != nil {

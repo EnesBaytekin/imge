@@ -212,7 +212,7 @@ func (m *UIManagerComponent) updateHover(target uiElement) {
 // object's non-interactive surface.
 func (m *UIManagerComponent) onPress(target uiElement, pos math.Vector2) {
 	if target != nil {
-		m.raiseToFront(target.GetOwner())
+		m.RaiseToFront(target.GetOwner())
 	}
 
 	if f, ok := target.(uiFocusable); ok {
@@ -251,11 +251,19 @@ func (m *UIManagerComponent) onRelease(target uiElement) {
 	m.dragging = nil
 }
 
-// raiseToFront lifts obj above every other managed object so it draws on top.
-// Clicking a window — its background or any of its controls — brings it to the
-// front, the normal window behavior. It only raises, never lowers, so an object
-// given an explicit high depth in the scene stays put.
-func (m *UIManagerComponent) raiseToFront(obj *core.Object) {
+// RaiseToFront lifts obj above every other managed object in its own layer so it
+// draws on top. Clicking a window — its background or any of its controls — brings
+// it to the front, the normal window behavior.
+//
+// The reorder stays inside obj's layer: objects in a higher layer (e.g. an
+// always-on-top header) are untouched, and obj never crosses into one. Depths are
+// re-slotted to a compact 0..n-1 range within the layer, so repeated raises can't
+// push depths to grow without bound (and never need a magic "very high" number).
+//
+// It is also useful programmatically: a component that reopens a hidden window
+// (e.g. an "Open" button) can call RaiseToFront after SetActive(true) so the window
+// reappears on top instead of buried under whatever was in front of it.
+func (m *UIManagerComponent) RaiseToFront(obj *core.Object) {
 	if obj == nil {
 		return
 	}
@@ -263,19 +271,22 @@ func (m *UIManagerComponent) raiseToFront(obj *core.Object) {
 		return
 	}
 
-	var maxDepth float64
-	hasOther := false
+	// Collect every managed object in obj's layer, in draw order, with obj itself
+	// moved to the front. obj may not be in m.owners yet (e.g. just reactivated).
+	var order []*core.Object
 	for _, o := range m.owners {
-		if o == obj {
+		if o == obj || o.Layer != obj.Layer {
 			continue
 		}
-		if !hasOther || o.Depth > maxDepth {
-			maxDepth = o.Depth
-			hasOther = true
-		}
+		order = append(order, o)
 	}
-	if hasOther && obj.Depth <= maxDepth {
-		obj.SetDepth(maxDepth + 1)
+	order = append(order, obj)
+
+	// Re-slot compact depths within the layer: 0..n-1, front = highest.
+	for i, o := range order {
+		if o.Depth != float64(i) {
+			o.SetDepth(float64(i))
+		}
 	}
 }
 

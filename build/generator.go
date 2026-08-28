@@ -354,6 +354,14 @@ func main() {
 		log.Fatalf("failed to initialize game: %v", err)
 	}
 
+	// styles.imge is optional: load it before scenes so components can resolve
+	// their style args during scene loading.
+	if data, err := os.ReadFile("styles.imge"); err == nil {
+		if err := core.LoadStyles(data); err != nil {
+			log.Printf("warning: failed to load styles.imge: %v", err)
+		}
+	}
+
 	loadScenes(game)
 
 	if err := platform.Run(game); err != nil {
@@ -477,6 +485,14 @@ func main() {
 
 	if err := game.Init(); err != nil {
 		log.Fatalf("failed to initialize game: %v", err)
+	}
+
+	// styles.imge is optional: load it before scenes so components can resolve
+	// their style args during scene loading.
+	if data, err := fs.ReadFile(projectFS, "styles.imge"); err == nil {
+		if err := core.LoadStyles(data); err != nil {
+			log.Printf("warning: failed to load styles.imge: %v", err)
+		}
 	}
 
 	loadScenes(game, projectFS)

@@ -12,6 +12,7 @@ import (
 type ObjectConfig struct {
 	Name       string                    `json:"name"`
 	Depth      float64                   `json:"depth,omitempty"`
+	Layer      int                       `json:"layer,omitempty"`
 	UI         bool                      `json:"ui,omitempty"`
 	Draggable  bool                      `json:"draggable,omitempty"`
 	Components []ComponentInstanceConfig `json:"components"`

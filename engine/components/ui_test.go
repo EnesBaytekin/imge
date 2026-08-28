@@ -864,3 +864,49 @@ func TestUIManagerRaiseToFront(t *testing.T) {
 		t.Fatalf("auto_raise:false still raised the window: %v → %v", backDepth, back.GetOwner().Depth)
 	}
 }
+
+// TestUIManagerRaiseToFrontRespectsLayer verifies that click-to-front stays inside
+// the clicked object's layer: reordering layer-0 windows must never cross into (or
+// disturb) a fixed chrome object in a higher layer, and repeated clicks must keep
+// depths bounded rather than growing without limit.
+func TestUIManagerRaiseToFrontRespectsLayer(t *testing.T) {
+	scene, _ := newManagedScene()
+
+	back := newManagedButton(scene, math.NewVector2(0, 0))
+	front := newManagedButton(scene, math.NewVector2(50, 0))
+
+	// A fixed chrome bar in a higher layer: always on top, never reordered by
+	// click-to-front among the layer-0 windows.
+	header := core.NewObject("header")
+	header.UI = true
+	header.Layer = 1
+	_ = scene.AddObject(header)
+
+	scene.Update(&core.Context{Input: &stubInput{}})
+
+	// Click back: it rises to the top of layer 0, compacting depths there.
+	scene.Update(&core.Context{Input: &stubInput{mouse: math.NewVector2(25, 20), justPressedLeft: true}})
+	if back.GetOwner().Depth <= front.GetOwner().Depth {
+		t.Fatalf("after clicking back: back depth %v <= front depth %v", back.GetOwner().Depth, front.GetOwner().Depth)
+	}
+	if back.GetOwner().Layer != 0 || header.Layer != 1 {
+		t.Fatalf("layers moved: back layer %d, header layer %d", back.GetOwner().Layer, header.Layer)
+	}
+
+	// Repeated clicks must keep the layer-0 depths bounded (0..n-1), never growing.
+	for i := 0; i < 5; i++ {
+		scene.Update(&core.Context{Input: &stubInput{mouse: math.NewVector2(25, 20), justPressedLeft: true}})
+	}
+	if d := back.GetOwner().Depth; d > 1 {
+		t.Fatalf("depth grew past the layer's bound: %v", d)
+	}
+	if back.GetOwner().Depth <= front.GetOwner().Depth {
+		t.Fatalf("back should stay on top after repeated clicks")
+	}
+
+	// The sorted order must still put the header (layer 1) last, on top.
+	sorted := scene.GetSortedObjects()
+	if len(sorted) == 0 || sorted[len(sorted)-1] != header {
+		t.Fatalf("header must be the topmost object")
+	}
+}

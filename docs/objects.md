@@ -13,7 +13,8 @@ containers; components are the logic.
 | `Components` | map | name → component (component names unique within the object) |
 | `Tags` | set | free-form labels for filtering (`FindObjectsWithTag`) |
 | `Transform` | `math.Transform` | `Position`, `Rotation` (radians), `Scale` |
-| `Depth` | float64 | draw order — **higher draws on top** |
+| `Depth` | float64 | draw order **within a layer** — higher draws on top |
+| `Layer` | int | primary draw order — **higher layer draws on top**, compared before `Depth` |
 | `UI` | bool | screen-space (ignores camera, drawn after all world objects) |
 | `Active` | bool | whether it updates and draws |
 | `Scene` | `*Scene` | the scene it belongs to (nil until added) |
@@ -42,14 +43,21 @@ Tags are the primary way to query the world:
 - Used pervasively by built-ins: `@Chase`/`@Follow` target a tag, `@Collider`
   filters by `collides_with`, `@Damage` by `target_tags`.
 
-## Depth and draw order
+## Layers and draw order
 
-`Depth` orders drawing **ascending**: lower depth draws first (behind), higher
-draws last (on top). Within an object, components draw by their own `draw_layer`
-(also ascending). Objects are depth-sorted once and re-sorted only when a depth
-changes, so changing depth mid-frame is cheap.
+Objects are sorted by **layer first, then depth** — both ascending. A higher
+`layer` always draws on top of a lower one, regardless of depth; within a layer,
+`depth` orders back-to-front (higher = on top). Within an object, components draw
+by their own `draw_layer` (also ascending). The scene re-sorts only when a layer
+or depth changes, so changing them mid-frame is cheap.
 
-`obj.SetDepth(d)` updates depth and marks the scene for re-sort.
+`obj.SetDepth(d)` and `obj.SetLayer(l)` update the values and mark the scene for
+re-sort.
+
+The main use for `layer` is separating fixed chrome from reorderable windows: give
+an always-on-top header `layer: 1` and its windows `layer: 0` (the default), and
+click-to-front can reorder the windows without ever crossing into the header — no
+magic "very high depth" number needed.
 
 ## UI objects
 

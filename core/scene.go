@@ -267,14 +267,20 @@ func (s *Scene) insertIntoSortedList(id uint64) {
 		return
 	}
 
+	layer := obj.Layer
 	depth := obj.Depth
 
-	// Find insertion index using binary search
+	// Find insertion index using binary search. Objects sort by layer first (lower
+	// layer first), then by depth within the layer, so a higher layer always draws
+	// on top regardless of depth.
 	insertIndex := sort.Search(len(s.SortedObjects), func(i int) bool {
 		otherID := s.SortedObjects[i]
 		otherObj := s.Objects[otherID]
 		if otherObj == nil {
 			return true // Shouldn't happen, but treat missing objects as infinite depth
+		}
+		if otherObj.Layer != layer {
+			return otherObj.Layer > layer
 		}
 		return otherObj.Depth >= depth
 	})
@@ -525,6 +531,7 @@ func createObjectFromSceneObject(objConfig corejson.SceneObject, fsys fs.FS) (*O
 		if objConfigFile.Depth != 0 {
 			obj.SetDepth(objConfigFile.Depth)
 		}
+		obj.Layer = objConfigFile.Layer
 		obj.UI = objConfigFile.UI || objConfig.UI
 		obj.Draggable = objConfigFile.Draggable || objConfig.Draggable
 
@@ -559,6 +566,10 @@ func createObjectFromSceneObject(objConfig corejson.SceneObject, fsys fs.FS) (*O
 		if objConfig.Depth != 0 {
 			obj.SetDepth(objConfig.Depth)
 		}
+		// Layer override from scene (if specified)
+		if objConfig.Layer != 0 {
+			obj.SetLayer(objConfig.Layer)
+		}
 
 		return obj, nil
 	}
@@ -572,6 +583,7 @@ func createObjectFromSceneObject(objConfig corejson.SceneObject, fsys fs.FS) (*O
 	obj = NewObject(objConfig.Name)
 	obj.UI = objConfig.UI
 	obj.Draggable = objConfig.Draggable
+	obj.Layer = objConfig.Layer
 
 	// Add components
 	for _, compConfig := range objConfig.Components {

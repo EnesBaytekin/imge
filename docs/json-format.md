@@ -129,6 +129,7 @@ Each entry in `objects` is either a **file reference** or an **inline definition
 {
   "name": "wall",
   "depth": 0,
+  "layer": 0,
   "ui": false,
   "tags": ["wall"],
   "transform": { "position": { "x": 0, "y": 0 } },
@@ -142,12 +143,13 @@ Each entry in `objects` is either a **file reference** or an **inline definition
 | `name` | string | object name (inline objects; template objects use the template's `name`) |
 | `transform` | object | `position {x,y}`, `rotation` (radians), `scale {x,y}` |
 | `depth` | number | draw order (higher = on top). On a file ref, overrides the template's depth |
+| `layer` | int | primary draw order (higher = on top), compared before `depth`. On a file ref, overrides the template's layer |
 | `ui` | bool | screen-space object (ignores camera, drawn on top) |
 | `tags` | string[] | tags for filtering |
 | `components` | array | component instances |
 
-A file reference merges the template's components/tags/depth with the scene's
-transform (and depth) override. `ui` is `template.ui || scene.ui`.
+A file reference merges the template's components/tags/depth/layer with the
+scene's transform (and depth/layer) override. `ui` is `template.ui || scene.ui`.
 
 ## Object files (`.obj`)
 
@@ -163,7 +165,34 @@ A template — identical to an inline scene object but with **no transform**:
 }
 ```
 
-`name`, `depth`, `ui`, `tags`, `components` — same meaning as above.
+`name`, `depth`, `layer`, `ui`, `tags`, `components` — same meaning as above.
+
+## `styles.imge` (optional)
+
+A single optional file at the project root that defines **named styles**: reusable
+defaults for a component's args, referenced from any component via a `"style"`
+arg. Styles are keyed by component kind, then style name:
+
+```json
+{
+  "@Panel":  { "window": { "texture": "assets/panel.png", "border": { "left": 4, "top": 4, "right": 4, "bottom": 4 } } },
+  "@Button": { "accent": { "color": "#3c6b3c" } }
+}
+```
+
+A component references a style by name; the style supplies defaults, which the
+component's own args then override (style first, args second):
+
+```json
+{ "kind": "@Panel",  "name": "bg", "args": { "style": "window", "width": 204, "height": 200 } }
+{ "kind": "@Button", "name": "ok", "args": { "style": "accent", "text": "OK" } }
+```
+
+- The `style` key is consumed as a reference — it is not a component field.
+- A style applies only to its kind: a `@Button` style never affects a `@Panel`.
+- An unknown style name is a scene-load error, so a typo fails fast.
+- Change a style in one place and every component that references it changes —
+  central theming without repeating textures or colors per component.
 
 ## Component instances
 

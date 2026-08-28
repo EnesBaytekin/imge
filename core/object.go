@@ -39,8 +39,14 @@ type Object struct {
 	// Transform defines the object's position, rotation, and scale in world space
 	Transform math.Transform
 
-	// Depth determines drawing order (higher depth = drawn last/on top)
+	// Depth determines drawing order within a layer (higher depth = drawn last/on top)
 	Depth float64
+
+	// Layer is the primary drawing-order dimension: objects are sorted by layer
+	// first (lower layer draws first/behind), then by depth within the layer. It
+	// separates fixed chrome (e.g. an always-on-top header) from ordinary windows
+	// so click-to-front can reorder windows without ever crossing a higher layer.
+	Layer int
 
 	// UI marks the object as screen-space: its position is in screen pixels, it
 	// ignores the camera, and it draws after all world objects.
@@ -81,6 +87,7 @@ func NewObject(name string) *Object {
 		Tags:           make(map[string]bool),
 		Transform:      math.NewTransform(),
 		Depth:          0,
+		Layer:          0,
 		Active:         true,
 		Scene:          nil,
 		destroyed:      false,
@@ -298,6 +305,19 @@ func (obj *Object) GetDepth() float64 {
 	return obj.Depth
 }
 
+// SetLayer sets the object's layer and marks the scene for re-sorting.
+func (obj *Object) SetLayer(layer int) {
+	obj.Layer = layer
+	if obj.Scene != nil {
+		obj.Scene.markDepthChanged(obj.ID)
+	}
+}
+
+// GetLayer returns the object's layer.
+func (obj *Object) GetLayer() int {
+	return obj.Layer
+}
+
 // ============================================================================
 // Lifecycle Methods
 // ============================================================================
@@ -459,6 +479,7 @@ func LoadObjectFromJSON(data []byte) (*Object, error) {
 	obj := NewObject(config.Name)
 	obj.UI = config.UI
 	obj.Draggable = config.Draggable
+	obj.Layer = config.Layer
 
 	// Set depth if specified
 	if config.Depth != 0 {
@@ -499,6 +520,7 @@ func (obj *Object) ToJSONConfig() *corejson.ObjectConfig {
 	config := &corejson.ObjectConfig{
 		Name:      obj.Name,
 		Depth:     obj.Depth,
+		Layer:     obj.Layer,
 		UI:        obj.UI,
 		Draggable: obj.Draggable,
 	}
