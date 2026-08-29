@@ -95,13 +95,15 @@ type uiSlider interface {
 // hit-test its own sub-regions — a combobox's dropdown items, a menu's entries, a
 // color wheel. Unlike uiPointer (any click = one action), a pointable element
 // decides what to do from where the pointer is. The manager calls PointerMove every
-// frame the pointer is over the element, PointerLeave once when it leaves, and
-// Press once per left-button press, each with the position.
+// frame the pointer is over the element, PointerLeave once when it leaves, Press on
+// each left-button press, and Release on each release — each with the position, so
+// the element can select on release the way a button activates on release.
 type uiPointable interface {
 	uiElement
 	PointerMove(pos math.Vector2)
 	PointerLeave()
 	Press(pos math.Vector2)
+	Release(pos math.Vector2)
 }
 
 func (m *UIManagerComponent) Update(ctx *core.Context) {
@@ -123,7 +125,7 @@ func (m *UIManagerComponent) Update(ctx *core.Context) {
 		m.onPress(target, pos)
 	}
 	if ctx.Input.IsMouseButtonJustReleased(core.MouseButtonLeft) {
-		m.onRelease(target)
+		m.onRelease(target, pos)
 	}
 
 	// Drag a draggable object while the left button stays held.
@@ -324,8 +326,8 @@ func (m *UIManagerComponent) isInteractive(el uiElement) bool {
 }
 
 // onRelease handles a left-button release: it activates the pressed pointer if the
-// release lands on it, then clears press and drag state.
-func (m *UIManagerComponent) onRelease(target uiElement) {
+// release lands on it, ends a slider drag, and completes a pointable gesture.
+func (m *UIManagerComponent) onRelease(target uiElement, pos math.Vector2) {
 	if m.pressed != nil {
 		if uiElement(m.pressed) == target {
 			m.pressed.Activate()
@@ -339,6 +341,12 @@ func (m *UIManagerComponent) onRelease(target uiElement) {
 	if m.adjusting != nil {
 		m.adjusting.EndAdjust()
 		m.adjusting = nil
+	}
+
+	// A pointable control (combobox) completes its gesture on release, so it can
+	// select the item the pointer was released over — the button-like behavior.
+	if pt, ok := target.(uiPointable); ok {
+		pt.Release(pos)
 	}
 }
 

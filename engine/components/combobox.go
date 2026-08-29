@@ -11,7 +11,8 @@ import (
 // are the same string. A handler reads the result via GetValue() (or GetIndex()).
 //
 // Opening and choosing:
-//   - click the field to open/close the list; clicking an item selects it,
+//   - click the field to open/close the list; press an item to highlight it, then
+//     release over it to select (the button-like release-to-activate feel),
 //   - click anywhere else (or press Escape) to close without selecting,
 //   - with keyboard focus, Enter/Space opens, ↑/↓ move the highlight, Enter selects,
 //     Escape closes.
@@ -50,7 +51,9 @@ type ComboBoxComponent struct {
 	// Placeholder is drawn in the field when Value is empty.
 	Placeholder string `json:"placeholder"`
 
-	// FontID and Size set the text font; Size 0 (default) = 14.
+	// FontID and Size set the text font. Size 0 (default) = 12, a crisp multiple of
+	// the built-in pixel font's 6-unit design grid (6, 12, 18, … stay sharp; other
+	// sizes rasterize antialiased and go soft).
 	FontID string  `json:"font_id"`
 	Size   float64 `json:"size"`
 
@@ -90,6 +93,11 @@ type ComboBoxComponent struct {
 	open      bool
 	highlight int
 	viewportH float64
+
+	// Press state for button-like selection (choose on release, not press).
+	pressedItem   int  // item index pressed (-1 = none)
+	pressedHeader bool // press was on the field itself (close on release)
+	openedOnPress bool // this press opened the list; ignore its release
 }
 
 // Initialize defaults the colors, sizes, and flags, then opts into blocking and
@@ -117,7 +125,7 @@ func (c *ComboBoxComponent) Initialize() {
 		c.OutlineThickness = 1
 	}
 	if c.Size <= 0 {
-		c.Size = 14
+		c.Size = 12
 	}
 	if c.ItemHeight <= 0 {
 		c.ItemHeight = 22
@@ -174,23 +182,51 @@ func (c *ComboBoxComponent) PointerLeave() {
 	c.highlight = c.selectedIndex()
 }
 
-// Press opens or closes the list and selects items, hit-testing the exact press
-// position. Called by a @UIManager on a left-button press.
+// Press opens the list (when closed) or records what was pressed (when open), so
+// the selection can happen on release. Called by a @UIManager on a left-button press.
 func (c *ComboBoxComponent) Press(pos math.Vector2) {
 	if !c.IsEnabled() {
 		return
 	}
 	if !c.open {
 		c.openDropdown()
+		c.openedOnPress = true
 		return
 	}
+	c.openedOnPress = false
+	c.pressedItem = -1
+	c.pressedHeader = false
 	if idx := c.itemAt(pos); idx >= 0 {
-		c.selectIndex(idx)
+		c.pressedItem = idx
+		c.highlight = idx
+	} else if c.headerRect().ContainsPoint(pos) {
+		c.pressedHeader = true
+	}
+}
+
+// Release completes the gesture: selecting the pressed item when released over it,
+// or closing the list when the field was pressed and released. Called by a
+// @UIManager on a left-button release.
+func (c *ComboBoxComponent) Release(pos math.Vector2) {
+	if !c.open {
+		c.pressedItem = -1
+		c.pressedHeader = false
+		c.openedOnPress = false
 		return
 	}
-	if c.headerRect().ContainsPoint(pos) {
+	// The release that follows the opening click must not immediately close the list.
+	if c.openedOnPress {
+		c.openedOnPress = false
+		return
+	}
+	idx := c.itemAt(pos)
+	if c.pressedItem >= 0 && idx == c.pressedItem {
+		c.selectIndex(idx)
+	} else if c.pressedHeader && c.headerRect().ContainsPoint(pos) {
 		c.closeDropdown()
 	}
+	c.pressedItem = -1
+	c.pressedHeader = false
 }
 
 // SetFocused closes the list when focus leaves the combobox (e.g. a click outside).
@@ -242,10 +278,13 @@ func (c *ComboBoxComponent) openDropdown() {
 	}
 }
 
-// closeDropdown closes the list and clears the highlight.
+// closeDropdown closes the list and clears the highlight and press state.
 func (c *ComboBoxComponent) closeDropdown() {
 	c.open = false
 	c.highlight = -1
+	c.pressedItem = -1
+	c.pressedHeader = false
+	c.openedOnPress = false
 }
 
 // selectIndex sets Value to Items[i], closes the list, and emits Event (only when
@@ -336,7 +375,7 @@ func (c *ComboBoxComponent) itemHeight() float64 {
 // textSize returns the font size.
 func (c *ComboBoxComponent) textSize() float64 {
 	if c.Size <= 0 {
-		return 14
+		return 12
 	}
 	return c.Size
 }
