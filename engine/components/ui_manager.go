@@ -106,6 +106,11 @@ type uiPointable interface {
 	Release(pos math.Vector2)
 }
 
+// popupLayerOffset is added to a component's draw layer while it has an open popup
+// (a combobox dropdown, a color picker panel), so the popup draws — and is
+// hit-tested — above the object's other components for that moment.
+const popupLayerOffset = 10000
+
 func (m *UIManagerComponent) Update(ctx *core.Context) {
 	scene := m.GetScene()
 	if scene == nil {

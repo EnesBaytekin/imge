@@ -185,6 +185,15 @@ func (c *ColorPickerComponent) SetColor(col math.Color) {
 	}
 }
 
+// GetDrawLayer returns a raised draw layer while the panel is open, so the panel
+// draws (and is hit-tested) above the object's other components for that moment.
+func (c *ColorPickerComponent) GetDrawLayer() int {
+	if c.open {
+		return c.DrawLayer + popupLayerOffset
+	}
+	return c.DrawLayer
+}
+
 // Contains reports whether p is over the swatch or, when open, the panel — so the
 // manager hit-tests the whole popup as one element.
 func (c *ColorPickerComponent) Contains(p math.Vector2) bool {

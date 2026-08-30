@@ -400,6 +400,15 @@ func (c *ComboBoxComponent) openUp() bool {
 	return above > below
 }
 
+// GetDrawLayer returns a raised draw layer while the dropdown is open, so the list
+// draws (and is hit-tested) above the object's other components for that moment.
+func (c *ComboBoxComponent) GetDrawLayer() int {
+	if c.open {
+		return c.DrawLayer + popupLayerOffset
+	}
+	return c.DrawLayer
+}
+
 // Draw renders the field, then the open list.
 func (c *ComboBoxComponent) Draw(r core.Renderer) {
 	if !c.IsVisible() {

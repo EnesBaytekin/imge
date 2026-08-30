@@ -215,6 +215,26 @@ func TestColorPickerAlphaDrag(t *testing.T) {
 	}
 }
 
+// TestColorPickerDrawLayerRaise verifies the panel raises the component above its
+// siblings in draw order only while it is open.
+func TestColorPickerDrawLayerRaise(t *testing.T) {
+	c := &ColorPickerComponent{}
+	c.DrawLayer = 3
+	c.Initialize()
+
+	if got := c.GetDrawLayer(); got != 3 {
+		t.Fatalf("closed draw layer = %d, want 3", got)
+	}
+	c.openPanel()
+	if got := c.GetDrawLayer(); got != 3+popupLayerOffset {
+		t.Fatalf("open draw layer = %d, want %d", got, 3+popupLayerOffset)
+	}
+	c.closePanel()
+	if got := c.GetDrawLayer(); got != 3 {
+		t.Fatalf("closed-after draw layer = %d, want 3", got)
+	}
+}
+
 func absDiff(a, b uint8) uint8 {
 	if a > b {
 		return a - b
