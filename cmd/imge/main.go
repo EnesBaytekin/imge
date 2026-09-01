@@ -48,6 +48,7 @@ func handleBuild() {
 	arm64 := fs.Bool("arm64", false, "build for arm64 architecture")
 	web := fs.Bool("web", false, "build the web (WASM) bundle")
 	all := fs.Bool("all", false, "build every supported target")
+	debug := fs.Bool("debug", false, "enable the debug overlay in the built game")
 	fs.Usage = printUsage
 	_ = fs.Parse(os.Args[2:])
 
@@ -110,7 +111,7 @@ func handleBuild() {
 			skipped++
 			continue
 		}
-		b := &build.Builder{ProjectDir: projectDir, Target: build.TargetDesktop, GOOS: p.GOOS, GOARCH: p.GOARCH}
+		b := &build.Builder{ProjectDir: projectDir, Target: build.TargetDesktop, GOOS: p.GOOS, GOARCH: p.GOARCH, Debug: *debug}
 		if _, err := b.Build(); err != nil {
 			fmt.Printf("Failed to build %s/%s: %v\n", p.GOOS, p.GOARCH, err)
 			failed++
@@ -119,7 +120,7 @@ func handleBuild() {
 		built++
 	}
 	if wantWeb {
-		b := &build.Builder{ProjectDir: projectDir, Target: build.TargetWeb}
+		b := &build.Builder{ProjectDir: projectDir, Target: build.TargetWeb, Debug: *debug}
 		if _, err := b.Build(); err != nil {
 			fmt.Printf("Failed to build web: %v\n", err)
 			failed++
@@ -265,6 +266,7 @@ func printUsage() {
 	fmt.Println("  --amd64 --arm64             target architecture (omit to build both)")
 	fmt.Println("  --web                       build the web (WASM) bundle")
 	fmt.Println("  --all                       build every supported target")
+	fmt.Println("  --debug                     enable the debug overlay pass in the built game")
 	fmt.Println()
 	fmt.Println("Output goes to imge_build/<name>_<os>-<arch> (web to imge_build/web/).")
 }

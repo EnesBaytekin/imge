@@ -36,6 +36,7 @@ type Generator struct {
 	BuildDir string
 	Analysis *ProjectAnalysis
 	Target   string // TargetDesktop or TargetWeb
+	Debug    bool   // enable the debug overlay pass in the generated game
 }
 
 // Generate creates all necessary build files.
@@ -222,6 +223,7 @@ func (g *Generator) generateDesktopMainGo(hasData bool) error {
 		InitialScene       string
 		EmbedDirective     string
 		HasData            bool
+		Debug              bool
 	}{
 		ModuleName:         fmt.Sprintf("%s_build", filepath.Base(g.Analysis.ProjectDir)),
 		WindowTitle:        g.Analysis.GameConfig.Window.Title,
@@ -234,6 +236,7 @@ func (g *Generator) generateDesktopMainGo(hasData bool) error {
 		InitialScene:       g.Analysis.GameConfig.Game.InitialScene,
 		EmbedDirective:     embedDirective,
 		HasData:            hasData,
+		Debug:              g.Debug,
 	}
 
 	return g.renderTemplate(mainTemplateDesktop, data)
@@ -258,6 +261,7 @@ func (g *Generator) generateWebMainGo(hasData bool) error {
 		TargetFPS          int
 		InitialScene       string
 		HasData            bool
+		Debug              bool
 	}{
 		ModuleName:         fmt.Sprintf("%s_build", filepath.Base(g.Analysis.ProjectDir)),
 		WindowTitle:        g.Analysis.GameConfig.Window.Title,
@@ -269,6 +273,7 @@ func (g *Generator) generateWebMainGo(hasData bool) error {
 		TargetFPS:          g.Analysis.GameConfig.Game.TargetFPS,
 		InitialScene:       g.Analysis.GameConfig.Game.InitialScene,
 		HasData:            hasData,
+		Debug:              g.Debug,
 	}
 
 	return g.renderTemplate(mainTemplateWeb, data)
@@ -386,7 +391,8 @@ func loadScenes(game *core.Game) {
 			log.Printf("warning: failed to load scene %q: %v", p, err)
 			return nil
 		}
-		game.AddScene(scene)
+{{if .Debug}}		scene.SetDebugDraw(true)
+{{end}}		game.AddScene(scene)
 		return nil
 	})
 }
@@ -519,7 +525,8 @@ func loadScenes(game *core.Game, projectFS fs.FS) {
 			log.Printf("warning: failed to load scene %q: %v", p, err)
 			return nil
 		}
-		game.AddScene(scene)
+{{if .Debug}}		scene.SetDebugDraw(true)
+{{end}}		game.AddScene(scene)
 		return nil
 	})
 }

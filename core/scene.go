@@ -54,6 +54,15 @@ type Scene struct {
 	// Active controls whether the scene is updated and drawn
 	Active bool
 
+	// DebugDraw enables the debug overlay pass: after all normal draws, every
+	// component implementing DebugDrawer draws its debug visuals on top. Off by
+	// default; the editor and `imge build --debug` turn it on.
+	DebugDraw bool
+
+	// debugSelected is the component the editor has selected, so the overlay can
+	// pass DebugInfo.Selected to it. Set via SetDebugSelection.
+	debugSelected Component
+
 	// EventManager handles the event queue and subscriptions for this scene.
 	// Processed after all component Update() calls each frame.
 	EventManager *EventManager
@@ -392,6 +401,54 @@ func (s *Scene) Draw(renderer Renderer) {
 		obj := s.Objects[id]
 		if obj != nil && obj.Active && !obj.IsDestroyed() && obj.UI {
 			obj.Draw(renderer)
+		}
+	}
+
+	// Debug overlay draws last, always on top of the finished frame.
+	if s.DebugDraw {
+		s.drawDebugOverlay(renderer)
+	}
+}
+
+// SetDebugDraw enables or disables the debug overlay pass.
+func (s *Scene) SetDebugDraw(v bool) { s.DebugDraw = v }
+
+// SetDebugSelection marks a component as the current selection so the debug overlay
+// passes it DebugInfo.Selected == true. Pass nil to clear the selection.
+func (s *Scene) SetDebugSelection(c Component) { s.debugSelected = c }
+
+// drawDebugOverlay runs the final debug pass: it walks every active object in draw
+// order and calls DrawDebug on each component implementing DebugDrawer. It mirrors
+// the normal draw's camera split (world objects under the camera, UI objects in raw
+// screen space) so debug bounds land where their component draws.
+func (s *Scene) drawDebugOverlay(renderer Renderer) {
+	if s.Camera != nil {
+		renderer.SetCamera(s.Camera.X, s.Camera.Y, s.Camera.Zoom)
+	} else {
+		renderer.SetCamera(0, 0, 0)
+	}
+	for _, id := range s.SortedObjects {
+		obj := s.Objects[id]
+		if obj != nil && obj.Active && !obj.IsDestroyed() && !obj.UI {
+			s.drawObjectDebug(obj, renderer)
+		}
+	}
+
+	renderer.SetCamera(0, 0, 0)
+	for _, id := range s.SortedObjects {
+		obj := s.Objects[id]
+		if obj != nil && obj.Active && !obj.IsDestroyed() && obj.UI {
+			s.drawObjectDebug(obj, renderer)
+		}
+	}
+}
+
+// drawObjectDebug calls DrawDebug on the object's DebugDrawer components, in draw
+// order, marking the selected one.
+func (s *Scene) drawObjectDebug(obj *Object, renderer Renderer) {
+	for _, comp := range obj.drawComponents() {
+		if dd, ok := comp.(DebugDrawer); ok {
+			dd.DrawDebug(renderer, DebugInfo{Selected: comp == s.debugSelected})
 		}
 	}
 }

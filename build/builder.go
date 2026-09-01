@@ -16,6 +16,7 @@ type Builder struct {
 	Target     string // TargetDesktop or TargetWeb
 	GOOS       string // target OS ("" = native host)
 	GOARCH     string // target architecture ("" = native host)
+	Debug      bool   // enable the debug overlay pass in the built game
 }
 
 // Build analyzes the project, generates a self-contained Go module that embeds
@@ -55,6 +56,7 @@ func (b *Builder) Build() (string, error) {
 		BuildDir: buildDir,
 		Analysis: analysis,
 		Target:   b.Target,
+		Debug:    b.Debug,
 	}
 	if err := generator.Generate(); err != nil {
 		return "", fmt.Errorf("generation failed: %w", err)

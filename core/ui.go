@@ -69,6 +69,10 @@ func (c *BaseUIComponent) Position() math.Vector2 {
 	return c.owner.Transform.Position.Add(c.Offset)
 }
 
+// SetOffset sets the element's top-left position relative to the owner object.
+// A layout container uses this to position sibling components.
+func (c *BaseUIComponent) SetOffset(offset math.Vector2) { c.Offset = offset }
+
 // Rect returns the element's screen-space rectangle: top-left at Position(), size
 // Width×Height. A nil owner means the owner's position is treated as (0,0).
 func (c *BaseUIComponent) Rect() math.Rect {

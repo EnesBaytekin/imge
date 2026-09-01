@@ -86,6 +86,18 @@ type Renderer interface {
 
 	// GetViewportSize returns the current viewport size.
 	GetViewportSize() (width, height int)
+
+	// SetClipRect restricts subsequent draw calls to the given screen-space
+	// rectangle (in logical units); content outside it is discarded. A zero- or
+	// negative-sized rect is treated as ClearClip. The clip is screen-space (it is
+	// unaffected by the camera) and non-nesting: a new SetClipRect replaces the
+	// current clip rather than stacking. SetClipRect/ClearClip must be balanced —
+	// a clip left open discards its content.
+	SetClipRect(rect math.Rect)
+
+	// ClearClip ends the clip region established by SetClipRect, compositing the
+	// clipped content back onto the target and restoring full-target drawing.
+	ClearClip()
 }
 
 // ============================================================================

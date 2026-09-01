@@ -106,6 +106,14 @@ type uiPointable interface {
 	Release(pos math.Vector2)
 }
 
+// uiScrollable is a UI element that reacts to the mouse wheel (a scrollable list
+// or panel). The manager forwards the frame's wheel delta to the element under the
+// pointer, so scrollable widgets never read ctx.Input themselves.
+type uiScrollable interface {
+	uiElement
+	Scroll(delta math.Vector2)
+}
+
 // popupLayerOffset is added to a component's draw layer while it has an open popup
 // (a combobox dropdown, a color picker panel), so the popup draws — and is
 // hit-tested — above the object's other components for that moment.
@@ -125,6 +133,13 @@ func (m *UIManagerComponent) Update(ctx *core.Context) {
 	target := m.targetAt(pos)
 	m.updateHover(target)
 	m.updatePointed(target, pos)
+
+	// Forward the mouse wheel to the element under the pointer, if it is scrollable.
+	if s := ctx.Input.GetMouseScroll(); s.X != 0 || s.Y != 0 {
+		if sc, ok := target.(uiScrollable); ok {
+			sc.Scroll(s)
+		}
+	}
 
 	if ctx.Input.IsMouseButtonJustPressed(core.MouseButtonLeft) {
 		m.onPress(target, pos)

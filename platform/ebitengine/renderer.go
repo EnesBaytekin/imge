@@ -49,6 +49,19 @@ type Renderer struct {
 	// fonts caches parsed fonts and size-specific text faces for DrawText and
 	// MeasureText. See font.go.
 	fonts fontState
+
+	// Clip state: while a clip is active, drawing goes to an offscreen sub-target
+	// (clipTarget) instead of the frame target (rootTarget). screenPos subtracts the
+	// clip's pixel origin so coordinates stay consistent, and ClearClip blits the
+	// offscreen back at that origin. clipActive is tracked separately from the
+	// buffer so the offscreen can be reused across frames.
+	rootTarget *ebiten.Image
+	clipActive bool
+	clipTarget *ebiten.Image
+	clipW      int
+	clipH      int
+	clipOX     float64
+	clipOY     float64
 }
 
 // textureEntry caches a decoded texture together with its dominant hue, computed
@@ -71,6 +84,8 @@ func newRenderer() *Renderer {
 // begin sets the frame's draw target (called once per frame by the runner).
 func (r *Renderer) begin(target *ebiten.Image) {
 	r.target = target
+	r.rootTarget = target
+	r.clipActive = false
 }
 
 func (r *Renderer) setViewport(w, h int) {
@@ -146,15 +161,22 @@ func (r *Renderer) SetCamera(cx, cy, zoom float64) {
 	r.camZoom = zoom
 }
 
-// screenPos maps a world point to screen coordinates under the current camera.
+// screenPos maps a world point to screen coordinates under the current camera,
+// shifted into the clip offscreen's coordinate space when a clip is active.
 func (r *Renderer) screenPos(p math.Vector2) math.Vector2 {
+	var x, y float64
 	if !r.camActive {
-		return math.NewVector2(p.X*r.pixelScale, p.Y*r.pixelScale)
+		x = p.X * r.pixelScale
+		y = p.Y * r.pixelScale
+	} else {
+		x = (p.X - r.camX) * r.camZoom * r.pixelScale
+		y = (p.Y - r.camY) * r.camZoom * r.pixelScale
 	}
-	return math.NewVector2(
-		(p.X-r.camX)*r.camZoom*r.pixelScale,
-		(p.Y-r.camY)*r.camZoom*r.pixelScale,
-	)
+	if r.clipActive {
+		x -= r.clipOX
+		y -= r.clipOY
+	}
+	return math.NewVector2(x, y)
 }
 
 // zoom returns the current camera zoom (1 when no camera is active).
@@ -477,6 +499,58 @@ func (r *Renderer) SetViewport(width, height int) {
 // GetViewportSize returns the current viewport size.
 func (r *Renderer) GetViewportSize() (width, height int) {
 	return r.viewportWidth, r.viewportHeight
+}
+
+// SetClipRect restricts subsequent drawing to the given screen-space rectangle
+// (logical units); content outside it is discarded. A zero/negative rect clears
+// any active clip. The clip is non-nesting: a new SetClipRect flushes the current
+// one (blitting it back) rather than stacking. Must be balanced with ClearClip.
+func (r *Renderer) SetClipRect(rect math.Rect) {
+	if rect.Width() <= 0 || rect.Height() <= 0 || r.rootTarget == nil {
+		r.ClearClip()
+		return
+	}
+
+	// Flush any active clip so its content lands on the root target before we
+	// repoint at a new offscreen.
+	r.ClearClip()
+
+	x0 := int(stdmath.Floor(rect.X() * r.pixelScale))
+	y0 := int(stdmath.Floor(rect.Y() * r.pixelScale))
+	w := int(stdmath.Ceil(rect.Width() * r.pixelScale))
+	h := int(stdmath.Ceil(rect.Height() * r.pixelScale))
+	if w <= 0 || h <= 0 {
+		return
+	}
+
+	// Reuse the offscreen across frames and clip regions; reallocate only on a
+	// size change, and clear it (it holds the previous frame's pixels).
+	if r.clipTarget == nil || r.clipW != w || r.clipH != h {
+		r.clipTarget = ebiten.NewImage(w, h)
+		r.clipW, r.clipH = w, h
+	} else {
+		r.clipTarget.Clear()
+	}
+	r.clipOX = float64(x0)
+	r.clipOY = float64(y0)
+	r.clipActive = true
+	r.target = r.clipTarget
+}
+
+// ClearClip ends the active clip region, compositing the clipped content back onto
+// the root target at its origin and restoring full-target drawing.
+func (r *Renderer) ClearClip() {
+	if !r.clipActive {
+		return
+	}
+	off := r.clipTarget
+	r.clipActive = false
+	r.target = r.rootTarget
+	if r.rootTarget != nil {
+		var geoM ebiten.GeoM
+		geoM.Translate(r.clipOX, r.clipOY)
+		r.rootTarget.DrawImage(off, &ebiten.DrawImageOptions{GeoM: geoM})
+	}
 }
 
 // loadTexture loads and caches a texture by ID. The ID is treated as a

@@ -204,9 +204,16 @@ type PlayerComponent struct {
 		{"@Velocity", "Velocity"},
 		{"@Wander", "Wander"},
 		{"@Button", "ButtonComponent"},
+		{"@CheckBox", "CheckBoxComponent"},
+		{"@ColorPicker", "ColorPickerComponent"},
+		{"@ComboBox", "ComboBoxComponent"},
+		{"@Container", "ContainerComponent"},
 		{"@Label", "LabelComponent"},
+		{"@List", "ListComponent"},
 		{"@Panel", "PanelComponent"},
+		{"@Slider", "SliderComponent"},
 		{"@TextInput", "TextInputComponent"},
+		{"@UIManager", "UIManagerComponent"},
 		{"PlayerComponent", "PlayerComponent"},
 	} {
 		if got[want.kind] != want.typeName {
