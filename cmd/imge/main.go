@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/EnesBaytekin/imge"
 	"github.com/EnesBaytekin/imge/build"
@@ -50,7 +51,8 @@ func handleBuild() {
 	all := fs.Bool("all", false, "build every supported target")
 	debug := fs.Bool("debug", false, "enable the debug overlay in the built game")
 	fs.Usage = printUsage
-	_ = fs.Parse(os.Args[2:])
+	flags, positional := splitFlags(os.Args[2:])
+	_ = fs.Parse(flags)
 
 	projectDir := requireProjectDir()
 
@@ -60,7 +62,7 @@ func handleBuild() {
 
 	anyOS := *linux || *windows || *macos
 	anyArch := *amd64 || *arm64
-	posWeb := len(fs.Args()) > 0 && normalizeTarget(fs.Args()[0]) == build.TargetWeb
+	posWeb := len(positional) > 0 && normalizeTarget(positional[0]) == build.TargetWeb
 
 	switch {
 	case *all:
@@ -160,16 +162,44 @@ func normalizeTarget(s string) string {
 	}
 }
 
-func handleRun() {
-	// `imge run` builds and runs natively. `imge run web` just builds the bundle.
-	if len(os.Args) >= 3 && (os.Args[2] == "web" || os.Args[2] == "wasm") {
-		handleBuild()
-		return
+// splitFlags separates flag tokens (anything starting with "-") from positional
+// arguments. The stdlib flag package stops parsing at the first non-flag token,
+// so `imge build web --debug` would otherwise silently ignore --debug. Splitting
+// first, parsing the flags, and treating the rest as positionals lets flags and
+// the positional target appear in any order. All current flags are boolean, so no
+// flag takes a separate value token that this would misplace.
+func splitFlags(args []string) (flags, positional []string) {
+	for _, a := range args {
+		if strings.HasPrefix(a, "-") {
+			flags = append(flags, a)
+		} else {
+			positional = append(positional, a)
+		}
 	}
+	return flags, positional
+}
+
+func handleRun() {
+	fs := flag.NewFlagSet("run", flag.ExitOnError)
+	debug := fs.Bool("debug", false, "enable the debug overlay in the built game")
+	fs.Usage = printUsage
+	flags, positional := splitFlags(os.Args[2:])
+	_ = fs.Parse(flags)
 
 	projectDir := requireProjectDir()
 
-	builder := &build.Builder{ProjectDir: projectDir, Target: build.TargetDesktop}
+	// `imge run web` has no native web runner, so it just builds the bundle.
+	if len(positional) > 0 && normalizeTarget(positional[0]) == build.TargetWeb {
+		b := &build.Builder{ProjectDir: projectDir, Target: build.TargetWeb, Debug: *debug}
+		outPath, err := b.Build()
+		if err != nil {
+			log.Fatalf("Build failed: %v", err)
+		}
+		fmt.Printf("Built %s\n", outPath)
+		return
+	}
+
+	builder := &build.Builder{ProjectDir: projectDir, Target: build.TargetDesktop, Debug: *debug}
 	outPath, err := builder.Build()
 	if err != nil {
 		log.Fatalf("Build failed: %v", err)
@@ -253,7 +283,8 @@ func printUsage() {
 	fmt.Println("  imge init                 Initialize a blank game project (empty directory only)")
 	fmt.Println("  imge init sample          Initialize the sample platformer demo")
 	fmt.Println("  imge build [flags]        Build the game")
-	fmt.Println("  imge run                  Build and run natively (desktop)")
+	fmt.Println("  imge run [--debug]        Build and run natively (desktop)")
+	fmt.Println("  imge run web [--debug]    Build the web (WASM) bundle")
 	fmt.Println("  imge new <kind> <name>    Create a blank template file")
 	fmt.Println("  imge version              Show engine version")
 	fmt.Println("  imge help                 Show this help")
@@ -261,7 +292,7 @@ func printUsage() {
 	fmt.Println("  <kind>   object (.obj) | component (.go) | scene (.scene)")
 	fmt.Println("  <name>   filename; may include a relative path (e.g. objects/player)")
 	fmt.Println()
-	fmt.Println("Build flags (combine freely):")
+	fmt.Println("Build flags (combine freely; --debug works on both build and run):")
 	fmt.Println("  --linux --windows --macos   target OS (omit with --arch to target every OS)")
 	fmt.Println("  --amd64 --arm64             target architecture (omit to build both)")
 	fmt.Println("  --web                       build the web (WASM) bundle")

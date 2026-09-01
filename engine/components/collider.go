@@ -85,6 +85,21 @@ func (c *Collider) ContainsPoint(point math.Vector2) bool {
 	return c.GetBounds().ContainsPoint(point)
 }
 
+// DrawDebug draws the collider's hitbox as an outline when the scene has debug
+// drawing enabled (imge build --debug). The outline is translucent green; the
+// current selection is drawn brighter so it stands out.
+func (c *Collider) DrawDebug(r core.Renderer, info core.DebugInfo) {
+	color := math.NewColor(0, 220, 90, 170)
+	if info.Selected {
+		color = math.NewColor(130, 255, 170, 255)
+	}
+	r.DrawRectOutline(c.GetBounds(), color, 1)
+}
+
+// DebugBounds returns the collider's world-space box for editor hit-testing, the
+// same rectangle DrawDebug outlines.
+func (c *Collider) DebugBounds() math.Rect { return c.GetBounds() }
+
 // shapeBounds returns the world-space rectangle occupied by a width×height shape
 // anchored at the owner's position plus offset (top-left corner). The owner may be
 // nil (the rectangle is then anchored at the offset alone), which keeps the helper
