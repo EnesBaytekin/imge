@@ -25,12 +25,14 @@ type componentKind struct {
 }
 
 // findComponentTypeName parses a component source file and returns the name of
-// the exported struct type that embeds core.BaseComponent.
-func findComponentTypeName(src []byte) (string, error) {
+// the exported struct type that embeds core.BaseComponent. The second return is
+// false when the file declares no such struct — a helper file of free functions,
+// constants, and variables is valid and simply contributes no component kind.
+func findComponentTypeName(src []byte) (name string, isComponent bool, err error) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "component.go", src, 0)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 
 	var found []string
@@ -58,12 +60,12 @@ func findComponentTypeName(src []byte) (string, error) {
 	}
 
 	switch len(found) {
-	case 1:
-		return found[0], nil
 	case 0:
-		return "", fmt.Errorf("no exported struct embeds core.BaseComponent")
+		return "", false, nil
+	case 1:
+		return found[0], true, nil
 	default:
-		return "", fmt.Errorf("multiple component structs found: %v", found)
+		return "", false, fmt.Errorf("multiple component structs found: %v", found)
 	}
 }
 
@@ -143,9 +145,12 @@ func (g *Generator) componentKinds() ([]componentKind, error) {
 		if err != nil {
 			return nil, err
 		}
-		typeName, err := findComponentTypeName(data)
+		typeName, isComponent, err := findComponentTypeName(data)
 		if err != nil {
 			return nil, fmt.Errorf("built-in component %s: %w", entry.Name(), err)
+		}
+		if !isComponent {
+			return nil, fmt.Errorf("built-in component %s: no exported struct embeds core.BaseComponent", entry.Name())
 		}
 		kinds = append(kinds, componentKind{
 			kind:     builtinKind(typeName),
@@ -164,9 +169,15 @@ func (g *Generator) componentKinds() ([]componentKind, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to read component %s: %w", compFile, err)
 		}
-		typeName, err := findComponentTypeName(src)
+		typeName, isComponent, err := findComponentTypeName(src)
 		if err != nil {
 			return nil, fmt.Errorf("component file %s: %w", compFile, err)
+		}
+		if !isComponent {
+			// A helper file (free functions/consts/vars only) contributes no
+			// component kind, but is still copied into the build's components
+			// package so other files can reference its helpers.
+			continue
 		}
 		kinds = append(kinds, componentKind{
 			kind:     typeName,

@@ -11,6 +11,8 @@ type Window struct {
 	width      int
 	height     int
 	fullscreen bool
+	resizable  bool
+	scale      int
 }
 
 func newWindow() *Window {
@@ -23,6 +25,8 @@ func (w *Window) Create(cfg core.WindowConfig) error {
 	w.width = cfg.Width
 	w.height = cfg.Height
 	w.fullscreen = cfg.Fullscreen
+	w.resizable = cfg.Resizable && !cfg.Fullscreen
+	w.scale = cfg.Scale
 
 	ebiten.SetWindowTitle(cfg.Title)
 
@@ -30,40 +34,63 @@ func (w *Window) Create(cfg core.WindowConfig) error {
 	// resolution is scaled up to fit the window/screen.
 	ebiten.SetScreenFilterEnabled(false)
 
-	// The window is fixed-size: it can't be drag-resized, only toggled between
-	// windowed and fullscreen.
-	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeDisabled)
-
-	// Open the window at the largest integer scale of the RENDER resolution
-	// (logical * pixel_per_unit) that fits the monitor. Basing it on the render
-	// resolution rather than the logical one keeps the final upscale an integer,
-	// so pixel art stays crisp when pixel_per_unit > 1 and the extra sub-unit
-	// resolution is actually shown (web ignores the window size — the browser owns it).
+	// The render resolution is logical * pixel_per_unit; the window magnifies it
+	// by an integer scale factor (auto-fit, or an explicit Scale when Resizable).
 	ppu := cfg.PixelPerUnit
 	if ppu <= 0 {
 		ppu = 1
 	}
-	ww, wh := fitWindowSize(cfg.Width*ppu, cfg.Height*ppu)
-	ebiten.SetWindowSize(ww, wh)
+	renderW, renderH := cfg.Width*ppu, cfg.Height*ppu
 
-	// Lock the window to the auto-fit size with matching min/max limits. Ebitengine
-	// disables the limits during fullscreen and re-applies them on exit, so leaving
-	// fullscreen deterministically clamps back to this size instead of drifting
-	// (which would otherwise letterbox the game left/right).
-	ebiten.SetWindowSizeLimits(ww, wh, ww, wh)
+	// Resolve the integer window scale:
+	//   - fullscreen ignores scale (the surface stretches to the display);
+	//   - resizable uses a fixed scale (auto -> 1, so the window size drives the
+	//     logical resolution rather than the reverse);
+	//   - fixed-size uses the explicit scale, or at 0 the largest integer factor
+	//     of the render resolution that still fits the monitor.
+	scale := cfg.Scale
+	if cfg.Fullscreen {
+		scale = 1
+		ebiten.SetWindowResizingMode(ebiten.WindowResizingModeDisabled)
+	} else if cfg.Resizable {
+		ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
+		if scale < 1 {
+			scale = 1
+		}
+	} else {
+		ebiten.SetWindowResizingMode(ebiten.WindowResizingModeDisabled)
+		if scale <= 0 {
+			scale = autoFitScale(renderW, renderH)
+		}
+	}
+
+	ww, wh := renderW*scale, renderH*scale
+	ebiten.SetWindowSize(ww, wh)
 
 	if cfg.Fullscreen {
 		ebiten.SetFullscreen(true)
+	} else if cfg.Resizable {
+		// Allow shrinking down to roughly one logical unit, with no maximum — the
+		// Layout path recomputes the logical size from the window every frame, so
+		// the scene grows and shrinks with the window. A negative value means "no
+		// limit" to Ebitengine/GLFW; 0 is an invalid maximum that GLFW rejects.
+		ebiten.SetWindowSizeLimits(ppu*scale, ppu*scale, -1, -1)
+	} else {
+		// Lock the window to its resolved size with matching min/max limits.
+		// Ebitengine disables the limits during fullscreen and re-applies them on
+		// exit, so leaving fullscreen deterministically clamps back to this size
+		// instead of drifting (which would otherwise letterbox the game left/right).
+		ebiten.SetWindowSizeLimits(ww, wh, ww, wh)
 	}
 	return nil
 }
 
-// fitWindowSize returns the logical resolution scaled up by the largest integer
-// factor that still fits the primary monitor, leaving a margin for window
-// decorations. It falls back to the logical size when no monitor is reported.
-func fitWindowSize(width, height int) (int, int) {
+// autoFitScale returns the largest integer factor by which the given render
+// resolution still fits the primary monitor, leaving a margin for window
+// decorations. It falls back to 1 when no monitor is reported.
+func autoFitScale(width, height int) int {
 	if width <= 0 || height <= 0 {
-		return width, height
+		return 1
 	}
 	scale := 1
 	if m := ebiten.Monitor(); m != nil {
@@ -82,7 +109,7 @@ func fitWindowSize(width, height int) (int, int) {
 			}
 		}
 	}
-	return width * scale, height * scale
+	return scale
 }
 
 // Destroy is a no-op; Ebitengine tears the window down when the game exits.

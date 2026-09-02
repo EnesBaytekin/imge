@@ -250,6 +250,17 @@ func (c Color) Hex() uint32 {
 	return (uint32(c.R) << 24) | (uint32(c.G) << 16) | (uint32(c.B) << 8) | uint32(c.A)
 }
 
+// HexString returns the color as a "#RRGGBB" string, or "#RRGGBBAA" when it is not
+// fully opaque. It is the inverse of ParseHex, so a color serialized with HexString
+// round-trips through ParseHex unchanged. Used when writing colors into scene/object
+// JSON, which stores colors as hex strings.
+func (c Color) HexString() string {
+	if c.A == 255 {
+		return fmt.Sprintf("#%02x%02x%02x", c.R, c.G, c.B)
+	}
+	return fmt.Sprintf("#%02x%02x%02x%02x", c.R, c.G, c.B, c.A)
+}
+
 // String returns a string representation of the color.
 func (c Color) String() string {
 	return fmt.Sprintf("Color(R:%d, G:%d, B:%d, A:%d)", c.R, c.G, c.B, c.A)

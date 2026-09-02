@@ -272,24 +272,39 @@ func (r *Renderer) DrawRectOutline(rect math.Rect, c math.Color, thickness float
 }
 
 // drawRectOutlineChunky rasterizes the outline at logical resolution and blits it
-// upscaled. The stroke is centered on the rect perimeter, so it extends half the
-// thickness outside the rect.
+// upscaled, aligned to the filled rect's grid. It draws four crisp edge strips
+// inside the bounds, sharing the fill's (0,0) anchor and fractional width/height, so
+// the outline's outer edge lands exactly on the filled rect's edge at every zoom. The
+// old centered StrokeRect straddled the boundary by half a pixel, which read as a
+// one-pixel shift at high zoom.
 func (r *Renderer) drawRectOutlineChunky(rect math.Rect, c math.Color, thickness float64) {
 	if thickness <= 0 {
 		return
 	}
 	w, h := rect.Width(), rect.Height()
+	if w <= 0 || h <= 0 {
+		return
+	}
 	qx := stdmath.Round(rect.Position.X)
 	qy := stdmath.Round(rect.Position.Y)
-	ox := stdmath.Ceil(thickness / 2)
-	oy := stdmath.Ceil(thickness / 2)
-	bw := int(stdmath.Ceil(w) + 2*ox)
-	bh := int(stdmath.Ceil(h) + 2*oy)
+	bw := int(stdmath.Ceil(w))
+	bh := int(stdmath.Ceil(h))
 	key := fmt.Sprintf("rectoutline:%g:%g:%g:%s", w, h, thickness, colorKey(c))
 	img := r.chunkySprite(key, bw, bh, func(dst *ebiten.Image) {
-		vector.StrokeRect(dst, float32(ox), float32(oy), float32(w), float32(h), float32(thickness), toRGBA(c), false)
+		fw, fh := float32(w), float32(h)
+		t := float32(thickness)
+		// Top and bottom strips.
+		vector.DrawFilledRect(dst, 0, 0, fw, t, toRGBA(c), false)
+		vector.DrawFilledRect(dst, 0, fh-t, fw, t, toRGBA(c), false)
+		// Left and right strips, minus the corners already covered.
+		inner := fh - 2*t
+		if inner < 0 {
+			inner = 0
+		}
+		vector.DrawFilledRect(dst, 0, t, t, inner, toRGBA(c), false)
+		vector.DrawFilledRect(dst, fw-t, t, t, inner, toRGBA(c), false)
 	})
-	r.blitChunky(img, math.NewVector2(qx-ox, qy-oy), math.NewVector2(rect.Position.X-qx, rect.Position.Y-qy))
+	r.blitChunky(img, math.NewVector2(qx, qy), math.NewVector2(rect.Position.X-qx, rect.Position.Y-qy))
 }
 
 // DrawCircle draws a filled circle.

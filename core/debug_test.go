@@ -21,6 +21,14 @@ func (c *debugTestComponent) DebugBounds() math.Rect {
 	return math.NewRect(0, 0, 10, 10)
 }
 
+// recordDrawComponent records Draw calls so a test can assert the world pass ran.
+type recordDrawComponent struct {
+	BaseComponent
+	drawn int
+}
+
+func (c *recordDrawComponent) Draw(Renderer) { c.drawn++ }
+
 // nopRenderer satisfies Renderer with no-ops, enough for Scene.Draw to run.
 type nopRenderer struct{}
 
@@ -96,5 +104,78 @@ func TestDebugOverlayClearsSelection(t *testing.T) {
 	scene.Draw(nopRenderer{})
 	if len(comp.calls) != 1 || comp.calls[0].Selected {
 		t.Fatalf("cleared selection still marked selected: calls=%v", comp.calls)
+	}
+}
+
+// newDrawWorldScene builds a scene with one world object and one UI object, each
+// holding a recordDrawComponent, so DrawWorld's UI split can be asserted.
+func newDrawWorldScene() (*Scene, *recordDrawComponent, *recordDrawComponent) {
+	scene := NewScene("test")
+
+	world := NewObject("world")
+	wc := &recordDrawComponent{}
+	wc.SetName("world_draw")
+	_ = world.AddComponent(wc)
+	_ = scene.AddObject(world)
+
+	ui := NewObject("ui")
+	ui.UI = true
+	uc := &recordDrawComponent{}
+	uc.SetName("ui_draw")
+	_ = ui.AddComponent(uc)
+	_ = scene.AddObject(ui)
+
+	return scene, wc, uc
+}
+
+func TestDrawWorldDrawsWorldSkipsUI(t *testing.T) {
+	scene, wc, uc := newDrawWorldScene()
+	scene.DrawWorld(nopRenderer{}, false)
+
+	if wc.drawn != 1 {
+		t.Fatalf("world component drawn %d times, want 1", wc.drawn)
+	}
+	if uc.drawn != 0 {
+		t.Fatalf("UI component drawn %d times, want 0", uc.drawn)
+	}
+}
+
+func TestDrawWorldDebugOnlyWorld(t *testing.T) {
+	scene := NewScene("test")
+
+	world := NewObject("world")
+	wc := &debugTestComponent{}
+	wc.SetName("dbg_world")
+	_ = world.AddComponent(wc)
+	_ = scene.AddObject(world)
+
+	ui := NewObject("ui")
+	ui.UI = true
+	uc := &debugTestComponent{}
+	uc.SetName("dbg_ui")
+	_ = ui.AddComponent(uc)
+	_ = scene.AddObject(ui)
+
+	scene.DrawWorld(nopRenderer{}, true)
+
+	if len(wc.calls) != 1 {
+		t.Fatalf("world debug called %d times, want 1", len(wc.calls))
+	}
+	if len(uc.calls) != 0 {
+		t.Fatalf("UI debug called %d times, want 0", len(uc.calls))
+	}
+}
+
+func TestDrawWorldLeavesCameraUntouched(t *testing.T) {
+	scene, _, _ := newDrawWorldScene()
+	scene.Camera = NewCamera()
+	scene.Camera.X = 123
+	scene.Camera.Y = 456
+	scene.Camera.Zoom = 2.5
+
+	scene.DrawWorld(nopRenderer{}, true)
+
+	if scene.Camera.X != 123 || scene.Camera.Y != 456 || scene.Camera.Zoom != 2.5 {
+		t.Fatalf("scene camera mutated: X=%v Y=%v Zoom=%v", scene.Camera.X, scene.Camera.Y, scene.Camera.Zoom)
 	}
 }

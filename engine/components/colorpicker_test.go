@@ -65,10 +65,10 @@ func TestParseByte(t *testing.T) {
 		{"0", 0, true},
 		{"255", 255, true},
 		{"128", 128, true},
-		{"300", 255, true},  // clamped
-		{"-5", 0, true},     // clamped
-		{"", 0, false},      // empty
-		{"abc", 0, false},   // non-numeric
+		{"300", 255, true}, // clamped
+		{"-5", 0, true},    // clamped
+		{"", 0, false},     // empty
+		{"abc", 0, false},  // non-numeric
 	}
 	for _, tc := range cases {
 		got, ok := parseByte(tc.in)
@@ -108,49 +108,55 @@ func TestColorPickerCommitCancel(t *testing.T) {
 	}
 }
 
-// TestColorPickerPanelPlacement verifies the panel opens below the swatch by default
-// and flips above when it would overflow the bottom.
+// TestColorPickerPanelPlacement verifies the panel opens below the swatch by default,
+// flips above when it would overflow the bottom, and centers on-screen when it fits
+// neither side.
 func TestColorPickerPanelPlacement(t *testing.T) {
 	c := &ColorPickerComponent{}
 	c.Width = 40
 	c.Height = 20
 	c.Initialize()
 
+	h := c.panelHeight()
+
 	// Unknown viewport -> below (default).
 	c.viewportH = 0
-	if c.openUp() {
-		t.Fatal("expected down when the viewport is unknown")
+	if top := c.panelRect().Top(); top != c.headerRect().Bottom() {
+		t.Fatalf("expected down when the viewport is unknown: got top %v, want %v", top, c.headerRect().Bottom())
 	}
 
 	// Fits below -> stays below.
 	c.Offset = math.NewVector2(0, 0)
 	c.viewportH = 500
-	if c.openUp() {
-		t.Fatal("expected down when the panel fits below")
+	if top := c.panelRect().Top(); top != c.headerRect().Bottom() {
+		t.Fatalf("expected down when the panel fits below: got top %v, want %v", top, c.headerRect().Bottom())
 	}
 
 	// Overflow bottom, room above -> flips up.
 	c.Offset = math.NewVector2(0, 400)
-	c.viewportH = 420 // header top 400, bottom 420; below = 0 < panelHeight, above = 400
-	if !c.openUp() {
-		t.Fatal("expected up when the panel overflows the bottom")
+	c.viewportH = 420 // header top 400, bottom 420; below = 0 < h, above = 400 >= h
+	if want := c.headerRect().Top() - h; c.panelRect().Top() != want {
+		t.Fatalf("expected up when the panel overflows the bottom: got top %v, want %v", c.panelRect().Top(), want)
 	}
 
-	// Fits neither -> opens on the side with more room.
+	// Fits neither -> centered vertically on screen.
 	c.Offset = math.NewVector2(0, 100)
-	c.viewportH = 200 // below = 80, above = 100 -> above has more room
-	if !c.openUp() {
-		t.Fatal("expected up when more room is above")
+	c.viewportH = 200 // below = 80 < h, above = 100 < h -> center
+	if want := (c.viewportH - h) / 2; c.panelRect().Top() != want {
+		t.Fatalf("expected centered when it fits neither side: got top %v, want %v", c.panelRect().Top(), want)
 	}
 }
 
-// TestColorPickerPanelRect checks the panel abuts the swatch on the correct side.
+// TestColorPickerPanelRect checks the panel abuts the swatch on the correct side and is
+// clamped horizontally to the viewport.
 func TestColorPickerPanelRect(t *testing.T) {
 	c := &ColorPickerComponent{}
 	c.Width = 40
 	c.Height = 20
 	c.Offset = math.NewVector2(10, 30)
 	c.Initialize()
+
+	w := c.panelWidth()
 
 	c.viewportH = 0 // down
 	pr := c.panelRect()
@@ -163,6 +169,21 @@ func TestColorPickerPanelRect(t *testing.T) {
 	pr = c.panelRect()
 	if pr.Bottom() != c.headerRect().Top() {
 		t.Fatalf("panel should end at the swatch top when opened up: got bottom %v vs top %v", pr.Bottom(), c.headerRect().Top())
+	}
+
+	// Clamp to the right edge when the swatch is past the viewport's right side.
+	c.Offset = math.NewVector2(1000, 30)
+	c.viewportW = 640
+	pr = c.panelRect()
+	if want := 640 - w; pr.Left() != want {
+		t.Fatalf("panel should clamp to the right edge: got left %v, want %v", pr.Left(), want)
+	}
+
+	// Clamp to the left edge when the swatch is off the left side.
+	c.Offset = math.NewVector2(-50, 30)
+	pr = c.panelRect()
+	if pr.Left() != 0 {
+		t.Fatalf("panel should clamp to the left edge: got left %v, want 0", pr.Left())
 	}
 }
 

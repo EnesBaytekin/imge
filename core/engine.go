@@ -34,7 +34,11 @@ func DefaultConfig() Config {
 			SmoothShapes: false,
 			// Fullscreen defaults to false: the window opens at the largest
 			// integer scale fitting the screen and is locked there, toggling only
-			// between windowed and fullscreen.
+			// between windowed and fullscreen. Resizable defaults to false (fixed
+			// size); Scale 0 = auto-fit.
+			Fullscreen: false,
+			Resizable:  false,
+			Scale:      0,
 		},
 		TargetFPS:    60,
 		FixedUpdate:  false,
@@ -196,9 +200,10 @@ func (g *Game) Run() error {
 
 		// Create component context with engine services
 		ctx := &Context{
-			Input: g.platform.Input(),
-			Audio: g.platform.Audio(),
-			Time:  g.platform.Time(),
+			Input:    g.platform.Input(),
+			Audio:    g.platform.Audio(),
+			Time:     g.platform.Time(),
+			Renderer: g.platform.Renderer(),
 		}
 
 		// Update game logic

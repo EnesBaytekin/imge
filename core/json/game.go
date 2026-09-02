@@ -21,7 +21,9 @@ type WindowConfig struct {
 	Width        int    `json:"width"`
 	Height       int    `json:"height"`
 	Fullscreen   bool   `json:"fullscreen"`
+	Resizable    bool   `json:"resizable"`
 	PixelPerUnit int    `json:"pixel_per_unit"`
+	Scale        int    `json:"scale"`
 	SmoothShapes bool   `json:"smooth_shapes"`
 }
 

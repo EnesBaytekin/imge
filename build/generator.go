@@ -217,7 +217,9 @@ func (g *Generator) generateDesktopMainGo(hasData bool) error {
 		WindowWidth        int
 		WindowHeight       int
 		WindowFullscreen   bool
+		WindowResizable    bool
 		WindowPixelPerUnit int
+		WindowScale        int
 		WindowSmoothShapes bool
 		TargetFPS          int
 		InitialScene       string
@@ -230,7 +232,9 @@ func (g *Generator) generateDesktopMainGo(hasData bool) error {
 		WindowWidth:        g.Analysis.GameConfig.Window.Width,
 		WindowHeight:       g.Analysis.GameConfig.Window.Height,
 		WindowFullscreen:   g.Analysis.GameConfig.Window.Fullscreen,
+		WindowResizable:    g.Analysis.GameConfig.Window.Resizable,
 		WindowPixelPerUnit: g.Analysis.GameConfig.Window.PixelPerUnit,
+		WindowScale:        g.Analysis.GameConfig.Window.Scale,
 		WindowSmoothShapes: g.Analysis.GameConfig.Window.SmoothShapes,
 		TargetFPS:          g.Analysis.GameConfig.Game.TargetFPS,
 		InitialScene:       g.Analysis.GameConfig.Game.InitialScene,
@@ -347,7 +351,9 @@ func main() {
 			Width:      {{.WindowWidth}},
 			Height:     {{.WindowHeight}},
 			Fullscreen: {{.WindowFullscreen}},
+			Resizable:  {{.WindowResizable}},
 			PixelPerUnit: {{.WindowPixelPerUnit}},
+			Scale:      {{.WindowScale}},
 			SmoothShapes: {{.WindowSmoothShapes}},
 		},
 		TargetFPS:    {{.TargetFPS}},

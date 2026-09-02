@@ -297,12 +297,25 @@ type WindowConfig struct {
 	Width      int // logical (game) resolution, in game units
 	Height     int // logical (game) resolution, in game units
 	Fullscreen bool
+	// Resizable allows the window to be drag-resized when not fullscreen. When
+	// true, the window (and therefore the scene's logical resolution) tracks the
+	// resized size, so more of the scene is revealed as the window grows. Ignored
+	// in fullscreen (and on web, where the browser owns the size).
+	Resizable bool
 	// PixelPerUnit is the number of framebuffer pixels per logical unit along one
 	// axis (>= 1). The render target is Width*PixelPerUnit x Height*PixelPerUnit,
 	// so a value > 1 lets the rasterizer show sub-unit (fractional) positions — the
 	// world still moves in whole units, but the extra resolution makes that motion
 	// smooth instead of snapping to whole pixels. 1 (the default) is pixel-perfect.
 	PixelPerUnit int
+	// Scale is the integer factor by which the ppu-scaled render resolution is
+	// magnified when drawn to the window: each logical unit becomes
+	// PixelPerUnit*Scale physical pixels. 0 (the default) means auto — the largest
+	// integer scale that still fits the monitor (the historical behavior). A fixed
+	// value is useful when Resizable is on, so the scene keeps a stable on-screen
+	// density no matter how the window is dragged: on a 4K display a fixed scale
+	// reveals more of the scene instead of shrinking or stretching it.
+	Scale int
 	// SmoothShapes opts vector shapes into framebuffer-resolution rasterization
 	// (fine, 1px edges). The default (false) renders them "chunky": each shape is
 	// rasterized at logical resolution (its anchor quantized to whole units, so
@@ -381,6 +394,11 @@ type Context struct {
 	Time  Time
 	Scene *Scene
 	Game  *Game
+	// Renderer exposes drawing-state queries (e.g. GetViewportSize) during Update,
+	// so a layout component can position screen-space elements against the current
+	// window size. Draw operations themselves still go through the Renderer passed
+	// to Draw(); using this one for drawing is discouraged.
+	Renderer Renderer
 }
 
 // DeltaTime returns the seconds elapsed since the last frame.

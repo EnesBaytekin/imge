@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
+	"path/filepath"
 	"sort"
 
 	corejson "github.com/EnesBaytekin/imge/core/json"
@@ -417,6 +419,72 @@ func (s *Scene) SetDebugDraw(v bool) { s.DebugDraw = v }
 // passes it DebugInfo.Selected == true. Pass nil to clear the selection.
 func (s *Scene) SetDebugSelection(c Component) { s.debugSelected = c }
 
+// Pick returns the topmost world component under a world-space point whose bounds
+// (reported via DebugBoundsProvider) contain it, or nil if nothing is hit. Objects
+// are tested back-to-front (reverse draw order) so a click on overlapping objects
+// selects the one the user sees on top; within an object, components are likewise
+// tested back-to-front. Only active, non-destroyed, non-UI world objects are
+// considered — UI objects are screen-space and picked separately. The returned
+// component is the one to pass to SetDebugSelection to highlight it.
+func (s *Scene) Pick(point math.Vector2) Component {
+	s.updateSortedObjects()
+	for i := len(s.SortedObjects) - 1; i >= 0; i-- {
+		obj := s.Objects[s.SortedObjects[i]]
+		if obj == nil || !obj.Active || obj.IsDestroyed() || obj.UI {
+			continue
+		}
+		if comp := pickComponent(obj, point); comp != nil {
+			return comp
+		}
+	}
+	return nil
+}
+
+// pickComponent returns the topmost DebugBoundsProvider component on obj whose bounds
+// contain point, or nil.
+func pickComponent(obj *Object, point math.Vector2) Component {
+	comps := obj.ComponentsInDrawOrder()
+	for i := len(comps) - 1; i >= 0; i-- {
+		if bp, ok := comps[i].(DebugBoundsProvider); ok && bp.DebugBounds().ContainsPoint(point) {
+			return comps[i]
+		}
+	}
+	return nil
+}
+
+// DrawWorld draws the scene's world (non-UI) objects under the currently applied
+// camera transform, without touching the scene's own Camera. It is the editor's
+// render path: the editor sets its navigation camera (and any clip rect) on the
+// renderer, then calls this to draw the target scene — so it can pan and zoom
+// freely while the game camera, applied when the game runs, stays untouched.
+//
+// When drawDebug is true, each object's DebugDrawer components are drawn on top of
+// the world, marking the selection set via SetDebugSelection. The camera is left
+// as the caller set it, so the caller can keep drawing editor overlays (axes, grid,
+// gizmo) in the same world space before restoring its own camera.
+func (s *Scene) DrawWorld(renderer Renderer, drawDebug bool) {
+	if !s.Active {
+		return
+	}
+	s.updateSortedObjects()
+
+	for _, id := range s.SortedObjects {
+		obj := s.Objects[id]
+		if obj != nil && obj.Active && !obj.IsDestroyed() && !obj.UI {
+			obj.Draw(renderer)
+		}
+	}
+
+	if drawDebug {
+		for _, id := range s.SortedObjects {
+			obj := s.Objects[id]
+			if obj != nil && obj.Active && !obj.IsDestroyed() && !obj.UI {
+				s.drawObjectDebug(obj, renderer)
+			}
+		}
+	}
+}
+
 // drawDebugOverlay runs the final debug pass: it walks every active object in draw
 // order and calls DrawDebug on each component implementing DebugDrawer. It mirrors
 // the normal draw's camera split (world objects under the camera, UI objects in raw
@@ -497,7 +565,7 @@ func (s *Scene) generateUniqueName(base string) string {
 
 // LoadFromJSON loads a scene from JSON data.
 func (s *Scene) LoadFromJSON(data []byte) error {
-	return s.loadFromJSON(data, nil)
+	return s.loadFromJSON(data, nil, false)
 }
 
 // LoadFromFS loads a scene from the given filesystem, resolving any referenced
@@ -508,12 +576,44 @@ func (s *Scene) LoadFromFS(fsys fs.FS, path string) error {
 	if err != nil {
 		return fmt.Errorf("failed to read scene file %s: %w", path, err)
 	}
-	return s.loadFromJSON(data, fsys)
+	return s.loadFromJSON(data, fsys, false)
+}
+
+// LoadForDisplay loads a scene file for editor/thumbnail display. It is lenient
+// about components whose kind is not registered — they are skipped (logged)
+// rather than failing the load — and it runs each loaded component's Initialize
+// once so the scene renders with its defaults, while no Update ever runs (so the
+// simulation stays paused). Normal game loading (LoadFromFile/LoadFromFS) stays
+// strict, so a real game fails fast on a bad component reference.
+func (s *Scene) LoadForDisplay(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("failed to read scene file %s: %w", path, err)
+	}
+	if err := s.loadFromJSON(data, nil, true); err != nil {
+		return err
+	}
+	s.InitializeForRender()
+	return nil
+}
+
+// InitializeForRender runs each object's component Initialize() exactly once, so a
+// scene loaded for display renders with its defaults applied (styles resolved,
+// sizes and colors filled in) — without running any Update. It is the editor's
+// counterpart to Scene.Update's deferred initialization: same one-time setup, no
+// simulation.
+func (s *Scene) InitializeForRender() {
+	for _, obj := range s.Objects {
+		obj.initializeComponents()
+	}
 }
 
 // loadFromJSON loads a scene from JSON data. When fsys is nil, referenced object
-// files are read from the OS filesystem; otherwise they are read from fsys.
-func (s *Scene) loadFromJSON(data []byte, fsys fs.FS) error {
+// files are read from the OS filesystem; otherwise they are read from fsys. When
+// lenient is true, an object or component that fails to create is skipped (logged)
+// instead of aborting the load; this is the editor's path for opening a scene whose
+// custom components aren't compiled into the current build.
+func (s *Scene) loadFromJSON(data []byte, fsys fs.FS, lenient bool) error {
 	var config corejson.SceneConfig
 	if err := json.Unmarshal(corejson.StripComments(data), &config); err != nil {
 		return fmt.Errorf("failed to parse scene JSON: %w", err)
@@ -541,11 +641,19 @@ func (s *Scene) loadFromJSON(data []byte, fsys fs.FS) error {
 
 	// Load objects from config
 	for _, objConfig := range config.Objects {
-		obj, err := createObjectFromSceneObject(objConfig, fsys)
+		obj, err := createObjectFromSceneObject(objConfig, fsys, lenient)
 		if err != nil {
+			if lenient {
+				log.Printf("scene %s: skipping object %q: %v", s.Name, objConfig.Name, err)
+				continue
+			}
 			return fmt.Errorf("failed to create object: %w", err)
 		}
 		if err := s.AddObject(obj); err != nil {
+			if lenient {
+				log.Printf("scene %s: skipping object %q: %v", s.Name, objConfig.Name, err)
+				continue
+			}
 			return fmt.Errorf("failed to add object to scene: %w", err)
 		}
 	}
@@ -563,8 +671,10 @@ func (s *Scene) LoadFromFile(path string) error {
 }
 
 // createObjectFromSceneObject creates an Object from a SceneObject configuration.
-// When fsys is non-nil, object template files are resolved through it.
-func createObjectFromSceneObject(objConfig corejson.SceneObject, fsys fs.FS) (*Object, error) {
+// When fsys is non-nil, object template files are resolved through it. When lenient
+// is true, a component whose kind isn't registered (or whose args fail to decode)
+// is skipped with a log instead of failing the whole object.
+func createObjectFromSceneObject(objConfig corejson.SceneObject, fsys fs.FS, lenient bool) (*Object, error) {
 	var obj *Object
 
 	// Case 1: File reference with transform override
@@ -596,6 +706,10 @@ func createObjectFromSceneObject(objConfig corejson.SceneObject, fsys fs.FS) (*O
 		for _, compConfig := range objConfigFile.Components {
 			component, err := CreateComponentFromJSON(compConfig.Kind, compConfig.Name, compConfig.Args)
 			if err != nil {
+				if lenient {
+					log.Printf("scene: skipping component %q on %q: %v", compConfig.Name, objConfig.Name, err)
+					continue
+				}
 				return nil, fmt.Errorf("failed to create component %s: %w", compConfig.Kind, err)
 			}
 			if err := obj.AddComponent(component); err != nil {
@@ -646,6 +760,10 @@ func createObjectFromSceneObject(objConfig corejson.SceneObject, fsys fs.FS) (*O
 	for _, compConfig := range objConfig.Components {
 		component, err := CreateComponentFromJSON(compConfig.Kind, compConfig.Name, compConfig.Args)
 		if err != nil {
+			if lenient {
+				log.Printf("scene: skipping component %q on %q: %v", compConfig.Name, objConfig.Name, err)
+				continue
+			}
 			return nil, fmt.Errorf("failed to create component %s: %w", compConfig.Kind, err)
 		}
 		if err := obj.AddComponent(component); err != nil {
@@ -677,10 +795,99 @@ func createObjectFromSceneObject(objConfig corejson.SceneObject, fsys fs.FS) (*O
 	return obj, nil
 }
 
-// SaveToJSON saves the scene to JSON format.
-// TODO: Implement JSON serialization based on the defined format.
+// SaveToJSON serializes the scene to indented JSON.
 func (s *Scene) SaveToJSON() ([]byte, error) {
-	return nil, fmt.Errorf("SaveToJSON not yet implemented")
+	return json.MarshalIndent(s.ToJSONConfig(), "", "  ")
+}
+
+// ToJSONConfig converts the scene to its JSON configuration. Objects are serialized
+// inline (an object that was originally referenced from a .obj template file is
+// written out with its components in full), which preserves its current state but
+// flattens the file reference.
+func (s *Scene) ToJSONConfig() *corejson.SceneConfig {
+	config := &corejson.SceneConfig{
+		Name:            s.Name,
+		BackgroundColor: s.BackgroundColor.HexString(),
+	}
+
+	if s.Camera != nil {
+		config.Camera = &corejson.CameraConfig{
+			X:         s.Camera.X,
+			Y:         s.Camera.Y,
+			Zoom:      s.Camera.Zoom,
+			Smoothing: s.Camera.Smoothing,
+			LockX:     s.Camera.LockX,
+			LockY:     s.Camera.LockY,
+		}
+	}
+
+	// Objects in sorted order (deterministic, matching draw order).
+	for _, id := range s.SortedObjects {
+		obj := s.Objects[id]
+		if obj == nil {
+			continue
+		}
+		config.Objects = append(config.Objects, toSceneObject(obj))
+	}
+
+	return config
+}
+
+// SaveToFile serializes the scene and writes it to a JSON file, creating the parent
+// directory if needed.
+func (s *Scene) SaveToFile(path string) error {
+	data, err := s.SaveToJSON()
+	if err != nil {
+		return fmt.Errorf("failed to marshal scene to JSON: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return fmt.Errorf("failed to create directory for %s: %w", path, err)
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return fmt.Errorf("failed to write scene file %s: %w", path, err)
+	}
+	return nil
+}
+
+// toSceneObject converts an object to an inline SceneObject configuration. The
+// transform is omitted entirely when it is the identity (no position, rotation, or
+// scale), matching how hand-written scenes leave the transform field off for
+// untransformed objects.
+func toSceneObject(obj *Object) corejson.SceneObject {
+	so := corejson.SceneObject{
+		Name:      obj.Name,
+		Depth:     obj.Depth,
+		Layer:     obj.Layer,
+		UI:        obj.UI,
+		Draggable: obj.Draggable,
+	}
+
+	t := obj.Transform
+	if t.Position != math.Zero() || t.Rotation != 0 || t.Scale != math.One() {
+		so.Transform = &corejson.TransformConfig{
+			Position: t.Position,
+			Rotation: t.Rotation,
+			Scale:    t.Scale,
+		}
+	}
+
+	for _, component := range obj.orderedComponents() {
+		so.Components = append(so.Components, corejson.ComponentInstanceConfig{
+			Kind: component.GetKind(),
+			Name: component.GetName(),
+			Args: ComponentArgs(component),
+		})
+	}
+
+	// Tags sorted for deterministic output.
+	tags := make([]string, 0, len(obj.Tags))
+	for tag := range obj.Tags {
+		tags = append(tags, tag)
+	}
+	sort.Strings(tags)
+	so.Tags = tags
+
+	return so
 }
 
 // InstantiateFromTemplate creates an object from a template file and adds it to the scene.

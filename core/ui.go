@@ -40,6 +40,13 @@ type BaseUIComponent struct {
 	// built-in interactive components (@Panel/@Button/@TextInput) opt into blocking
 	// in Initialize, and a JSON "blocking": true/false overrides any component.
 	Blocking *bool `json:"blocking"`
+
+	// clip, when hasClip is set, is a screen-space rectangle the object draw loop
+	// clips this element's Draw to (see ClipRect). A layout container (e.g. a
+	// scrolling list) sets it so partially-scrolled-out elements are cut off rather
+	// than fully hidden. It is not serialized: it is a live layout concern.
+	clip    math.Rect
+	hasClip bool
 }
 
 // IsVisible reports whether the element draws.
@@ -61,6 +68,10 @@ func (c *BaseUIComponent) IsFocusable() bool { return c.Focusable }
 // elements drawn behind it). See the Blocking field.
 func (c *BaseUIComponent) BlocksPointer() bool { return c.Blocking != nil && *c.Blocking }
 
+// SetBlocking sets whether the element swallows pointer events (occludes elements
+// drawn behind it). See the Blocking field.
+func (c *BaseUIComponent) SetBlocking(v bool) { b := v; c.Blocking = &b }
+
 // Position returns the element's top-left corner in screen space.
 func (c *BaseUIComponent) Position() math.Vector2 {
 	if c.owner == nil {
@@ -73,6 +84,14 @@ func (c *BaseUIComponent) Position() math.Vector2 {
 // A layout container uses this to position sibling components.
 func (c *BaseUIComponent) SetOffset(offset math.Vector2) { c.Offset = offset }
 
+// SetSize sets the element's extent in logical units. A layout component uses this
+// to resize a panel it does not own (e.g. an edge-anchored editor layout reflowing
+// its panels when the window is resized).
+func (c *BaseUIComponent) SetSize(width, height float64) {
+	c.Width = width
+	c.Height = height
+}
+
 // Rect returns the element's screen-space rectangle: top-left at Position(), size
 // Width×Height. A nil owner means the owner's position is treated as (0,0).
 func (c *BaseUIComponent) Rect() math.Rect {
@@ -80,7 +99,34 @@ func (c *BaseUIComponent) Rect() math.Rect {
 	return math.NewRect(p.X, p.Y, c.Width, c.Height)
 }
 
-// Contains reports whether a point (in screen space) is inside the element.
+// Contains reports whether a point (in screen space) is inside the element. When a
+// clip is set, the point must also fall inside it — so the clipped-off part of a
+// partially-scrolled element is neither drawn nor hit-testable.
 func (c *BaseUIComponent) Contains(p math.Vector2) bool {
+	if c.hasClip && !c.clip.ContainsPoint(p) {
+		return false
+	}
 	return c.Rect().ContainsPoint(p)
+}
+
+// SetClipRect restricts the element's Draw to the given screen-space rectangle. The
+// object draw loop honors it via ClipRectProvider; only the part of the element inside
+// the rect is rendered, so a partially-scrolled-out element is cut off instead of
+// hidden. A negative-sized rect is treated as no clip.
+func (c *BaseUIComponent) SetClipRect(rect math.Rect) {
+	c.clip = rect
+	c.hasClip = rect.Width() > 0 && rect.Height() > 0
+}
+
+// ClearClipRect removes any clip set by SetClipRect.
+func (c *BaseUIComponent) ClearClipRect() { c.hasClip = false }
+
+// ClipRect returns the clip rect set by SetClipRect, or nil when none is set. It is
+// the ClipRectProvider method the object draw loop consults; components that want a
+// dynamic clip (e.g. a popup that escapes its host) override it.
+func (c *BaseUIComponent) ClipRect() *math.Rect {
+	if !c.hasClip {
+		return nil
+	}
+	return &c.clip
 }

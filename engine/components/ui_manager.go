@@ -409,6 +409,24 @@ func (m *UIManagerComponent) RaiseToFront(obj *core.Object) {
 	}
 }
 
+// HasFocus reports whether any managed element currently holds keyboard focus.
+func (m *UIManagerComponent) HasFocus() bool { return m.focused != nil }
+
+// TopmostObjectAt returns the owner of the topmost pointer target under pos — the
+// element that would receive pointer input there — or nil. It is the occlusion query
+// for custom components that read ctx.Input directly instead of being routed by this
+// manager: such a panel is the exclusive target while it is topmost, and should yield
+// to whatever object this returns when it is a different one. Managed widgets get the
+// same behavior for free through targetAt's blocking pass; this exposes it to
+// hand-rolled surfaces so a window drawn above another swallows the click.
+func (m *UIManagerComponent) TopmostObjectAt(pos math.Vector2) *core.Object {
+	el := m.targetAt(pos)
+	if el == nil {
+		return nil
+	}
+	return el.GetOwner()
+}
+
 // setFocus moves focus to f, updating the old and new focused elements.
 func (m *UIManagerComponent) setFocus(f uiFocusable) {
 	if m.focused == f {

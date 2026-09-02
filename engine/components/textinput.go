@@ -39,6 +39,11 @@ type TextInputComponent struct {
 	PlaceholderColor math.Color `json:"placeholder_color"`
 	BackgroundColor  math.Color `json:"background_color"`
 
+	// OutlineColor/OutlineThickness stroke the box edge (over the background or
+	// nine-slice frame). A transparent color means no outline; thickness 0 = none.
+	OutlineColor     math.Color `json:"outline_color"`
+	OutlineThickness float64    `json:"outline_thickness"`
+
 	Texture string      `json:"texture"`
 	Border  math.Border `json:"border"`
 
@@ -102,14 +107,21 @@ func (t *TextInputComponent) Initialize() {
 	}
 }
 
-// SetFocused sets the focus state, driven by a @UIManager. Losing focus clears the
-// key/character auto-repeat state.
+// SetFocused sets the focus state, driven by a @UIManager. Gaining focus puts the
+// caret at the end of the text (a click can't specify a caret position, so "focus =
+// append" is the least surprising default); losing focus clears the key/character
+// auto-repeat state.
 func (t *TextInputComponent) SetFocused(focused bool) {
 	t.focused = focused
-	if !focused {
+	if focused {
+		t.caret = utf8.RuneCountInString(t.Text)
+	} else {
 		t.resetRepeat()
 	}
 }
+
+// IsFocused reports whether this input currently holds keyboard focus.
+func (t *TextInputComponent) IsFocused() bool { return t.focused }
 
 // HandleInput processes keyboard input while focused. Called each frame by a
 // @UIManager when this input holds focus. The text input no longer reads input
@@ -424,6 +436,9 @@ func (t *TextInputComponent) Draw(r core.Renderer) {
 		core.DrawNineSlice(r, t.Texture, t.Border, rect)
 	} else if t.BackgroundColor.A > 0 {
 		r.DrawRect(rect, t.BackgroundColor)
+	}
+	if t.OutlineThickness > 0 && t.OutlineColor.A > 0 {
+		r.DrawRectOutline(rect, t.OutlineColor, t.OutlineThickness)
 	}
 
 	_, lineH := r.MeasureText("M", t.FontID, t.Size)

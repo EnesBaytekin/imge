@@ -29,6 +29,8 @@ func main() {
 		handleInit()
 	case "new":
 		handleNew()
+	case "editor":
+		handleEditor()
 	case "version":
 		fmt.Printf("imge version %s\n", imge.EngineVersion)
 	case "help", "-h", "--help":
@@ -286,6 +288,7 @@ func printUsage() {
 	fmt.Println("  imge run [--debug]        Build and run natively (desktop)")
 	fmt.Println("  imge run web [--debug]    Build the web (WASM) bundle")
 	fmt.Println("  imge new <kind> <name>    Create a blank template file")
+	fmt.Println("  imge editor [path]        Open a project in the IMGE editor")
 	fmt.Println("  imge version              Show engine version")
 	fmt.Println("  imge help                 Show this help")
 	fmt.Println()

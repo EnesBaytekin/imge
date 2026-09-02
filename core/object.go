@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"reflect"
 	"sort"
+	"strings"
 
 	corejson "github.com/EnesBaytekin/imge/core/json"
 	"github.com/EnesBaytekin/imge/core/math"
@@ -357,15 +359,33 @@ func (obj *Object) Update(ctx *Context) {
 }
 
 // Draw calls Draw on all components, ordered by draw layer (ascending; equal
-// layers keep insertion order).
+// layers keep insertion order). A component that reports a clip rect (via
+// ClipRectProvider) has its Draw restricted to that screen-space rect, so a
+// partially-scrolled-out element is cut off instead of bleeding outside its host.
 func (obj *Object) Draw(renderer Renderer) {
 	if !obj.Active || obj.destroyed {
 		return
 	}
 
 	for _, component := range obj.drawComponents() {
+		if cp, ok := component.(ClipRectProvider); ok {
+			if clip := cp.ClipRect(); clip != nil {
+				renderer.SetClipRect(*clip)
+				component.Draw(renderer)
+				renderer.ClearClip()
+				continue
+			}
+		}
 		component.Draw(renderer)
 	}
+}
+
+// ClipRectProvider is an optional interface a component may implement to have its Draw
+// clipped to a screen-space rectangle by the object draw loop. ClipRect returns the
+// rect to clip to, or nil for no clip. BaseUIComponent satisfies it; a component that
+// draws outside its host (e.g. a popup) overrides ClipRect to return nil.
+type ClipRectProvider interface {
+	ClipRect() *math.Rect
 }
 
 // drawComponents returns the object's components in draw order: sorted by draw
@@ -525,24 +545,71 @@ func (obj *Object) ToJSONConfig() *corejson.ObjectConfig {
 		Draggable: obj.Draggable,
 	}
 
-	// Convert components (in deterministic insertion order)
+	// Convert components (in deterministic insertion order).
 	for _, component := range obj.orderedComponents() {
-		compConfig := corejson.ComponentInstanceConfig{
+		config.Components = append(config.Components, corejson.ComponentInstanceConfig{
 			Kind: component.GetKind(),
 			Name: component.GetName(),
-			Args: make(map[string]interface{}),
-		}
-		// TODO: Serialize component args properly
-		// For now, we'll leave args empty as we don't have a way to get them back from component
-		config.Components = append(config.Components, compConfig)
+			Args: ComponentArgs(component),
+		})
 	}
 
-	// Convert tags
+	// Convert tags (sorted for deterministic output).
+	tags := make([]string, 0, len(obj.Tags))
 	for tag := range obj.Tags {
-		config.Tags = append(config.Tags, tag)
+		tags = append(tags, tag)
 	}
+	sort.Strings(tags)
+	config.Tags = tags
 
 	return config
+}
+
+// ComponentArgs serializes a component's current exported, json-tagged fields back
+// into an args map — the inverse of CreateComponent's injection step. It walks the
+// component's visible fields (including those promoted from an embedded BaseComponent
+// or BaseUIComponent) and writes each one under its json tag. Fields equal to their
+// type's zero value are omitted, so a component that was configured with a small set
+// of args and left the rest to Initialize defaults stays small; math.Color fields are
+// written as hex strings to match the scene file format.
+func ComponentArgs(component Component) map[string]interface{} {
+	args := make(map[string]interface{})
+	if component == nil {
+		return args
+	}
+
+	v := reflect.ValueOf(component)
+	if v.Kind() == reflect.Ptr {
+		if v.IsNil() {
+			return args
+		}
+		v = v.Elem()
+	}
+	t := v.Type()
+
+	for _, f := range reflect.VisibleFields(t) {
+		if f.Anonymous {
+			continue // the embedded base struct itself; its tagged fields are promoted below
+		}
+		tag := strings.Split(f.Tag.Get("json"), ",")[0]
+		if tag == "" || tag == "-" {
+			continue
+		}
+		fv := v.FieldByIndex(f.Index)
+		if !fv.CanInterface() {
+			continue
+		}
+		if fv.IsZero() {
+			continue // rely on Initialize to re-apply the default on reload
+		}
+		if fv.Type() == reflect.TypeOf(math.Color{}) {
+			args[tag] = fv.Interface().(math.Color).HexString()
+			continue
+		}
+		args[tag] = fv.Interface()
+	}
+
+	return args
 }
 
 // SaveToJSON saves the object to JSON format.

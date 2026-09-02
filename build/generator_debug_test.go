@@ -15,7 +15,9 @@ type mainTemplateData struct {
 	WindowWidth        int
 	WindowHeight       int
 	WindowFullscreen   bool
+	WindowResizable    bool
 	WindowPixelPerUnit int
+	WindowScale        int
 	WindowSmoothShapes bool
 	TargetFPS          int
 	InitialScene       string

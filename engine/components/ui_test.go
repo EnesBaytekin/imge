@@ -448,6 +448,7 @@ func TestTextInputCtrlWordJump(t *testing.T) {
 	ti.Text = "one two three"
 	scene.Update(&core.Context{Input: &stubInput{}})
 	scene.Update(&core.Context{Input: &stubInput{mouse: math.NewVector2(50, 30), justPressedLeft: true}})
+	ti.caret = 0 // focusing puts the caret at the end; reset to test word-jump from the start
 
 	// Ctrl+Right jumps to the END of the word to the right (the space stays right of
 	// the caret); Ctrl+Left to the START of the word to the left. Release between
@@ -516,9 +517,9 @@ func TestTextInputDeleteKey(t *testing.T) {
 	scene, _ := newManagedScene()
 	ti := newManagedTextInput(scene, math.NewVector2(10, 20))
 	ti.Text = "abc"
-	ti.caret = 1
 	scene.Update(&core.Context{Input: &stubInput{}})
 	scene.Update(&core.Context{Input: &stubInput{mouse: math.NewVector2(50, 30), justPressedLeft: true}})
+	ti.caret = 1 // focus puts the caret at the end; move back so Delete removes 'b'
 
 	scene.Update(&core.Context{Input: &stubInput{mouse: math.NewVector2(50, 30), held: heldKeys(core.KeyDelete)}})
 	if ti.Text != "ac" {

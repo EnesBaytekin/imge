@@ -56,3 +56,9 @@ func (p *PanelComponent) Draw(r core.Renderer) {
 		r.DrawRectOutline(rect, p.OutlineColor, p.OutlineThickness)
 	}
 }
+
+// DebugBounds reports the panel's rectangle for editor hit-testing — the same rect
+// Draw fills. A panel is the visual body of most world objects, so this makes those
+// objects pickable in the editor even when they have no @Collider. UI panels also
+// report a bounds, but scene picking skips UI objects.
+func (p *PanelComponent) DebugBounds() math.Rect { return p.Rect() }

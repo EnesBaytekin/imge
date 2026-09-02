@@ -1,0 +1,18 @@
+{
+  "name": "IMGE Editor",
+  "format_version": 1,
+  "window": {
+    "title": "IMGE Editor",
+    "width": 960,
+    "height": 540,
+    "fullscreen": false,
+    "resizable": true,
+    "pixel_per_unit": 1,
+    "scale": 2,
+    "smooth_shapes": false
+  },
+  "game": {
+    "target_fps": 60,
+    "initial_scene": "editor"
+  }
+}

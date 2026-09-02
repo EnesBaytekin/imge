@@ -80,9 +80,11 @@ type ColorPickerComponent struct {
 	MarkerColor math.Color `json:"marker_color"`
 
 	// open is whether the panel is shown; working is the in-progress color while it
-	// is. viewportH is the logical screen height, captured each frame in Draw.
+	// is. viewportW/viewportH are the logical screen size, captured each frame in Draw
+	// so the panel can be clamped on-screen.
 	open      bool
 	working   math.Color
+	viewportW float64
 	viewportH float64
 
 	// dragRegion is which continuous control a held drag is adjusting (see the
@@ -185,6 +187,9 @@ func (c *ColorPickerComponent) SetColor(col math.Color) {
 	}
 }
 
+// IsOpen reports whether the picker's panel is currently open.
+func (c *ColorPickerComponent) IsOpen() bool { return c.open }
+
 // GetDrawLayer returns a raised draw layer while the panel is open, so the panel
 // draws (and is hit-tested) above the object's other components for that moment.
 func (c *ColorPickerComponent) GetDrawLayer() int {
@@ -194,16 +199,24 @@ func (c *ColorPickerComponent) GetDrawLayer() int {
 	return c.DrawLayer
 }
 
-// Contains reports whether p is over the swatch or, when open, the panel — so the
-// manager hit-tests the whole popup as one element.
-func (c *ColorPickerComponent) Contains(p math.Vector2) bool {
-	if c.headerRect().ContainsPoint(p) {
-		return true
-	}
+// ClipRect returns the clip set by SetClipRect — but nil while the panel is open, so
+// the popup floats above its host instead of being clipped to the host's body.
+func (c *ColorPickerComponent) ClipRect() *math.Rect {
 	if c.open {
-		return c.panelRect().ContainsPoint(p)
+		return nil
 	}
-	return false
+	return c.BaseUIComponent.ClipRect()
+}
+
+// Contains reports whether p is over the swatch or, when open, the panel — so the
+// manager hit-tests the whole popup as one element. When open the clip is ignored (the
+// popup floats outside the host body); when closed the swatch respects any clip set by
+// the host layout, like other widgets.
+func (c *ColorPickerComponent) Contains(p math.Vector2) bool {
+	if c.open {
+		return c.headerRect().ContainsPoint(p) || c.panelRect().ContainsPoint(p)
+	}
+	return c.BaseUIComponent.Contains(p)
 }
 
 // PointerMove tracks whether the pointer is over the OK button (for its hover tint).
@@ -629,16 +642,40 @@ func (c *ColorPickerComponent) textSize() float64 {
 	return c.Size
 }
 
-// panelRect returns the open panel rectangle, below the swatch or above it when it
-// would overflow the bottom of the screen.
+// panelRect returns the open panel rectangle: below the swatch, above it when the
+// bottom would overflow, or vertically centered on-screen when it fits on neither
+// side. It is clamped horizontally (and, via the placement above, vertically) so the
+// panel never hangs off the edge of the screen.
 func (c *ColorPickerComponent) panelRect() math.Rect {
 	hr := c.headerRect()
 	w := c.panelWidth()
 	h := c.panelHeight()
-	if c.openUp() {
-		return math.NewRect(hr.Left(), hr.Top()-h, w, h)
+
+	var y float64
+	if c.viewportH <= 0 {
+		y = hr.Bottom() // viewport unknown yet: default below, like before
+	} else {
+		switch {
+		case h <= c.viewportH-hr.Bottom(): // fits below
+			y = hr.Bottom()
+		case h <= hr.Top(): // fits above
+			y = hr.Top() - h
+		default: // neither side fits: center vertically on screen
+			y = (c.viewportH - h) / 2
+		}
 	}
-	return math.NewRect(hr.Left(), hr.Bottom(), w, h)
+
+	x := hr.Left()
+	if c.viewportW > 0 {
+		if x+w > c.viewportW {
+			x = c.viewportW - w
+		}
+		if x < 0 {
+			x = 0
+		}
+	}
+
+	return math.NewRect(x, y, w, h)
 }
 
 func (c *ColorPickerComponent) panelWidth() float64 {
@@ -647,25 +684,6 @@ func (c *ColorPickerComponent) panelWidth() float64 {
 
 func (c *ColorPickerComponent) panelHeight() float64 {
 	return 2*cpMargin + c.squareSize() + 4*cpGap + cpPrevH + 2*cpFieldH + cpOKH
-}
-
-// openUp reports whether the panel should open above the swatch (native-combobox
-// placement).
-func (c *ColorPickerComponent) openUp() bool {
-	if c.viewportH <= 0 {
-		return false
-	}
-	h := c.panelHeight()
-	hr := c.headerRect()
-	below := c.viewportH - hr.Bottom()
-	above := hr.Top()
-	if h <= below {
-		return false
-	}
-	if h <= above {
-		return true
-	}
-	return above > below
 }
 
 func (c *ColorPickerComponent) squareRect() math.Rect {
@@ -736,7 +754,8 @@ func (c *ColorPickerComponent) Draw(r core.Renderer) {
 	if !c.IsVisible() {
 		return
 	}
-	if _, h := r.GetViewportSize(); h > 0 {
+	if w, h := r.GetViewportSize(); h > 0 {
+		c.viewportW = float64(w)
 		c.viewportH = float64(h)
 	}
 

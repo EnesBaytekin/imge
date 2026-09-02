@@ -32,6 +32,16 @@ type Platform struct {
 	// pixelPerUnit is the framebuffer-pixels-per-unit scale (pixel_per_unit). The
 	// render target is logicalWidth*pixelPerUnit x logicalHeight*pixelPerUnit.
 	pixelPerUnit int
+
+	// resizable reports whether the window can be drag-resized (windowed only).
+	// When true, the window size drives the logical resolution, so the scene grows
+	// and shrinks with the window instead of letterboxing to a fixed size.
+	resizable bool
+
+	// scale is the integer window-magnification factor (see WindowConfig.Scale).
+	// For resizable windows it is folded into pixelScale so each logical unit maps
+	// to pixelPerUnit*scale physical pixels; Layout then returns the window size 1:1.
+	scale int
 }
 
 // New creates a new Ebitengine platform instance.
@@ -78,15 +88,31 @@ func (p *Platform) SetAssetFS(fsys fs.FS) {
 func (p *Platform) Init(cfg core.WindowConfig) error {
 	p.logicalWidth = cfg.Width
 	p.logicalHeight = cfg.Height
+	p.resizable = cfg.Resizable && !cfg.Fullscreen
 
 	ppu := cfg.PixelPerUnit
 	if ppu <= 0 {
 		ppu = 1
 	}
 	p.pixelPerUnit = ppu
-	p.renderer.setPixelScale(float64(ppu))
+
+	// The pixelScale maps screen pixels to logical units for both the renderer and
+	// input. For a fixed-size window it is just ppu (Ebitengine magnifies the
+	// render target to the window); for a resizable window the window magnification
+	// is folded in (ppu*scale) so Layout can return the window size 1:1 and each
+	// logical unit stays an integer number of physical pixels.
+	pixelScale := ppu
+	p.scale = cfg.Scale
+	if p.resizable {
+		if p.scale < 1 {
+			p.scale = 1
+		}
+		pixelScale = ppu * p.scale
+	}
+
+	p.renderer.setPixelScale(float64(pixelScale))
 	p.renderer.setSmoothShapes(cfg.SmoothShapes)
-	p.input.setPixelScale(float64(ppu))
+	p.input.setPixelScale(float64(pixelScale))
 
 	return p.window.Create(cfg)
 }
@@ -133,9 +159,10 @@ func (r *runner) Update() error {
 	}
 
 	ctx := &core.Context{
-		Input: p.input,
-		Audio: p.audio,
-		Time:  p.time,
+		Input:    p.input,
+		Audio:    p.audio,
+		Time:     p.time,
+		Renderer: p.renderer,
 	}
 	r.game.Update(ctx)
 	return nil
@@ -154,9 +181,39 @@ func (r *runner) Draw(screen *ebiten.Image) {
 // fit the actual window/browser while preserving the aspect ratio and
 // letterboxing the extra space. This keeps the web build at the configured
 // window size instead of stretching to the full browser viewport.
+//
+// For a resizable window it returns the outside size 1:1 instead: the window
+// magnification is already folded into pixelScale, so the scene's logical size
+// simply tracks the window size.
 func (r *runner) Layout(outsideWidth, outsideHeight int) (int, int) {
 	p := r.platform
 	p.window.syncSize(outsideWidth, outsideHeight)
+
+	if p.resizable && !ebiten.IsFullscreen() {
+		// Windowed + resizable: the window size drives the logical resolution.
+		// pixelScale already folds the window scale in (Init), so logical = window
+		// / pixelScale and the frame is drawn 1:1 (crisp at any window size).
+		if outsideWidth < 1 {
+			outsideWidth = 1
+		}
+		if outsideHeight < 1 {
+			outsideHeight = 1
+		}
+		ps := p.pixelPerUnit * p.scale
+		if ps < 1 {
+			ps = 1
+		}
+		lw := outsideWidth / ps
+		lh := outsideHeight / ps
+		if lw < 1 {
+			lw = 1
+		}
+		if lh < 1 {
+			lh = 1
+		}
+		p.renderer.setViewport(lw, lh)
+		return outsideWidth, outsideHeight
+	}
 
 	w, h := p.logicalWidth, p.logicalHeight
 	if w <= 0 || h <= 0 {

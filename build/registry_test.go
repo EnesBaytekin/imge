@@ -9,10 +9,11 @@ import (
 
 func TestFindComponentTypeName(t *testing.T) {
 	cases := []struct {
-		name    string
-		src     string
-		want    string
-		wantErr bool
+		name          string
+		src           string
+		want          string
+		wantComponent bool
+		wantErr       bool
 	}{
 		{
 			name: "single component struct",
@@ -25,7 +26,8 @@ type Foo struct {
 	Speed float64
 }
 `,
-			want: "Foo",
+			want:          "Foo",
+			wantComponent: true,
 		},
 		{
 			name: "ui component struct",
@@ -38,7 +40,8 @@ type Button struct {
 	Text string
 }
 `,
-			want: "Button",
+			want:          "Button",
+			wantComponent: true,
 		},
 		{
 			name: "multiple component structs",
@@ -56,14 +59,14 @@ type Bar struct {
 			wantErr: true,
 		},
 		{
-			name: "no component struct",
+			name: "helper file with no component struct",
 			src: `package components
 
-type NotAComponent struct {
-	X int
-}
+const maxRows = 20
+
+func helper(x int) int { return x }
 `,
-			wantErr: true,
+			wantComponent: false,
 		},
 		{
 			name: "unexported struct is ignored",
@@ -75,12 +78,12 @@ type foo struct {
 	core.BaseComponent
 }
 `,
-			wantErr: true,
+			wantComponent: false,
 		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := findComponentTypeName([]byte(c.src))
+			got, isComponent, err := findComponentTypeName([]byte(c.src))
 			if c.wantErr {
 				if err == nil {
 					t.Fatalf("expected error, got %q", got)
@@ -89,6 +92,9 @@ type foo struct {
 			}
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
+			}
+			if isComponent != c.wantComponent {
+				t.Errorf("isComponent = %v, want %v", isComponent, c.wantComponent)
 			}
 			if got != c.want {
 				t.Errorf("got %q, want %q", got, c.want)
