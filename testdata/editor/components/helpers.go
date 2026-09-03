@@ -662,3 +662,261 @@ func (h *editHistory) redo() bool {
 	h.undoStack = append(h.undoStack, step)
 	return true
 }
+
+// ============================================================================
+// Modal mechanism (a single active modal at a time).
+// ============================================================================
+
+// modal is the common surface of a modal panel: a component (so it is owned by a
+// scene object) with a screen rect (so a host can reason about its extent). Every
+// modal host — the add-component panel and the remove-confirm dialog — embeds
+// BaseUIComponent and therefore satisfies it.
+type modal interface {
+	core.Component
+	Rect() math.Rect
+}
+
+// activeModal is the single modal currently open (nil when none). It is a package
+// global so every hand-rolled panel can call modalOpen() and yield while one is up.
+// It is cleared only in Draw (see modalDismiss in each host), after all Updates for
+// the frame have run, so a dismiss click never leaks through to a panel beneath it.
+var activeModal modal
+
+// modalSuppress is true while the button that opened the current modal is still held.
+// It keeps the modal's own outside-click check from reading that same press as a
+// dismissal click, which would open-and-close the modal on one click.
+var modalSuppress bool
+
+// setModal makes m the active modal. Opening a modal always replaces any open one.
+func setModal(m modal) {
+	activeModal = m
+	modalSuppress = true
+}
+
+// clearModal closes the active modal.
+func clearModal() { activeModal = nil }
+
+// modalOpen reports whether a modal is currently up. If the modal's owner was
+// destroyed without going through closeActiveModal (e.g. the scene was torn down),
+// it self-heals by clearing the stale modal so the editor never stays frozen.
+func modalOpen() bool {
+	if activeModal == nil {
+		return false
+	}
+	if owner := activeModal.GetOwner(); owner == nil || owner.IsDestroyed() {
+		activeModal = nil
+		return false
+	}
+	return true
+}
+
+// closeActiveModal destroys the active modal's object and clears the modal state.
+// Called when the target project switches, since a modal references the previous
+// project's live components.
+func closeActiveModal() {
+	if activeModal == nil {
+		return
+	}
+	if owner := activeModal.GetOwner(); owner != nil {
+		owner.Destroy()
+	}
+	activeModal = nil
+}
+
+// modalOutsideClick reports whether a left-button press this frame landed outside the
+// modal's owner. It uses the @UIManager's occlusion query (TopmostObjectAt) rather
+// than a plain rect test, so a click on the modal's own widgets — including an open
+// combobox dropdown, whose owner is still the modal — never counts as "outside".
+func modalOutsideClick(scene *core.Scene, owner *core.Object, ctx *core.Context) bool {
+	if ctx == nil || ctx.Input == nil {
+		return false
+	}
+	// Swallow the press that opened the modal: that same just-pressed click would
+	// otherwise read as an outside-click and dismiss the modal the moment it appears.
+	// Hold until that button is released; only then can a press be a real outside-click.
+	if modalSuppress {
+		if ctx.Input.IsMouseButtonPressed(core.MouseButtonLeft) {
+			return false
+		}
+		modalSuppress = false
+	}
+	if !ctx.Input.IsMouseButtonJustPressed(core.MouseButtonLeft) {
+		return false
+	}
+	mgr := lookupUIManager(scene)
+	if mgr == nil {
+		return false
+	}
+	return mgr.TopmostObjectAt(ctx.Input.GetMousePosition()) != owner
+}
+
+// makePanelButton creates an engine @Button widget on owner at the given offset, for
+// the modal panels. The widget is initialized manually: the object's own Initialize
+// already ran, so AddComponent will not call it. Returns nil if the add failed.
+func makePanelButton(owner *core.Object, name, text string, pos math.Vector2, w, h float64, fontID string, size float64, bg math.Color) *ButtonComponent {
+	b := &ButtonComponent{}
+	b.Text = text
+	b.FontID = fontID
+	b.Size = size
+	b.Color = bg
+	b.Width = w
+	b.Height = h
+	b.DrawLayer = 1
+	b.SetName(name)
+	b.SetOffset(pos)
+	if err := owner.AddComponent(b); err != nil {
+		return nil
+	}
+	b.Initialize()
+	return b
+}
+
+// ============================================================================
+// Component add/remove (undoable), shared by the inspector's + / x controls.
+// ============================================================================
+
+// componentBaseName maps a component kind to its default instance name: any leading
+// '@', path, and ".go" suffix are stripped and the rest is lowercased (e.g. "@Sprite"
+// -> "sprite", "PlayerController" -> "playercontroller"). It is only the starting
+// point for a name; uniqueComponentName disambiguates against existing instances.
+func componentBaseName(kind string) string {
+	base := strings.TrimPrefix(kind, "@")
+	if i := strings.LastIndex(base, "/"); i >= 0 {
+		base = base[i+1:]
+	}
+	base = strings.TrimSuffix(base, ".go")
+	return strings.ToLower(base)
+}
+
+// uniqueComponentName returns a component instance name for kind that is not yet
+// used on target, appending _2/_3/... as needed (matching the loader's own
+// duplicate-name behavior).
+func uniqueComponentName(target *core.Object, kind string) string {
+	base := componentBaseName(kind)
+	name := base
+	for n := 2; target.GetComponent(name) != nil; n++ {
+		name = fmt.Sprintf("%s_%d", base, n)
+	}
+	return name
+}
+
+// buildComponent creates a named component of the given kind. Registered kinds are
+// built from the engine registry (args injected before Initialize applies defaults);
+// unregistered kinds — custom project components the editor did not compile in —
+// become GenericComponent placeholders that round-trip verbatim. Returns nil when a
+// registered kind fails to construct.
+func buildComponent(kind, name string, args map[string]interface{}) core.Component {
+	if core.IsComponentRegistered(kind) {
+		comp, err := core.CreateComponent(kind, args)
+		if err != nil {
+			return nil
+		}
+		comp.SetName(name)
+		return comp
+	}
+	return core.NewGenericComponent(kind, name, args)
+}
+
+// addComponentTo attaches a fresh instance of kind to target and records an undo
+// entry that removes it (redo re-adds a fresh default instance). The component's
+// Initialize is run manually: the object already initialized, so AddComponent will
+// not run it. Returns the added component, or nil if the add failed.
+func addComponentTo(target *core.Object, kind string) core.Component {
+	if target == nil || kind == "" {
+		return nil
+	}
+	name := uniqueComponentName(target, kind)
+	comp := buildComponent(kind, name, nil)
+	if comp == nil {
+		return nil
+	}
+	if err := target.AddComponent(comp); err != nil {
+		return nil
+	}
+	comp.Initialize()
+	history.record(
+		func() { target.RemoveComponent(name) },
+		func() { restoreComponent(target, kind, name, nil, -1) },
+	)
+	return comp
+}
+
+// restoreComponent re-attaches a component that was removed, restoring its saved
+// args so an undone remove brings the component back exactly as it was (or a fresh
+// default when args is nil). The component's Initialize is run manually.
+func restoreComponent(target *core.Object, kind, name string, args map[string]interface{}, index int) {
+	if target == nil {
+		return
+	}
+	comp := buildComponent(kind, name, args)
+	if comp == nil {
+		return
+	}
+	// index < 0 appends (a fresh add re-added on redo); a non-negative index re-inserts
+	// at the recorded position so an undone removal restores the original list order.
+	if index < 0 {
+		_ = target.AddComponent(comp)
+	} else {
+		_ = target.AddComponentAt(comp, index)
+	}
+	comp.Initialize()
+}
+
+// removeComponent detaches comp from its owner and records an undo entry that
+// restores it with its current args, so an undone remove brings the component back
+// exactly as it was. The args are captured before removal.
+func removeComponent(comp core.Component) {
+	if comp == nil {
+		return
+	}
+	owner := comp.GetOwner()
+	if owner == nil {
+		return
+	}
+	kind, name, args := comp.GetKind(), comp.GetName(), core.ComponentArgs(comp)
+	index := owner.ComponentInsertionIndex(name) // capture the list position before removal
+	owner.RemoveComponent(name)
+	history.record(
+		func() { restoreComponent(owner, kind, name, args, index) },
+		func() { owner.RemoveComponent(name) },
+	)
+}
+
+// ============================================================================
+// Object add/remove (undoable), shared by the scene tree's + / x controls.
+// ============================================================================
+
+// addObjectTo appends a fresh empty object to the target scene and records an undo
+// entry that removes it (redo re-adds the same object). The scene's AddObject assigns
+// a unique default name ("Object", "Object2", ...) and ID; the caller selects the new
+// object so its name can be edited in the inspector. Returns the new object, or nil.
+func addObjectTo(scene *core.Scene) *core.Object {
+	if scene == nil {
+		return nil
+	}
+	obj := core.NewObject("")
+	if err := scene.AddObject(obj); err != nil {
+		return nil
+	}
+	history.record(
+		func() { scene.RemoveObject(obj.GetID()) },
+		func() { scene.AddObject(obj) },
+	)
+	return obj
+}
+
+// removeObjectFrom detaches obj from the scene and records an undo entry that re-adds
+// the same object pointer. RemoveObject only detaches the object (unsubscribing events
+// and clearing its scene ref); it leaves the object's components and name intact, so an
+// undone remove brings the object back exactly as it was. The redo closure reads the
+// object's (possibly re-assigned) ID at call time, so it stays correct across undo/redo.
+func removeObjectFrom(scene *core.Scene, obj *core.Object) {
+	if scene == nil || obj == nil {
+		return
+	}
+	scene.RemoveObject(obj.GetID())
+	history.record(
+		func() { scene.AddObject(obj) },
+		func() { scene.RemoveObject(obj.GetID()) },
+	)
+}

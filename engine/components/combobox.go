@@ -19,7 +19,9 @@ import (
 //
 // Dropdown placement is the native-combobox behavior: it opens below the field by
 // default, flips above when it would overflow the bottom of the screen, and when it
-// fits neither side it opens on the side with more room.
+// fits neither side it opens on the side with more room. A list taller than the
+// available room is capped to fit and scrolls — with the mouse wheel, or by dragging
+// the thin scrollbar on its right edge — instead of overflowing the screen.
 //
 // Appearance: the field and the list are flat colors by default, or nine-sliced
 // textures (Texture/Border for the field, DropdownTexture/DropdownBorder for the
@@ -31,8 +33,8 @@ import (
 // Export variables (JSON args): items, value, event, placeholder, font_id, size,
 // text_color, color, hover_color, selected_color, dropdown_color, texture, border
 // {left, top, right, bottom}, dropdown_texture, dropdown_border, outline_color,
-// outline_thickness, item_height, offset, width, height, visible, enabled,
-// blocking, group, draw_layer.
+// outline_thickness, item_height, scrollbar_color, scrollbar_width, offset, width,
+// height, visible, enabled, blocking, group, draw_layer.
 type ComboBoxComponent struct {
 	core.BaseUIComponent
 
@@ -87,6 +89,12 @@ type ComboBoxComponent struct {
 	// ItemHeight is the height of one list row; 0 (default) = 22.
 	ItemHeight float64 `json:"item_height"`
 
+	// ScrollbarColor is the scrollbar thumb color; ScrollbarWidth is its width
+	// (0 default = 6). The scrollbar only appears when the capped list can't show
+	// every item at once.
+	ScrollbarColor math.Color `json:"scrollbar_color"`
+	ScrollbarWidth float64    `json:"scrollbar_width"`
+
 	// open is whether the list is currently shown; highlight is the item index under
 	// the pointer or keyboard cursor (-1 = none); viewportH is the logical screen
 	// height, captured each frame in Draw and used to decide the open direction.
@@ -98,6 +106,12 @@ type ComboBoxComponent struct {
 	pressedItem   int  // item index pressed (-1 = none)
 	pressedHeader bool // press was on the field itself (close on release)
 	openedOnPress bool // this press opened the list; ignore its release
+
+	// Dropdown scrolling (when the item list is taller than the space on screen):
+	// scrollOffset is how far the list is scrolled down in pixels (0 = first item at
+	// top); draggingBar marks a scrollbar drag in progress.
+	scrollOffset float64
+	draggingBar  bool
 }
 
 // Initialize defaults the colors, sizes, and flags, then opts into blocking and
@@ -129,6 +143,12 @@ func (c *ComboBoxComponent) Initialize() {
 	}
 	if c.ItemHeight <= 0 {
 		c.ItemHeight = 22
+	}
+	if c.ScrollbarColor == (math.Color{}) {
+		c.ScrollbarColor = math.NewColor(90, 90, 120, 255)
+	}
+	if c.ScrollbarWidth <= 0 {
+		c.ScrollbarWidth = 6
 	}
 	if c.Blocking == nil {
 		b := true
@@ -196,6 +216,11 @@ func (c *ComboBoxComponent) Press(pos math.Vector2) {
 	c.openedOnPress = false
 	c.pressedItem = -1
 	c.pressedHeader = false
+	// A press on the scrollbar is a scroll gesture, owned by the uiSlider gesture
+	// (BeginAdjust, which runs just before this), so it is skipped here.
+	if c.draggingBar {
+		return
+	}
 	if idx := c.itemAt(pos); idx >= 0 {
 		c.pressedItem = idx
 		c.highlight = idx
@@ -227,6 +252,44 @@ func (c *ComboBoxComponent) Release(pos math.Vector2) {
 	}
 	c.pressedItem = -1
 	c.pressedHeader = false
+}
+
+// BeginAdjust starts a scrollbar drag when the press lands on the scrollbar, so the
+// drag survives the pointer leaving the list (the @UIManager owns the gesture and
+// keeps calling Adjust). Called by a @UIManager on a left-button press.
+func (c *ComboBoxComponent) BeginAdjust(pos math.Vector2) {
+	if !c.IsEnabled() {
+		return
+	}
+	if c.open && c.scrollbarVisible() && c.scrollbarRect().ContainsPoint(pos) {
+		c.draggingBar = true
+		c.scrollToPointer(pos)
+	}
+}
+
+// Adjust scrolls the list while a scrollbar drag is held. Called by a @UIManager
+// every frame the left button stays down.
+func (c *ComboBoxComponent) Adjust(pos math.Vector2) {
+	if c.draggingBar {
+		c.scrollToPointer(pos)
+	}
+}
+
+// EndAdjust ends a scrollbar drag. Called by a @UIManager when the left button is
+// released.
+func (c *ComboBoxComponent) EndAdjust() {
+	c.draggingBar = false
+}
+
+// Scroll adjusts the scroll offset from a mouse-wheel delta (a @UIManager forwards
+// the frame's wheel). The y sign follows ebitengine's Wheel(): positive y = wheel up
+// = earlier rows, so the offset decreases.
+func (c *ComboBoxComponent) Scroll(delta math.Vector2) {
+	if !c.open {
+		return
+	}
+	c.scrollOffset -= delta.Y * c.itemHeight()
+	c.clampScroll()
 }
 
 // SetFocused closes the list when focus leaves the combobox (e.g. a click outside).
@@ -339,7 +402,11 @@ func (c *ComboBoxComponent) itemAt(pos math.Vector2) int {
 	if !dr.ContainsPoint(pos) {
 		return -1
 	}
-	idx := int((pos.Y - dr.Top()) / c.itemHeight())
+	// The scrollbar strip is not an item.
+	if c.scrollbarVisible() && c.scrollbarRect().ContainsPoint(pos) {
+		return -1
+	}
+	idx := int((pos.Y - dr.Top() + c.scrollOffset) / c.itemHeight())
 	if idx < 0 || idx >= len(c.Items) {
 		return -1
 	}
@@ -359,9 +426,105 @@ func (c *ComboBoxComponent) dropdownRect() math.Rect {
 	return math.NewRect(hr.Left(), hr.Bottom(), hr.Width(), h)
 }
 
-// dropdownHeight returns the list height (items × row height).
-func (c *ComboBoxComponent) dropdownHeight() float64 {
+// contentHeight returns the full height of all items (unscrolled).
+func (c *ComboBoxComponent) contentHeight() float64 {
 	return float64(len(c.Items)) * c.itemHeight()
+}
+
+// dropdownHeight returns the visible list height: the full content height capped to
+// the room available on the side the list opens toward, so a long list scrolls
+// instead of overflowing the screen. Unknown viewport (viewportH == 0) means no cap.
+func (c *ComboBoxComponent) dropdownHeight() float64 {
+	ch := c.contentHeight()
+	if c.viewportH <= 0 {
+		return ch
+	}
+	room := c.availableRoom()
+	if room <= 0 {
+		return ch
+	}
+	if ch > room {
+		return room
+	}
+	return ch
+}
+
+// availableRoom returns the vertical room (screen pixels) on the side the list opens:
+// below the field when it opens down, above it when it opens up.
+func (c *ComboBoxComponent) availableRoom() float64 {
+	hr := c.headerRect()
+	if c.openUp() {
+		return hr.Top()
+	}
+	return c.viewportH - hr.Bottom()
+}
+
+// maxScroll returns the largest legal scroll offset (content height minus visible
+// height), or 0 when the list fits without scrolling.
+func (c *ComboBoxComponent) maxScroll() float64 {
+	m := c.contentHeight() - c.dropdownHeight()
+	if m < 0 {
+		return 0
+	}
+	return m
+}
+
+// clampScroll keeps the scroll offset within [0, maxScroll].
+func (c *ComboBoxComponent) clampScroll() {
+	c.scrollOffset = clampf(c.scrollOffset, 0, c.maxScroll())
+}
+
+// scrollbarWidth returns the scrollbar width.
+func (c *ComboBoxComponent) scrollbarWidth() float64 {
+	if c.ScrollbarWidth <= 0 {
+		return 6
+	}
+	return c.ScrollbarWidth
+}
+
+// scrollbarVisible reports whether the capped list scrolls (so a scrollbar should be
+// drawn and dragged).
+func (c *ComboBoxComponent) scrollbarVisible() bool {
+	return c.maxScroll() > 0
+}
+
+// scrollbarRect returns the scrollbar track rectangle on the dropdown's right edge.
+func (c *ComboBoxComponent) scrollbarRect() math.Rect {
+	dr := c.dropdownRect()
+	w := c.scrollbarWidth()
+	return math.NewRect(dr.Right()-w, dr.Top(), w, dr.Height())
+}
+
+// thumbRect returns the scrollbar thumb rectangle for the current scroll position.
+func (c *ComboBoxComponent) thumbRect() math.Rect {
+	track := c.scrollbarRect()
+	dr := c.dropdownRect()
+	contentH := c.contentHeight()
+	thumbH := dr.Height() * dr.Height() / contentH
+	if thumbH < 16 {
+		thumbH = 16
+	}
+	if thumbH > dr.Height() {
+		thumbH = dr.Height()
+	}
+	frac := 0.0
+	if max := c.maxScroll(); max > 0 {
+		frac = c.scrollOffset / max
+	}
+	y := track.Top() + frac*(track.Height()-thumbH)
+	return math.NewRect(track.Left(), y, track.Width(), thumbH)
+}
+
+// scrollToPointer centers the scrollbar thumb on pos.Y (a drag or a track click).
+func (c *ComboBoxComponent) scrollToPointer(pos math.Vector2) {
+	track := c.scrollbarRect()
+	thumbH := c.thumbRect().Height()
+	avail := track.Height() - thumbH
+	frac := 0.0
+	if avail > 0 {
+		frac = (pos.Y - track.Top() - thumbH/2) / avail
+	}
+	c.scrollOffset = clampf(frac, 0, 1) * c.maxScroll()
 }
 
 // itemHeight returns the row height.
@@ -387,14 +550,14 @@ func (c *ComboBoxComponent) openUp() bool {
 	if c.viewportH <= 0 {
 		return false
 	}
-	h := c.dropdownHeight()
+	ch := c.contentHeight()
 	hr := c.headerRect()
 	below := c.viewportH - hr.Bottom()
 	above := hr.Top()
-	if h <= below {
+	if ch <= below {
 		return false
 	}
-	if h <= above {
+	if ch <= above {
 		return true
 	}
 	return above > below
@@ -470,18 +633,33 @@ func (c *ComboBoxComponent) drawArrow(r core.Renderer, hr math.Rect) {
 // drawDropdown draws the list and its items with their highlights.
 func (c *ComboBoxComponent) drawDropdown(r core.Renderer) {
 	dr := c.dropdownRect()
+	c.clampScroll()
+
+	// Clip everything drawn next (body + rows) to the dropdown rect, so rows that
+	// scroll past the top/bottom edge are discarded rather than bleeding into the
+	// field or the surrounding window.
+	r.SetClipRect(dr)
+
 	if c.DropdownTexture != "" {
 		core.DrawNineSlice(r, c.DropdownTexture, c.DropdownBorder, dr)
 	} else {
 		r.DrawRect(dr, c.DropdownColor)
 	}
-	c.drawOutline(r, dr)
 
 	ih := c.itemHeight()
 	size := c.textSize()
 	sel := c.selectedIndex()
+	// Rows shrink by the scrollbar width when it is visible, so text never runs under it.
+	rowW := dr.Width()
+	if c.scrollbarVisible() {
+		rowW -= c.scrollbarWidth()
+	}
 	for i, item := range c.Items {
-		row := math.NewRect(dr.Left(), dr.Top()+float64(i)*ih, dr.Width(), ih)
+		rowTop := dr.Top() + float64(i)*ih - c.scrollOffset
+		if rowTop+ih <= dr.Top() || rowTop >= dr.Bottom() {
+			continue // culled; the clip also catches overflow, this skips the draw work
+		}
+		row := math.NewRect(dr.Left(), rowTop, rowW, ih)
 		if i == c.highlight {
 			r.DrawRect(row, c.HoverColor)
 		} else if i == sel {
@@ -492,4 +670,20 @@ func (c *ComboBoxComponent) drawDropdown(r core.Renderer) {
 		y := row.Center().Y - th/2
 		r.DrawText(item, c.FontID, size, math.NewVector2(x, y), c.TextColor)
 	}
+
+	// Scrollbar (drawn inside the clip so its thumb stays within the dropdown).
+	if c.scrollbarVisible() {
+		c.drawScrollbar(r)
+	}
+
+	r.ClearClip()
+
+	c.drawOutline(r, dr)
+}
+
+// drawScrollbar draws the thumb over a dim track on the dropdown's right edge.
+func (c *ComboBoxComponent) drawScrollbar(r core.Renderer) {
+	track := c.scrollbarRect()
+	r.DrawRect(track, c.DropdownColor.Lerp(math.Black, 0.3))
+	r.DrawRect(c.thumbRect(), c.ScrollbarColor)
 }

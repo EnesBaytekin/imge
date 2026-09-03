@@ -138,6 +138,10 @@ func (c *ConsoleComponent) Update(ctx *core.Context) {
 	if ctx == nil || ctx.Input == nil {
 		return
 	}
+	// A modal is open (add-component panel / confirm dialog): this panel is inert.
+	if modalOpen() {
+		return
+	}
 	rect := c.Rect()
 	mouse := ctx.Input.GetMousePosition()
 	if !rect.ContainsPoint(mouse) {

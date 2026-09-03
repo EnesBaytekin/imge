@@ -4,6 +4,7 @@ package core
 
 import (
 	"encoding/json"
+	"sort"
 )
 
 // ============================================================================
@@ -74,6 +75,14 @@ type Dependable interface {
 // GetDrawLayer, so any component embedding BaseComponent gets this for free.
 type DrawLayerProvider interface {
 	GetDrawLayer() int
+}
+
+// RawArgsProvider is an optional interface a component may implement to supply its
+// serialized args directly instead of having them reflected from its exported
+// fields. GenericComponent uses it to round-trip args for component kinds the
+// current binary cannot instantiate.
+type RawArgsProvider interface {
+	RawArgs() map[string]interface{}
 }
 
 // ============================================================================
@@ -296,6 +305,19 @@ func CreateComponentFromJSON(kind, name string, args map[string]interface{}) (Co
 func IsComponentRegistered(kind string) bool {
 	_, exists := componentRegistry[kind]
 	return exists
+}
+
+// ComponentKinds returns the sorted list of every registered component kind
+// identifier (e.g. "@Collider", "MyComponent"). It is the runtime enumeration
+// counterpart to RegisterComponent, for tools that need to list what the binary
+// can instantiate (an editor's "add component" menu).
+func ComponentKinds() []string {
+	kinds := make([]string, 0, len(componentRegistry))
+	for kind := range componentRegistry {
+		kinds = append(kinds, kind)
+	}
+	sort.Strings(kinds)
+	return kinds
 }
 
 // ============================================================================

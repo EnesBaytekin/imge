@@ -13,14 +13,16 @@ import (
 )
 
 // ToolbarComponent is the editor's top strip for the desktop workflow: it holds an
-// editable project-directory field plus LOAD and SAVE buttons. Loading points the
-// viewport at a new project directory at runtime (instead of the path baked into
-// editor.scene); Save serializes the viewport's loaded scene back to its .scene file
-// on disk. A short status line reports the result of the last action.
+// editable project-directory field plus LOAD, SAVE, RUN, and STOP buttons. Loading
+// points the viewport at a new project directory at runtime (instead of the path baked
+// into editor.scene); Save serializes the viewport's loaded scene back to its .scene
+// file on disk; RUN/STOP launch and kill the target project via the imge CLI. A short
+// status line reports the result of the last action.
 //
-// Interaction is read directly from ctx.Input, like the other editor panels. Click the
-// path field to edit it; Enter (or LOAD) reloads; Escape cancels. The field shows the
-// viewport's current project directory when not being edited.
+// The field is a real @TextInput and the four buttons are real @Buttons — engine
+// widgets added as children of this object, so caret editing and hover/press states
+// come for free instead of a hand-rolled edit buffer and rect buttons. The host draws
+// only the strip chrome (label, status line) and polls the widgets for commits.
 type ToolbarComponent struct {
 	core.BaseUIComponent
 
@@ -28,7 +30,7 @@ type ToolbarComponent struct {
 	FieldBg    math.Color `json:"field_bg"`
 	Text       math.Color `json:"text"`
 	Dim        math.Color `json:"dim"`         // labels + placeholder
-	Accent     math.Color `json:"accent"`      // LOAD button / focused field
+	Accent     math.Color `json:"accent"`      // LOAD button
 	SaveAccent math.Color `json:"save_accent"` // SAVE button
 	RunAccent  math.Color `json:"run_accent"`  // RUN button
 	StopAccent math.Color `json:"stop_accent"` // STOP button
@@ -42,38 +44,36 @@ type ToolbarComponent struct {
 	// IMGE_CLI env var, then `imge` on PATH.
 	CLI string `json:"cli"`
 
-	focused     bool
-	editBuf     string
+	pathInput  *TextInputComponent
+	loadBtn    *ButtonComponent
+	saveBtn    *ButtonComponent
+	runBtn     *ButtonComponent
+	stopBtn    *ButtonComponent
+	built      bool // widgets built once (owner/height known)
+	wasFocused bool // path TextInput blur tracking
+
 	status      string
 	statusError bool
-
-	hover int // which toolbar control is under the cursor (0 = none); see hoverIndex
 
 	running atomic.Bool
 	runCmd  *exec.Cmd // non-nil while a RUN is active; owned by the game loop
 }
 
-// fieldRect, loadBtnRect, and saveBtnRect are the toolbar's hit regions, computed from
-// the component's rect so Draw and Update never drift.
-func (c *ToolbarComponent) fieldRect(rect math.Rect) math.Rect {
-	return math.NewRect(rect.X()+48, rect.Y()+3, 250, rect.Height()-6)
-}
-
-func (c *ToolbarComponent) loadBtnRect(rect math.Rect) math.Rect {
-	return math.NewRect(rect.X()+302, rect.Y()+3, 58, rect.Height()-6)
-}
-
-func (c *ToolbarComponent) saveBtnRect(rect math.Rect) math.Rect {
-	return math.NewRect(rect.X()+364, rect.Y()+3, 60, rect.Height()-6)
-}
-
-func (c *ToolbarComponent) runBtnRect(rect math.Rect) math.Rect {
-	return math.NewRect(rect.X()+428, rect.Y()+3, 44, rect.Height()-6)
-}
-
-func (c *ToolbarComponent) stopBtnRect(rect math.Rect) math.Rect {
-	return math.NewRect(rect.X()+476, rect.Y()+3, 48, rect.Height()-6)
-}
+// Widget geometry, in owner-relative offsets (the strip is a fixed layout, so the
+// constants replace the old rect methods). Height is derived from the strip's own
+// height each time it is (re)built.
+const (
+	toolbarFieldX = 48.0
+	toolbarFieldW = 250.0
+	toolbarLoadX  = 302.0
+	toolbarLoadW  = 58.0
+	toolbarSaveX  = 364.0
+	toolbarSaveW  = 60.0
+	toolbarRunX   = 428.0
+	toolbarRunW   = 44.0
+	toolbarStopX  = 476.0
+	toolbarStopW  = 48.0
+)
 
 func (c *ToolbarComponent) Initialize() {
 	if c.Background == (math.Color{}) {
@@ -110,9 +110,65 @@ func (c *ToolbarComponent) Initialize() {
 		c.FontSize = 6
 	}
 	// The toolbar is an opaque surface: it blocks pointer events so the @UIManager
-	// occludes whatever is drawn behind it (see pointerOwnedElsewhere).
+	// occludes whatever is drawn behind it.
 	if c.Blocking == nil {
 		c.SetBlocking(true)
+	}
+}
+
+// ensureWidgets builds the path field and the four buttons once the owner and strip
+// height are known. Each widget is initialized manually: the object's own Initialize
+// already ran, so AddComponent will not call it.
+func (c *ToolbarComponent) ensureWidgets() {
+	if c.built {
+		return
+	}
+	owner := c.GetOwner()
+	if owner == nil {
+		return
+	}
+	h := c.Rect().Height() - 6
+	if h <= 0 {
+		return
+	}
+	c.built = true
+
+	ti := &TextInputComponent{}
+	ti.FontID = c.FontID
+	ti.Size = c.FontSize
+	ti.TextColor = c.Text
+	ti.PlaceholderColor = c.Dim
+	ti.BackgroundColor = c.FieldBg
+	ti.Placeholder = "type project dir..."
+	ti.Width = toolbarFieldW
+	ti.Height = h
+	ti.DrawLayer = 1
+	ti.SetName("path")
+	ti.SetOffset(math.NewVector2(toolbarFieldX, 3))
+	owner.AddComponent(ti)
+	ti.Initialize()
+	c.pathInput = ti
+
+	c.loadBtn = makePanelButton(owner, "load", "LOAD", math.NewVector2(toolbarLoadX, 3), toolbarLoadW, h, c.FontID, c.FontSize, c.Accent)
+	c.saveBtn = makePanelButton(owner, "save", "SAVE", math.NewVector2(toolbarSaveX, 3), toolbarSaveW, h, c.FontID, c.FontSize, c.SaveAccent)
+	c.runBtn = makePanelButton(owner, "run", "RUN", math.NewVector2(toolbarRunX, 3), toolbarRunW, h, c.FontID, c.FontSize, c.RunAccent)
+	c.stopBtn = makePanelButton(owner, "stop", "STOP", math.NewVector2(toolbarStopX, 3), toolbarStopW, h, c.FontID, c.FontSize, c.StopAccent)
+}
+
+// discardWidgetClicks flushes any pending button activation, so a click that landed on
+// a toolbar button while a modal was open never fires once the modal closes.
+func (c *ToolbarComponent) discardWidgetClicks() {
+	if c.loadBtn != nil {
+		c.loadBtn.ConsumeClick()
+	}
+	if c.saveBtn != nil {
+		c.saveBtn.ConsumeClick()
+	}
+	if c.runBtn != nil {
+		c.runBtn.ConsumeClick()
+	}
+	if c.stopBtn != nil {
+		c.stopBtn.ConsumeClick()
 	}
 }
 
@@ -120,7 +176,7 @@ func (c *ToolbarComponent) Update(ctx *core.Context) {
 	if ctx == nil || ctx.Input == nil {
 		return
 	}
-	in := ctx.Input
+	c.ensureWidgets()
 
 	// A RUN that exited on its own clears its handle here and reports it, so the
 	// status line stops saying "running" and STOP becomes a no-op again (the wait
@@ -131,98 +187,81 @@ func (c *ToolbarComponent) Update(ctx *core.Context) {
 		c.statusError = false
 	}
 
-	// Undo/redo shortcuts (Ctrl+Z / Ctrl+Shift+Z or Ctrl+Y). Skipped while the path
-	// field is being edited, so the shortcut never clobbers in-progress typing.
-	if !c.focused && c.handleUndoKeys(in) {
+	// A modal is open (add-component panel / confirm dialog): the toolbar is inert.
+	// Swallow any widget click now; Draw swallows again for a click the @UIManager
+	// delivers after this Update runs (component update order is random).
+	if modalOpen() {
+		c.discardWidgetClicks()
+		return
+	}
+
+	// Undo/redo shortcuts (Ctrl+Z / Ctrl+Shift+Z or Ctrl+Y). Skipped while a managed
+	// widget (the path field, or an inspector/args field) holds keyboard focus.
+	if c.handleUndoKeys(ctx.Input) {
 		return
 	}
 
 	// Ctrl+S saves the loaded scene regardless of pointer position.
-	if in.IsKeyPressed(core.KeyControl) && in.IsKeyJustPressed(core.KeyS) {
-		c.focused = false
-		c.editBuf = ""
+	if ctx.Input.IsKeyPressed(core.KeyControl) && ctx.Input.IsKeyJustPressed(core.KeyS) {
 		c.save()
 		return
 	}
 
-	// Text editing continues even after the pointer leaves the strip.
-	if c.focused {
-		switch {
-		case in.IsKeyJustPressed(core.KeyEscape):
-			c.focused = false
-			c.editBuf = ""
-			return
-		case in.IsKeyJustPressed(core.KeyEnter):
-			c.focused = false
+	// Path field: commit on Enter or blur, and live-sync the field to the current
+	// project whenever it is not being edited.
+	if c.pathInput != nil {
+		focused := c.pathInput.IsFocused()
+		if focused && ctx.Input.IsKeyJustPressed(core.KeyEnter) {
 			c.commit()
-			return
-		case in.IsKeyJustPressed(core.KeyBackspace):
-			if r := []rune(c.editBuf); len(r) > 0 {
-				c.editBuf = string(r[:len(r)-1])
-			}
 		}
-		for _, ch := range in.InputChars() {
-			if ch >= 0x20 {
-				c.editBuf += string(ch)
+		if c.wasFocused && !focused {
+			c.commit()
+		}
+		c.wasFocused = focused
+		if !focused {
+			if vp := lookupViewport(c.GetScene()); vp != nil {
+				c.pathInput.Text = vp.CurrentProject()
 			}
 		}
 	}
 
-	rect := c.Rect()
-	mouse := in.GetMousePosition()
-	c.hover = c.hoverIndex(rect, mouse)
-	if !rect.ContainsPoint(mouse) {
-		return
-	}
-	// Yield the pointer to a floating window dragged over the toolbar. Keyboard
-	// shortcuts (undo/redo, Ctrl+S, the path field) are handled above and stay global.
-	if pointerOwnedElsewhere(c.GetScene(), c.GetOwner(), mouse) {
-		c.hover = 0
-		return
-	}
-	if !in.IsMouseButtonJustPressed(core.MouseButtonLeft) {
-		return
-	}
-
-	switch {
-	case c.fieldRect(rect).ContainsPoint(mouse):
-		c.focused = true
-		if vp := lookupViewport(c.GetScene()); vp != nil {
-			c.editBuf = vp.CurrentProject()
-		}
-	case c.loadBtnRect(rect).ContainsPoint(mouse):
-		c.focused = false
+	// Buttons are polled (events are never delivered to dynamically-added widgets).
+	if c.loadBtn != nil && c.loadBtn.ConsumeClick() {
 		c.commit()
-	case c.saveBtnRect(rect).ContainsPoint(mouse):
-		c.focused = false
-		c.editBuf = ""
+	}
+	if c.saveBtn != nil && c.saveBtn.ConsumeClick() {
 		c.save()
-	case c.runBtnRect(rect).ContainsPoint(mouse):
-		c.focused = false
-		c.editBuf = ""
+	}
+	if c.runBtn != nil && c.runBtn.ConsumeClick() {
 		c.run()
-	case c.stopBtnRect(rect).ContainsPoint(mouse):
-		c.focused = false
-		c.editBuf = ""
+	}
+	if c.stopBtn != nil && c.stopBtn.ConsumeClick() {
 		c.stop()
-	default:
-		c.focused = false
-		c.editBuf = ""
+	}
+
+	// Reflect run state: RUN is disabled while running, STOP only while running.
+	if c.runBtn != nil {
+		c.runBtn.SetEnabled(!c.running.Load())
+	}
+	if c.stopBtn != nil {
+		c.stopBtn.SetEnabled(c.running.Load())
 	}
 }
 
-// commit loads the project in the field (falling back to the current project when the
-// field was never edited) and clears any stale status.
+// commit loads the project in the path field (falling back to the current project when
+// the field is empty) and clears any stale status.
 func (c *ToolbarComponent) commit() {
 	vp := lookupViewport(c.GetScene())
 	if vp == nil {
 		return
 	}
-	path := strings.TrimSpace(c.editBuf)
+	path := ""
+	if c.pathInput != nil {
+		path = strings.TrimSpace(c.pathInput.Text)
+	}
 	if path == "" {
 		path = vp.CurrentProject()
 	}
-	c.editBuf = ""
 	c.status = ""
 	if path != "" {
 		vp.SetProject(path)
@@ -325,8 +364,8 @@ func (c *ToolbarComponent) stop() {
 // handleUndoKeys applies the editor-wide undo/redo shortcuts and reports the result in
 // the status line. Ctrl+Z undoes the last committed field edit; Ctrl+Shift+Z or Ctrl+Y
 // redoes. It is skipped while any managed widget holds keyboard focus (a @TextInput in
-// the inspector or args window) so the shortcut never fights in-progress value editing.
-// Returns true when it consumed a shortcut.
+// the toolbar, inspector, or args window) so the shortcut never fights in-progress
+// value editing. Returns true when it consumed a shortcut.
 func (c *ToolbarComponent) handleUndoKeys(in core.Input) bool {
 	if !in.IsKeyPressed(core.KeyControl) {
 		return false
@@ -373,6 +412,13 @@ func (c *ToolbarComponent) resolveCLI() (string, error) {
 }
 
 func (c *ToolbarComponent) Draw(r core.Renderer) {
+	// Discard any click the @UIManager delivered to a toolbar button after this
+	// panel's Update ran this frame (component update order is random), so a click
+	// landing while a modal was open can't fire once the modal closes.
+	if modalOpen() {
+		c.discardWidgetClicks()
+	}
+
 	rect := c.Rect()
 	if rect.Width() <= 0 || rect.Height() <= 0 {
 		return
@@ -386,36 +432,8 @@ func (c *ToolbarComponent) Draw(r core.Renderer) {
 		return y + (rect.Height()-th)/2
 	}
 
-	// Label + editable path field.
+	// Label (the field and buttons draw themselves as layer-1 widgets).
 	r.DrawText("PROJECT", c.FontID, c.FontSize, math.NewVector2(rect.X()+10, cy(rect.Y())), c.Dim)
-	field := c.fieldRect(rect)
-	fieldBg := c.FieldBg
-	if c.hover == 1 {
-		fieldBg = fieldBg.Lerp(math.White, 0.06)
-	}
-	r.DrawRect(field, fieldBg)
-	if c.focused {
-		r.DrawRectOutline(field, c.Accent, 1)
-	}
-
-	shown := ""
-	shownColor := c.Text
-	if c.focused {
-		shown = c.editBuf + "_"
-	} else if vp := lookupViewport(c.GetScene()); vp != nil {
-		shown = vp.CurrentProject()
-	}
-	if shown == "" {
-		shown = "type project dir..."
-		shownColor = c.Dim
-	}
-	r.DrawText(shown, c.FontID, c.FontSize, math.NewVector2(field.X()+4, cy(field.Y())), shownColor)
-
-	// LOAD and SAVE buttons.
-	c.drawButton(r, c.loadBtnRect(rect), "LOAD", c.Accent, c.Text, th, c.hover == 2)
-	c.drawButton(r, c.saveBtnRect(rect), "SAVE", c.SaveAccent, c.Text, th, c.hover == 3)
-	c.drawButton(r, c.runBtnRect(rect), "RUN", c.RunAccent, c.Text, th, c.hover == 4)
-	c.drawButton(r, c.stopBtnRect(rect), "STOP", c.StopAccent, c.Text, th, c.hover == 5)
 
 	// Status line (right side).
 	if c.status != "" {
@@ -427,30 +445,4 @@ func (c *ToolbarComponent) Draw(r core.Renderer) {
 	}
 
 	r.ClearClip()
-}
-
-func (c *ToolbarComponent) drawButton(r core.Renderer, btn math.Rect, label string, bg, fg math.Color, textH float64, hovered bool) {
-	if hovered {
-		bg = bg.Lerp(math.White, 0.12)
-	}
-	r.DrawRect(btn, bg)
-	r.DrawText(label, c.FontID, c.FontSize, math.NewVector2(btn.X()+5, btn.Y()+(btn.Height()-textH)/2), fg)
-}
-
-// hoverIndex reports which toolbar control the cursor is over, or 0 for none. It maps
-// to the constants used in Draw (1=field, 2=LOAD, 3=SAVE, 4=RUN, 5=STOP).
-func (c *ToolbarComponent) hoverIndex(rect math.Rect, mouse math.Vector2) int {
-	switch {
-	case c.fieldRect(rect).ContainsPoint(mouse):
-		return 1
-	case c.loadBtnRect(rect).ContainsPoint(mouse):
-		return 2
-	case c.saveBtnRect(rect).ContainsPoint(mouse):
-		return 3
-	case c.runBtnRect(rect).ContainsPoint(mouse):
-		return 4
-	case c.stopBtnRect(rect).ContainsPoint(mouse):
-		return 5
-	}
-	return 0
 }

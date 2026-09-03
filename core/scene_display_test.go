@@ -47,9 +47,11 @@ func TestInitializeForRenderRunsInitializeNotUpdate(t *testing.T) {
 	}
 }
 
-// TestLoadForDisplaySkipsUnknownKind verifies the lenient load path keeps known
-// components, drops unknown kinds, and still runs Initialize on what survived.
-func TestLoadForDisplaySkipsUnknownKind(t *testing.T) {
+// TestLoadForDisplayPreservesUnknownKind verifies the lenient load path keeps known
+// components, preserves unknown kinds as GenericComponent placeholders (so they survive
+// a load→save round-trip instead of being silently dropped), and still runs Initialize
+// on the known components that survived.
+func TestLoadForDisplayPreservesUnknownKind(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "s.scene")
 	json := `{
@@ -74,12 +76,23 @@ func TestLoadForDisplaySkipsUnknownKind(t *testing.T) {
 	if obj == nil {
 		t.Fatal("mixed object missing")
 	}
-	if len(obj.Components) != 1 {
-		t.Fatalf("mixed object has %d components, want 1 (unknown skipped)", len(obj.Components))
+	if len(obj.Components) != 2 {
+		t.Fatalf("mixed object has %d components, want 2 (unknown preserved)", len(obj.Components))
 	}
 	comp := obj.Components["keep"].(*displayTestComponent)
 	if comp.initialized != 1 {
 		t.Fatalf("surviving component Initialize ran %d times, want 1", comp.initialized)
+	}
+
+	generic, ok := obj.Components["drop"].(*GenericComponent)
+	if !ok {
+		t.Fatalf("unknown component preserved as %T, want *GenericComponent", obj.Components["drop"])
+	}
+	if generic.GetKind() != "display.unknown" {
+		t.Fatalf("generic kind = %q, want %q", generic.GetKind(), "display.unknown")
+	}
+	if generic.GetName() != "drop" {
+		t.Fatalf("generic name = %q, want %q", generic.GetName(), "drop")
 	}
 }
 

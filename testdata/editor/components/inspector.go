@@ -40,6 +40,8 @@ type InspectorComponent struct {
 	bindings    []fieldBinding // value widgets for editable properties
 	boundTarget *core.Object   // object the bindings were built for (rebuild on change)
 	hoverComp   int            // component-list row under the cursor (-1 = none)
+	hoverPlus   bool           // the "+" add-component button is under the cursor
+	hoverX      int            // component row whose "x" remove button is under the cursor (-1 = none)
 }
 
 // prop is one editable object property: a label, a getter that renders the current
@@ -108,6 +110,20 @@ func (c *InspectorComponent) titleH() float64 { return c.RowHeight + 8 }
 // component row begins, given the number of property rows above it.
 func (c *InspectorComponent) compStart(nProps int) float64 {
 	return c.titleH() + float64(nProps+1)*c.RowHeight
+}
+
+// plusRect returns the "+" add-component button rect in the COMPONENTS header row's
+// top-right corner, computed from the header row (one row above the list).
+func (c *InspectorComponent) plusRect(rect math.Rect, nProps int) math.Rect {
+	y := rect.Y() + c.compStart(nProps) - c.RowHeight // the header row
+	const s = 14.0
+	return math.NewRect(rect.X()+rect.Width()-18, y+(c.RowHeight-s)/2, s, s)
+}
+
+// xRect returns the "x" remove button strip at the right edge of a component row.
+func (c *InspectorComponent) xRect(rect math.Rect, rowY float64) math.Rect {
+	const w = 14.0
+	return math.NewRect(rect.X()+rect.Width()-w, rowY, w, c.RowHeight)
 }
 
 // props builds the editable property list for an object. Each setter applies the parsed
@@ -294,6 +310,10 @@ func (c *InspectorComponent) Update(ctx *core.Context) {
 	if ctx == nil || ctx.Input == nil {
 		return
 	}
+	// A modal is open (add-component panel / confirm dialog): this panel is inert.
+	if modalOpen() {
+		return
+	}
 	vp := lookupViewport(c.GetScene())
 	var obj *core.Object
 	if vp != nil {
@@ -312,9 +332,12 @@ func (c *InspectorComponent) Update(ctx *core.Context) {
 	// so commits fire even after the pointer leaves the panel.
 	c.pollAndRefresh(ctx)
 
+	rect := c.Rect()
 	mouse := ctx.Input.GetMousePosition()
-	if !c.Rect().ContainsPoint(mouse) {
+	if !rect.ContainsPoint(mouse) {
 		c.hoverComp = -1
+		c.hoverPlus = false
+		c.hoverX = -1
 		return
 	}
 
@@ -322,6 +345,8 @@ func (c *InspectorComponent) Update(ctx *core.Context) {
 	// dragged over it) — the @UIManager's blocking occlusion, see pointerOwnedElsewhere.
 	if pointerOwnedElsewhere(c.GetScene(), c.GetOwner(), mouse) {
 		c.hoverComp = -1
+		c.hoverPlus = false
+		c.hoverX = -1
 		return
 	}
 
@@ -330,16 +355,21 @@ func (c *InspectorComponent) Update(ctx *core.Context) {
 		comps = obj.ComponentsInDrawOrder()
 	}
 	props := c.props(obj)
-	compY := c.Rect().Y() + c.compStart(len(props))
-	available := c.Rect().Height() - c.compStart(len(props))
+	compY := rect.Y() + c.compStart(len(props))
+	available := rect.Height() - c.compStart(len(props))
 
-	// Track the component row under the cursor (for the hover highlight), so the
-	// COMPONENTS list reads as clickable.
+	// Track the component row (and its "x" strip) plus the "+" button under the
+	// cursor, so the COMPONENTS list reads as clickable.
 	c.hoverComp = -1
+	c.hoverX = -1
+	c.hoverPlus = c.plusRect(rect, len(props)).ContainsPoint(mouse)
 	for i := range comps {
 		y := compY + float64(i)*c.RowHeight - c.scroll
 		if mouse.Y >= y && mouse.Y < y+c.RowHeight {
 			c.hoverComp = i
+			if c.xRect(rect, y).ContainsPoint(mouse) {
+				c.hoverX = i
+			}
 			break
 		}
 	}
@@ -359,6 +389,22 @@ func (c *InspectorComponent) Update(ctx *core.Context) {
 	}
 
 	if !ctx.Input.IsMouseButtonJustPressed(core.MouseButtonLeft) {
+		return
+	}
+
+	// "+" button: open the add-component modal for the selected object.
+	if c.hoverPlus {
+		spawnAddComponentPanel(c.GetScene(), obj)
+		return
+	}
+	// "x" strip: open the remove-confirm modal for that component. The component is
+	// captured now (before it can be removed), so the confirm callback removes the
+	// right one.
+	if c.hoverX >= 0 && c.hoverX < len(comps) {
+		comp := comps[c.hoverX]
+		spawnConfirmDialog(c.GetScene(), "emin misin? "+comp.GetName()+" silinsin mi?", func() {
+			removeComponent(comp)
+		})
 		return
 	}
 
@@ -429,13 +475,20 @@ func (c *InspectorComponent) Draw(r core.Renderer) {
 		}
 	}
 
-	// Components section header — one row above the scrollable list.
+	// Components section header — one row above the scrollable list, with a "+"
+	// add-component button in its top-right corner.
 	compY := rect.Y() + c.compStart(len(props))
 	sty := (compY - c.RowHeight) + (c.RowHeight-th)/2
 	r.DrawText("COMPONENTS", c.FontID, c.FontSize, math.NewVector2(rect.X()+6, sty), c.Section)
+	plus := c.plusRect(rect, len(props))
+	if c.hoverPlus {
+		r.DrawRect(plus, c.Background.Lerp(math.White, 0.12))
+	}
+	pw, ph := r.MeasureText("+", c.FontID, c.FontSize)
+	r.DrawText("+", c.FontID, c.FontSize, math.NewVector2(plus.X()+(plus.Width()-pw)/2, plus.Y()+(plus.Height()-ph)/2), c.Section)
 
-	// Component rows (scrollable): name + kind, clipped to the list region below the
-	// header so scrolled-out rows don't bleed over it.
+	// Component rows (scrollable): name + kind + an "x" remove button, clipped to the
+	// list region below the header so scrolled-out rows don't bleed over it.
 	comps := obj.ComponentsInDrawOrder()
 	r.SetClipRect(math.NewRect(rect.X(), compY, rect.Width(), rect.Height()-(compY-rect.Y())))
 	for i, comp := range comps {
@@ -452,6 +505,16 @@ func (c *InspectorComponent) Draw(r core.Renderer) {
 		}
 		r.DrawText(comp.GetName(), c.FontID, c.FontSize, math.NewVector2(rect.X()+6, ty), c.ValueText)
 		r.DrawText(comp.GetKind(), c.FontID, c.FontSize, math.NewVector2(valX, ty), c.KeyText)
+
+		// "x" remove button in the right-edge strip (red on hover).
+		xr := c.xRect(rect, y)
+		xColor := c.KeyText
+		if i == c.hoverX {
+			r.DrawRect(xr, c.ErrorColor)
+			xColor = c.TitleText
+		}
+		xw, xh := r.MeasureText("x", c.FontID, c.FontSize)
+		r.DrawText("x", c.FontID, c.FontSize, math.NewVector2(xr.X()+(xr.Width()-xw)/2, y+(c.RowHeight-xh)/2), xColor)
 	}
 
 	r.ClearClip()

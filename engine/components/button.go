@@ -49,6 +49,7 @@ type ButtonComponent struct {
 
 	hovered bool
 	pressed bool
+	clicked bool
 }
 
 // Initialize defaults the text color to white when not specified, and makes the
@@ -74,9 +75,20 @@ func (b *ButtonComponent) SetPressed(pressed bool) { b.pressed = pressed }
 // itself as the data. Called by a @UIManager when a press is released inside the
 // button.
 func (b *ButtonComponent) Activate() {
+	b.clicked = true
 	if b.Event != "" {
 		b.Emit(b.Event, b)
 	}
+}
+
+// ConsumeClick reports whether the button was activated since the last call and
+// clears the flag. It is the polling counterpart to Activate/Event, for hosts that
+// create buttons dynamically (whose On() handlers are never delivered, since event
+// subscriptions are snapshotted at Initialize).
+func (b *ButtonComponent) ConsumeClick() bool {
+	c := b.clicked
+	b.clicked = false
+	return c
 }
 
 func (b *ButtonComponent) Draw(r core.Renderer) {

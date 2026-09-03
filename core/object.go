@@ -137,11 +137,20 @@ func (obj *Object) SetName(name string) error {
 // Component Management
 // ============================================================================
 
-// AddComponent adds a component to the object.
-// Returns an error if a component with the same name already exists.
-// The component's Initialize() is deferred until the object is in a scene and
-// about to be updated (see initializeComponents).
+// AddComponent adds a component to the object (appended to the end of the insertion
+// order). Returns an error if a component with the same name already exists. The
+// component's Initialize() is deferred until the object is in a scene and about to
+// be updated (see initializeComponents).
 func (obj *Object) AddComponent(component Component) error {
+	return obj.AddComponentAt(component, len(obj.componentOrder))
+}
+
+// AddComponentAt adds a component and places it at the given insertion-order index
+// (clamped to [0, len]). Components with the same draw layer keep insertion order,
+// so re-inserting at a recorded index restores a removed component to its original
+// place in ComponentsInDrawOrder. Returns an error if a component with the same name
+// already exists. The component's Initialize() is deferred as in AddComponent.
+func (obj *Object) AddComponentAt(component Component, index int) error {
 	name := component.GetName()
 	if name == "" {
 		return fmt.Errorf("component must have a name")
@@ -154,11 +163,31 @@ func (obj *Object) AddComponent(component Component) error {
 	// Set the component's owner.
 	component.SetOwner(obj)
 
-	// Store the component and record insertion order.
+	// Store the component and record insertion order at the requested position.
 	obj.Components[name] = component
-	obj.componentOrder = append(obj.componentOrder, name)
+	if index < 0 {
+		index = 0
+	}
+	if index > len(obj.componentOrder) {
+		index = len(obj.componentOrder)
+	}
+	obj.componentOrder = append(obj.componentOrder, "")
+	copy(obj.componentOrder[index+1:], obj.componentOrder[index:])
+	obj.componentOrder[index] = name
 
 	return nil
+}
+
+// ComponentInsertionIndex returns the insertion-order index of the named component,
+// or -1 when the object has no component with that name. Insertion order is the order
+// ComponentsInDrawOrder lists components when their draw layers are equal.
+func (obj *Object) ComponentInsertionIndex(name string) int {
+	for i, n := range obj.componentOrder {
+		if n == name {
+			return i
+		}
+	}
+	return -1
 }
 
 // AddComponentFromKind creates and adds a component from a kind identifier and args.
@@ -573,6 +602,9 @@ func (obj *Object) ToJSONConfig() *corejson.ObjectConfig {
 // of args and left the rest to Initialize defaults stays small; math.Color fields are
 // written as hex strings to match the scene file format.
 func ComponentArgs(component Component) map[string]interface{} {
+	if p, ok := component.(RawArgsProvider); ok {
+		return p.RawArgs()
+	}
 	args := make(map[string]interface{})
 	if component == nil {
 		return args

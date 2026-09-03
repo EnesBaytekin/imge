@@ -760,6 +760,12 @@ func createObjectFromSceneObject(objConfig corejson.SceneObject, fsys fs.FS, len
 	for _, compConfig := range objConfig.Components {
 		component, err := CreateComponentFromJSON(compConfig.Kind, compConfig.Name, compConfig.Args)
 		if err != nil {
+			if lenient && !IsComponentRegistered(compConfig.Kind) {
+				// Preserve a custom component not compiled into this build as a
+				// GenericComponent, so it round-trips on save instead of being dropped.
+				obj.AddComponent(NewGenericComponent(compConfig.Kind, compConfig.Name, compConfig.Args))
+				continue
+			}
 			if lenient {
 				log.Printf("scene: skipping component %q on %q: %v", compConfig.Name, objConfig.Name, err)
 				continue

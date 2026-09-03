@@ -195,6 +195,10 @@ func (c *ViewportComponent) Update(ctx *core.Context) {
 	if ctx == nil || ctx.Input == nil {
 		return
 	}
+	// A modal is open (add-component panel / confirm dialog): this panel is inert.
+	if modalOpen() {
+		return
+	}
 	rect := c.Rect()
 	mouse := ctx.Input.GetMousePosition()
 	local := mouse.Subtract(rect.Position)
@@ -351,6 +355,7 @@ func (c *ViewportComponent) SetProject(dir string) {
 	c.framed = false
 	history.clear() // undo entries reference the previous project's live components
 	closeAllArgsWindows()
+	closeActiveModal() // a modal references the previous project's live components
 	c.loadTarget()
 }
 

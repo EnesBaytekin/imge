@@ -194,6 +194,10 @@ func (c *ComponentArgsComponent) Update(ctx *core.Context) {
 	if c.target == nil || ctx == nil || ctx.Input == nil {
 		return
 	}
+	// A modal is open (add-component panel / confirm dialog): this window is inert.
+	if modalOpen() {
+		return
+	}
 	fields := enumerateArgs(c.target)
 	mouse := ctx.Input.GetMousePosition()
 	rect := c.Rect()
