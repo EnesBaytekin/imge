@@ -1,14 +1,17 @@
 package components
 
 import (
+	"strings"
+	"unicode/utf8"
+
 	"github.com/EnesBaytekin/imge/core"
 	"github.com/EnesBaytekin/imge/core/math"
 )
 
-// ComboBox is a dropdown selector: a read-only field that, when opened, shows a
-// list of items below (or above, when there is no room) for the user to pick one.
-// The items are plain strings — the text shown and the value returned on selection
-// are the same string. A handler reads the result via GetValue() (or GetIndex()).
+// ComboBox is a dropdown selector: a field that, when opened, shows a list of items
+// below (or above, when there is no room) for the user to pick one. The items are
+// plain strings — the text shown and the value returned on selection are the same
+// string. A handler reads the result via GetValue() (or GetIndex()).
 //
 // Opening and choosing:
 //   - click the field to open/close the list; press an item to highlight it, then
@@ -16,6 +19,11 @@ import (
 //   - click anywhere else (or press Escape) to close without selecting,
 //   - with keyboard focus, Enter/Space opens, ↑/↓ move the highlight, Enter selects,
 //     Escape closes.
+//
+// Search: with the field focused, type to filter the list live — only items whose
+// text contains what you typed (case-insensitive) are shown, updating as you type
+// and delete. Backspace removes a character; clearing the filter shows every item
+// again. The typed text is drawn in the field with a caret while filtering.
 //
 // Dropdown placement is the native-combobox behavior: it opens below the field by
 // default, flips above when it would overflow the bottom of the screen, and when it
@@ -112,6 +120,20 @@ type ComboBoxComponent struct {
 	// top); draggingBar marks a scrollbar drag in progress.
 	scrollOffset float64
 	draggingBar  bool
+
+	// Search filter: the text typed into the field while it has focus. Non-empty
+	// filters the dropdown to items containing it (case-insensitive); clearing it
+	// restores the full list. Cleared whenever the list closes.
+	filter string
+
+	// Caret blink and key auto-repeat state for the filter text entry (Backspace and
+	// the last typed character repeat while held, matching @TextInput's rhythm).
+	caretBlink float64
+	lastChar   rune
+	charTime   float64
+	charPhase  int
+	backTime   float64
+	backPhase  int
 }
 
 // Initialize defaults the colors, sizes, and flags, then opts into blocking and
@@ -199,7 +221,7 @@ func (c *ComboBoxComponent) PointerMove(pos math.Vector2) {
 // PointerLeave resets the highlight to the current selection when the pointer
 // leaves the element. Called by a @UIManager.
 func (c *ComboBoxComponent) PointerLeave() {
-	c.highlight = c.selectedIndex()
+	c.highlight = c.visibleIndex(c.Value)
 }
 
 // Press opens the list (when closed) or records what was pressed (when open), so
@@ -300,18 +322,36 @@ func (c *ComboBoxComponent) SetFocused(focused bool) {
 	}
 }
 
-// HandleInput handles keyboard: Enter/Space opens, ↑/↓ move the highlight, Enter
-// selects, Escape closes. Called by a @UIManager while the combobox has focus.
+// HandleInput handles keyboard while focused: typing filters the list live,
+// Backspace deletes, Escape clears the filter (then closes), ↑/↓ move the highlight,
+// Enter selects, and Enter/Space open the list when closed. Called by a @UIManager
+// while the combobox has focus.
 func (c *ComboBoxComponent) HandleInput(ctx *core.Context) {
 	if !c.IsEnabled() {
 		return
 	}
 	in := ctx.Input
 
+	// Blink the filter caret while focused.
+	c.caretBlink += ctx.DeltaTime()
+
+	// Escape: clear the filter first; a second Escape closes the list.
+	if in.IsKeyJustPressed(core.KeyEscape) {
+		if c.open && c.filter != "" {
+			c.filter = ""
+			c.filterChanged()
+		} else {
+			c.closeDropdown()
+		}
+		return
+	}
+
+	// Typing and Backspace (both auto-repeat while held) drive the filter, opening the
+	// list as needed so the filtered result is always visible.
+	c.updateFilterTyping(ctx)
+
 	if c.open {
 		switch {
-		case in.IsKeyJustPressed(core.KeyEscape):
-			c.closeDropdown()
 		case in.IsKeyJustPressed(core.KeyUp):
 			c.moveHighlight(-1)
 		case in.IsKeyJustPressed(core.KeyDown):
@@ -335,32 +375,38 @@ func (c *ComboBoxComponent) HandleInput(ctx *core.Context) {
 // item when nothing is selected).
 func (c *ComboBoxComponent) openDropdown() {
 	c.open = true
-	c.highlight = c.selectedIndex()
-	if c.highlight < 0 && len(c.Items) > 0 {
+	c.highlight = c.visibleIndex(c.Value)
+	if c.highlight < 0 && len(c.visibleItems()) > 0 {
 		c.highlight = 0
 	}
 }
 
-// closeDropdown closes the list and clears the highlight and press state.
+// closeDropdown closes the list and clears the highlight, press state, and filter.
 func (c *ComboBoxComponent) closeDropdown() {
 	c.open = false
 	c.highlight = -1
 	c.pressedItem = -1
 	c.pressedHeader = false
 	c.openedOnPress = false
+	c.filter = ""
+	c.lastChar = 0
+	c.charPhase = 0
+	c.backPhase = 0
 }
 
-// selectIndex sets Value to Items[i], closes the list, and emits Event (only when
-// the value actually changed).
+// selectIndex sets Value to the visible item at index i, closes the list, and emits
+// Event (only when the value actually changed).
 func (c *ComboBoxComponent) selectIndex(i int) {
-	if i < 0 || i >= len(c.Items) {
+	items := c.visibleItems()
+	if i < 0 || i >= len(items) {
 		return
 	}
+	selected := items[i]
 	c.closeDropdown()
-	if c.Items[i] == c.Value {
+	if selected == c.Value {
 		return
 	}
-	c.Value = c.Items[i]
+	c.Value = selected
 	if c.Event != "" {
 		c.Emit(c.Event, c)
 	}
@@ -368,7 +414,7 @@ func (c *ComboBoxComponent) selectIndex(i int) {
 
 // moveHighlight moves the keyboard cursor by delta, wrapping around.
 func (c *ComboBoxComponent) moveHighlight(delta int) {
-	n := len(c.Items)
+	n := len(c.visibleItems())
 	if n == 0 {
 		return
 	}
@@ -396,6 +442,138 @@ func (c *ComboBoxComponent) selectedIndex() int {
 	return -1
 }
 
+// visibleItems returns the items currently shown in the dropdown: all of Items when
+// the filter is empty, or the subset whose text contains the filter substring
+// (case-insensitive) otherwise.
+func (c *ComboBoxComponent) visibleItems() []string {
+	if c.filter == "" {
+		return c.Items
+	}
+	needle := strings.ToLower(c.filter)
+	out := make([]string, 0, len(c.Items))
+	for _, item := range c.Items {
+		if strings.Contains(strings.ToLower(item), needle) {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+// visibleIndex returns the index of item within the visible (filtered) list, or -1.
+func (c *ComboBoxComponent) visibleIndex(item string) int {
+	for i, v := range c.visibleItems() {
+		if v == item {
+			return i
+		}
+	}
+	return -1
+}
+
+// filterChanged re-derives the highlight and resets scroll after the filter text
+// changed, so the dropdown snaps to the top of the filtered list (keeping the current
+// value highlighted if it survived the filter).
+func (c *ComboBoxComponent) filterChanged() {
+	c.scrollOffset = 0
+	items := c.visibleItems()
+	c.highlight = -1
+	for i, v := range items {
+		if v == c.Value {
+			c.highlight = i
+			break
+		}
+	}
+	if c.highlight < 0 && len(items) > 0 {
+		c.highlight = 0
+	}
+}
+
+// updateFilterTyping appends typed characters and applies Backspace to the filter,
+// both with OS-style auto-repeat while their keys are held (matching @TextInput).
+func (c *ComboBoxComponent) updateFilterTyping(ctx *core.Context) {
+	dt := ctx.DeltaTime()
+	in := ctx.Input
+
+	// Backspace auto-repeat.
+	if in.IsKeyPressed(core.KeyBackspace) {
+		c.backTime += dt
+		if c.backPhase == 0 {
+			c.applyFilterBackspace()
+			c.backPhase = 1
+			c.backTime = 0
+		} else if c.backPhase == 1 {
+			if c.backTime >= keyRepeatDelay {
+				c.applyFilterBackspace()
+				c.backTime -= keyRepeatDelay
+				c.backPhase = 2
+			}
+		} else {
+			for c.backTime >= keyRepeatRate {
+				c.applyFilterBackspace()
+				c.backTime -= keyRepeatRate
+			}
+		}
+	} else {
+		c.backPhase = 0
+		c.backTime = 0
+	}
+
+	// Character typing with auto-repeat.
+	chars := in.InputChars()
+	if len(chars) > 0 {
+		for _, r := range chars {
+			c.appendFilterRune(r)
+		}
+		c.lastChar = chars[len(chars)-1]
+		c.charTime = 0
+		c.charPhase = 1
+		return
+	}
+	if c.lastChar == 0 {
+		return
+	}
+	if key, ok := charKeyCode(c.lastChar); ok && in.IsKeyPressed(key) {
+		c.charTime += dt
+		switch c.charPhase {
+		case 1:
+			if c.charTime >= keyRepeatDelay {
+				c.appendFilterRune(c.lastChar)
+				c.charTime -= keyRepeatDelay
+				c.charPhase = 2
+			}
+		case 2:
+			for c.charTime >= keyRepeatRate {
+				c.appendFilterRune(c.lastChar)
+				c.charTime -= keyRepeatRate
+			}
+		}
+	} else {
+		c.lastChar = 0
+		c.charPhase = 0
+	}
+}
+
+// appendFilterRune opens the list (if closed) and appends a rune to the filter.
+func (c *ComboBoxComponent) appendFilterRune(r rune) {
+	if !c.open {
+		c.openDropdown()
+	}
+	c.filter += string(r)
+	c.filterChanged()
+}
+
+// applyFilterBackspace opens the list (if closed) and deletes the last filter rune.
+func (c *ComboBoxComponent) applyFilterBackspace() {
+	if c.filter == "" {
+		return
+	}
+	if !c.open {
+		c.openDropdown()
+	}
+	_, size := utf8.DecodeLastRuneInString(c.filter)
+	c.filter = c.filter[:len(c.filter)-size]
+	c.filterChanged()
+}
+
 // itemAt returns the index of the item under pos, or -1.
 func (c *ComboBoxComponent) itemAt(pos math.Vector2) int {
 	dr := c.dropdownRect()
@@ -407,7 +585,7 @@ func (c *ComboBoxComponent) itemAt(pos math.Vector2) int {
 		return -1
 	}
 	idx := int((pos.Y - dr.Top() + c.scrollOffset) / c.itemHeight())
-	if idx < 0 || idx >= len(c.Items) {
+	if idx < 0 || idx >= len(c.visibleItems()) {
 		return -1
 	}
 	return idx
@@ -426,9 +604,9 @@ func (c *ComboBoxComponent) dropdownRect() math.Rect {
 	return math.NewRect(hr.Left(), hr.Bottom(), hr.Width(), h)
 }
 
-// contentHeight returns the full height of all items (unscrolled).
+// contentHeight returns the full height of the visible items (unscrolled).
 func (c *ComboBoxComponent) contentHeight() float64 {
-	return float64(len(c.Items)) * c.itemHeight()
+	return float64(len(c.visibleItems())) * c.itemHeight()
 }
 
 // dropdownHeight returns the visible list height: the full content height capped to
@@ -604,10 +782,14 @@ func (c *ComboBoxComponent) drawOutline(r core.Renderer, rect math.Rect) {
 	}
 }
 
-// drawFieldText draws the value (or placeholder) in the field, left-aligned.
+// drawFieldText draws the value (or placeholder) in the field, left-aligned. While a
+// filter is being typed, the field shows the filter text instead, with a caret after it.
 func (c *ComboBoxComponent) drawFieldText(r core.Renderer, hr math.Rect) {
 	text := c.Value
-	if text == "" {
+	editing := c.filter != ""
+	if editing {
+		text = c.filter
+	} else if text == "" {
 		text = c.Placeholder
 	}
 	if text == "" {
@@ -618,6 +800,21 @@ func (c *ComboBoxComponent) drawFieldText(r core.Renderer, hr math.Rect) {
 	x := hr.Left() + 8
 	y := hr.Center().Y - th/2
 	r.DrawText(text, c.FontID, size, math.NewVector2(x, y), c.TextColor)
+
+	if editing && c.showCaret() {
+		w, _ := r.MeasureText(text, c.FontID, size)
+		cx := x + w + 1
+		if cw, _ := r.MeasureText("|", c.FontID, size); cw > 0 {
+			r.DrawText("|", c.FontID, size, math.NewVector2(cx-cw/2, y), c.TextColor)
+		} else {
+			r.DrawRect(math.NewRect(cx, hr.Top()+2, 1, hr.Height()-4), c.TextColor)
+		}
+	}
+}
+
+// showCaret reports whether the filter caret is in its visible (blinking) phase.
+func (c *ComboBoxComponent) showCaret() bool {
+	return int(c.caretBlink*2)%2 == 0
 }
 
 // drawArrow draws a small "∨" chevron on the right edge of the field.
@@ -648,13 +845,14 @@ func (c *ComboBoxComponent) drawDropdown(r core.Renderer) {
 
 	ih := c.itemHeight()
 	size := c.textSize()
-	sel := c.selectedIndex()
+	items := c.visibleItems()
+	sel := c.visibleIndex(c.Value)
 	// Rows shrink by the scrollbar width when it is visible, so text never runs under it.
 	rowW := dr.Width()
 	if c.scrollbarVisible() {
 		rowW -= c.scrollbarWidth()
 	}
-	for i, item := range c.Items {
+	for i, item := range items {
 		rowTop := dr.Top() + float64(i)*ih - c.scrollOffset
 		if rowTop+ih <= dr.Top() || rowTop >= dr.Bottom() {
 			continue // culled; the clip also catches overflow, this skips the draw work
