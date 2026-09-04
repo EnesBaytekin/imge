@@ -578,24 +578,58 @@ func debugPick(obj *core.Object) core.Component {
 	return nil
 }
 
-// objectBounds returns the union of the object's debug bounds (from every component
-// that reports them), plus whether any were found. Objects whose components report no
-// bounds — or only a degenerate (zero-area) box, e.g. a sprite with an empty texture
-// path — have no bounds; the selection outline falls back to marking their origin.
+// objectBounds returns the debug bounds the selection outline is drawn around. Sprites
+// are the object's visible footprint, so their bounds win when present: a sprite's
+// offset then shifts the outline together with the drawn texture instead of growing the
+// box (which is what happens if we union a shifted sprite with an unshifted collider).
+// Colliders/triggers are physics and are already outlined separately by their own
+// DrawDebug, so they only contribute when the object has no sprite at all.
+//
+// Objects whose components report no bounds — or only a degenerate (zero-area) box,
+// e.g. a sprite with an empty texture path — have no bounds; the selection outline
+// falls back to marking their origin.
 func objectBounds(obj *core.Object) (math.Rect, bool) {
 	var b math.Rect
 	found := false
+
+	// Pass 1: visible sprites (the object's visible footprint). Hidden sprites are
+	// skipped so an @Animator that keeps only the current frame's sprite visible
+	// doesn't inflate the outline with every frame it has hidden.
 	for _, comp := range obj.ComponentsInDrawOrder() {
-		if bp, ok := comp.(core.DebugBoundsProvider); ok {
-			r := bp.DebugBounds()
-			if !found {
-				b = r
-				found = true
-			} else {
-				b = b.Union(r)
+		spr, isSprite := comp.(*Sprite)
+		if !isSprite || !spr.IsVisible() {
+			continue
+		}
+		r := spr.DebugBounds()
+		if !found {
+			b = r
+			found = true
+		} else {
+			b = b.Union(r)
+		}
+	}
+
+	// Pass 2: no visible sprite — union the non-sprite bounds providers (collider,
+	// trigger, ...) so a physics-only object still outlines its hitbox. Invisible
+	// sprites are skipped here too (they were already excluded in pass 1); an object
+	// whose only shape is a hidden sprite falls through to the origin marker.
+	if !found {
+		for _, comp := range obj.ComponentsInDrawOrder() {
+			if _, isSprite := comp.(*Sprite); isSprite {
+				continue
+			}
+			if bp, ok := comp.(core.DebugBoundsProvider); ok {
+				r := bp.DebugBounds()
+				if !found {
+					b = r
+					found = true
+				} else {
+					b = b.Union(r)
+				}
 			}
 		}
 	}
+
 	if found && (b.Width() <= 0 || b.Height() <= 0) {
 		return b, false // degenerate: fall back to the origin "+" marker
 	}

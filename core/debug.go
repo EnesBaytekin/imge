@@ -31,3 +31,12 @@ type DebugDrawer interface {
 type DebugBoundsProvider interface {
 	DebugBounds() math.Rect
 }
+
+// VisibilityProvider is an optional interface a DebugBoundsProvider may also
+// implement to report whether it is currently hittable/selectable. The editor's
+// picker skips providers that report false — e.g. a Sprite an @Animator has hidden —
+// so invisible bounds never capture clicks. A provider that does not implement this
+// is always considered visible.
+type VisibilityProvider interface {
+	IsVisible() bool
+}

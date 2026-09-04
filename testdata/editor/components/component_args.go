@@ -499,6 +499,23 @@ func (c *ComponentArgsComponent) buildNameBinding() fieldBinding {
 	return b
 }
 
+// clipSpriteNames returns the distinct sprite names named by the animator's clips, in
+// clip order — the choices for the animator's `default` combobox.
+func clipSpriteNames(anim *Animator) []string {
+	if anim == nil {
+		return nil
+	}
+	seen := make(map[string]bool, len(anim.Clips))
+	names := make([]string, 0, len(anim.Clips))
+	for _, clip := range anim.Clips {
+		if clip.Sprite != "" && !seen[clip.Sprite] {
+			seen[clip.Sprite] = true
+			names = append(names, clip.Sprite)
+		}
+	}
+	return names
+}
+
 // bindingsFor builds the field binding(s) for one reflection-discovered argument: a
 // single widget for scalar/bool/color fields, or one widget per component for
 // math.Vector2 (x, y) and math.Border (left, top, right, bottom), laid out side by side.
@@ -507,6 +524,28 @@ func (c *ComponentArgsComponent) buildNameBinding() fieldBinding {
 func (c *ComponentArgsComponent) bindingsFor(f argField) []fieldBinding {
 	fv := f.value
 	t := fv.Type()
+
+	// The Animator's `default` field names the clip played on startup. A free-text box
+	// is error-prone (it must name a clip), so it is a combobox of the clip sprite
+	// names; selecting one also re-plays it so the editor's visibility updates at once.
+	if f.name == "default" {
+		if anim, ok := c.target.(*Animator); ok {
+			b := fieldBinding{
+				key:   f.name,
+				parts: 1,
+				kind:  kindCombobox,
+				get:   func() string { return anim.Default },
+				apply: func(s string) error {
+					anim.Default = s
+					anim.Play(s) // no-op when s has no clip; else shows it and hides the rest
+					return nil
+				},
+				getOptions: func() []string { return clipSpriteNames(anim) },
+			}
+			b.old = b.get()
+			return []fieldBinding{b}
+		}
+	}
 
 	switch {
 	case t == reflect.TypeOf(math.Color{}):

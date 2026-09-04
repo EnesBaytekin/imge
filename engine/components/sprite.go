@@ -67,9 +67,14 @@ func (s *Sprite) Draw(renderer core.Renderer) {
 		return
 	}
 
+	// Cache the texture size on first draw, but only once it is actually known: a
+	// texture that cannot be loaded yet (path missing at first draw) reports (0, 0),
+	// and locking that in would make Draw skip the width/height display scaling (and
+	// FrameCount stay 1) forever while DebugBounds still reports the requested size.
+	// Retrying until the size is non-zero keeps Draw and DebugBounds in agreement.
 	if !s.sized {
 		s.textureW, s.textureH = renderer.GetTextureSize(s.Texture)
-		s.sized = true
+		s.sized = s.textureW > 0 || s.textureH > 0
 	}
 
 	src := s.frameRect()

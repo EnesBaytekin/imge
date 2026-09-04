@@ -326,6 +326,7 @@ const (
 	kindText fieldKind = iota
 	kindCheck
 	kindColor
+	kindCombobox
 )
 
 // fieldWidget is the common surface of the engine widgets a field value uses: enough
@@ -353,6 +354,7 @@ type fieldBinding struct {
 	apply      func(string) error
 	getBool    func() bool
 	getColor   func() math.Color
+	getOptions func() []string // combobox items (nil unless kindCombobox)
 	widget     fieldWidget
 	old        string // last committed value
 	wasFocused bool   // TextInput blur tracking
@@ -384,6 +386,19 @@ func makeFieldWidget(b *fieldBinding, owner *core.Object, pos math.Vector2, valu
 		cp.Height = h
 		cp.DrawLayer = 1
 		comp = cp
+	case kindCombobox:
+		cb := &ComboBoxComponent{}
+		cb.Items = b.getOptions()
+		cb.FontID = fontID
+		cb.Size = size
+		cb.TextColor = valueText
+		cb.Color = fieldBackground
+		cb.OutlineColor = fieldOutline
+		cb.OutlineThickness = 1
+		cb.Width = valueW
+		cb.Height = h
+		cb.DrawLayer = 1
+		comp = cb
 	default: // kindText
 		ti := &TextInputComponent{}
 		ti.FontID = fontID
@@ -412,6 +427,8 @@ func makeFieldWidget(b *fieldBinding, owner *core.Object, pos math.Vector2, valu
 		comp.(*CheckBoxComponent).SetChecked(b.getBool())
 	case kindColor:
 		comp.(*ColorPickerComponent).SetColor(b.getColor())
+	case kindCombobox:
+		comp.(*ComboBoxComponent).SetValue(b.get())
 	}
 	return comp
 }
@@ -458,6 +475,9 @@ func pollCommits(bindings []fieldBinding, ctx *core.Context, valueText, errorCol
 		case kindColor:
 			cp := b.widget.(*ColorPickerComponent)
 			_ = commitString(b, formatColorHex(cp.GetColor()))
+		case kindCombobox:
+			cb := b.widget.(*ComboBoxComponent)
+			_ = commitString(b, cb.GetValue())
 		default:
 			ti := b.widget.(*TextInputComponent)
 			focused := ti.IsFocused()
@@ -496,6 +516,10 @@ func refreshWidgets(bindings []fieldBinding) {
 			b.widget.(*CheckBoxComponent).SetChecked(b.getBool())
 		case kindColor:
 			b.widget.(*ColorPickerComponent).SetColor(b.getColor())
+		case kindCombobox:
+			cb := b.widget.(*ComboBoxComponent)
+			cb.Items = b.getOptions()
+			cb.SetValue(b.get())
 		}
 	}
 }
