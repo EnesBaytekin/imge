@@ -986,6 +986,44 @@ func duplicateComponent(target *core.Object, comp core.Component) core.Component
 }
 
 // ============================================================================
+// Component dependencies (the core.Dependable "requires" declaration).
+// ============================================================================
+
+// componentRequires returns the component kinds a component declares it depends on
+// (via the core.Dependable interface), or nil when it declares none.
+func componentRequires(comp core.Component) []string {
+	if dep, ok := comp.(core.Dependable); ok {
+		return dep.Requires()
+	}
+	return nil
+}
+
+// objectHasKind reports whether obj has a component of the given kind.
+func objectHasKind(obj *core.Object, kind string) bool {
+	if obj == nil {
+		return false
+	}
+	for _, comp := range obj.ComponentsInDrawOrder() {
+		if comp.GetKind() == kind {
+			return true
+		}
+	}
+	return false
+}
+
+// missingDependencies returns the subset of deps (component kinds) that are not
+// present as a component on obj.
+func missingDependencies(obj *core.Object, deps []string) []string {
+	var missing []string
+	for _, dep := range deps {
+		if !objectHasKind(obj, dep) {
+			missing = append(missing, dep)
+		}
+	}
+	return missing
+}
+
+// ============================================================================
 // Object add/remove (undoable), shared by the scene tree's + / x controls.
 // ============================================================================
 

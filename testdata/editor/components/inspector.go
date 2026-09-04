@@ -527,6 +527,15 @@ func (c *InspectorComponent) Draw(r core.Renderer) {
 		r.DrawText(comp.GetName(), c.FontID, c.FontSize, math.NewVector2(rect.X()+6, ty), c.ValueText)
 		r.DrawText(comp.GetKind(), c.FontID, c.FontSize, math.NewVector2(valX, ty), c.KeyText)
 
+		// "!" badge when the component declares required kinds (core.Dependable) that
+		// are missing from this object — a compact cue that a dependency is unmet. The
+		// args window spells out the full "requires" list when the row is opened.
+		if deps := componentRequires(comp); len(missingDependencies(obj, deps)) > 0 {
+			wr := math.NewRect(c.dupRect(rect, y).X()-14, y, 14, c.RowHeight)
+			ww, wh := r.MeasureText("!", c.FontID, c.FontSize)
+			r.DrawText("!", c.FontID, c.FontSize, math.NewVector2(wr.X()+(wr.Width()-ww)/2, y+(c.RowHeight-wh)/2), c.ErrorColor)
+		}
+
 		// "=" duplicate button in the strip left of the "x" remove button.
 		dr := c.dupRect(rect, y)
 		dupColor := c.KeyText

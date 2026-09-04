@@ -67,6 +67,17 @@ type ComponentArgsComponent struct {
 // and layout never drift.
 func (c *ComponentArgsComponent) titleH() float64 { return c.RowHeight + 8 }
 
+// requiresH returns the height reserved for the "requires" footer line below the
+// argument list — a separator gap plus one text row — or 0 when the target component
+// declares no dependencies (via core.Dependable). The footer lives outside the scroll
+// area, so the body's usable height is reduced by this amount.
+func (c *ComponentArgsComponent) requiresH() float64 {
+	if c.target == nil || len(componentRequires(c.target)) == 0 {
+		return 0
+	}
+	return c.RowHeight + 4
+}
+
 // IsOpen reports whether the window is showing a component.
 func (c *ComponentArgsComponent) IsOpen() bool { return c.target != nil }
 
@@ -310,7 +321,7 @@ func (c *ComponentArgsComponent) clampScroll(fields []argField) {
 // scrollTrack returns the scrollbar track rect along the window body's right edge.
 func (c *ComponentArgsComponent) scrollTrack(rect math.Rect) math.Rect {
 	const w = 6.0
-	return math.NewRect(rect.X()+rect.Width()-w-2, rect.Y()+c.titleH(), w, rect.Height()-c.titleH())
+	return math.NewRect(rect.X()+rect.Width()-w-2, rect.Y()+c.titleH(), w, rect.Height()-c.titleH()-c.requiresH())
 }
 
 // handleScrollbarPress consumes a click on the scrollbar: grabbing the thumb starts a
@@ -338,7 +349,7 @@ func (c *ComponentArgsComponent) handleScrollbarPress(mouse math.Vector2, fields
 // The row count includes the leading name row, so it is len(fields)+1.
 func (c *ComponentArgsComponent) maxScroll(fields []argField) float64 {
 	rows := len(fields) + 1
-	body := c.Rect().Height() - c.titleH()
+	body := c.Rect().Height() - c.titleH() - c.requiresH()
 	if m := float64(rows)*c.RowHeight - body; m > 0 {
 		return m
 	}
@@ -378,7 +389,7 @@ func (c *ComponentArgsComponent) Draw(r core.Renderer) {
 	// name label and any read-only value.
 	fields := enumerateArgs(c.target)
 	bodyTop := rect.Y() + c.titleH()
-	body := math.NewRect(rect.X(), bodyTop, rect.Width(), rect.Height()-c.titleH())
+	body := math.NewRect(rect.X(), bodyTop, rect.Width(), rect.Height()-c.titleH()-c.requiresH())
 	r.SetClipRect(body)
 	valX := rect.X() + rect.Width()/2
 
@@ -426,7 +437,32 @@ func (c *ComponentArgsComponent) Draw(r core.Renderer) {
 		drawScrollbar(r, track, thumb, c.ScrollTrack, c.ScrollThumb)
 	}
 
+	// "requires" footer: the component's declared dependencies, below the scroll area.
+	c.drawRequiresFooter(r, rect, th)
+
 	r.ClearClip()
+}
+
+// drawRequiresFooter draws the "requires" footer at the bottom of the window: the
+// component kinds the target depends on (via core.Dependable), flagged in red when any
+// of them are missing from the owner object. A component with no dependencies draws no
+// footer and reserves no space (see requiresH).
+func (c *ComponentArgsComponent) drawRequiresFooter(r core.Renderer, rect math.Rect, th float64) {
+	deps := componentRequires(c.target)
+	if len(deps) == 0 {
+		return
+	}
+	footerTop := rect.Y() + rect.Height() - c.requiresH()
+	r.DrawLine(math.NewVector2(rect.X(), footerTop), math.NewVector2(rect.X()+rect.Width(), footerTop), c.BorderColor, 1)
+
+	label := "requires: " + strings.Join(deps, ", ")
+	color := c.KeyText
+	if missing := missingDependencies(c.target.GetOwner(), deps); len(missing) > 0 {
+		label += "  (missing: " + strings.Join(missing, ", ") + ")"
+		color = c.ErrorColor
+	}
+	ty := footerTop + 4 + (c.RowHeight-th)/2
+	r.DrawText(label, c.FontID, c.FontSize, math.NewVector2(rect.X()+6, ty), color)
 }
 
 // ============================================================================
@@ -651,5 +687,5 @@ func (c *ComponentArgsComponent) pollAndRefresh(ctx *core.Context) {
 func (c *ComponentArgsComponent) layoutRows() {
 	rect := c.Rect()
 	valueW := rect.Width()/2 - 8 // leave room for the scrollbar
-	layoutWidgets(c.bindings, c.GetOwner(), rect.Y()+c.titleH(), rect.X()+rect.Width()/2, valueW, c.scroll, c.RowHeight, rect.Y()+rect.Height())
+	layoutWidgets(c.bindings, c.GetOwner(), rect.Y()+c.titleH(), rect.X()+rect.Width()/2, valueW, c.scroll, c.RowHeight, rect.Y()+rect.Height()-c.requiresH())
 }
