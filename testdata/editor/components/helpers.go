@@ -417,9 +417,16 @@ func makeFieldWidget(b *fieldBinding, owner *core.Object, pos math.Vector2, valu
 }
 
 // commitString applies a committed widget value through the binding's string round-trip
-// and records one undo entry when it changed. It returns the parse error (TextInput
-// only; bool/color cannot fail).
+// and records one undo entry when it changed (marked dirty). It returns the parse error
+// (TextInput only; bool/color cannot fail).
 func commitString(b *fieldBinding, s string) error {
+	return commitStringDirty(b, s, true)
+}
+
+// commitStringDirty is commitString with an explicit dirty flag, for documents that
+// record undo without counting as unsaved scene edits (e.g. game.imge, saved in its
+// own modal).
+func commitStringDirty(b *fieldBinding, s string, dirty bool) error {
 	if s == b.old {
 		return nil
 	}
@@ -428,8 +435,10 @@ func commitString(b *fieldBinding, s string) error {
 		return err
 	}
 	history.record(
+		"changed "+strings.TrimPrefix(b.key, "_"),
 		func() { _ = b.apply(old) },
 		func() { _ = b.apply(s) },
+		dirty,
 	)
 	b.old = s
 	return nil
@@ -599,21 +608,31 @@ func pointerOwnedElsewhere(scene *core.Scene, owner *core.Object, pos math.Vecto
 // Undo/redo history (committed field edits).
 // ============================================================================
 
-// editStep is one reversible edit: an undo closure (restore the prior state) and a
-// redo closure (re-apply the new state). The closures capture the target object/field
-// and its old/new values at record time, so an entry stays correct no matter how the
-// editor's UI state changes afterward. This one shape lets every edit source share a
-// single history: component-arg writes, object-property edits, and viewport drags.
+// editStep is one reversible edit: a human-readable label (shown in the console on
+// undo/redo), an undo closure (restore the prior state) and a redo closure (re-apply
+// the new state). The closures capture the target object/field and its old/new values
+// at record time, so an entry stays correct no matter how the editor's UI state changes
+// afterward. This one shape lets every edit source share a single history:
+// component-arg writes, object-property edits, viewport drags, selection changes,
+// and game/editor settings.
+//
+// dirty marks whether the step changes project data (scene/object/game-config edits)
+// versus pure navigation or editor-only UI state (selection, grid size). It drives the
+// "unsaved changes" close prompt: only dirty steps make the document unsaved.
 type editStep struct {
-	undo func()
-	redo func()
+	label string
+	undo  func()
+	redo  func()
+	dirty bool
 }
 
 // editHistory is the editor-wide undo stack. It lives at package level so any panel can
-// record edits and the toolbar triggers undo/redo by shortcut.
+// record edits and the toolbar triggers undo/redo by shortcut. It also tracks whether
+// the document has unsaved (dirty) scene edits.
 type editHistory struct {
 	undoStack []editStep
 	redoStack []editStep
+	dirty     bool
 }
 
 var history editHistory
@@ -621,14 +640,18 @@ var history editHistory
 // maxHistory bounds the undo stack so a long editing session can't grow unbounded.
 const maxHistory = 100
 
-// record pushes a reversible edit and clears the redo stack (a fresh edit invalidates
-// the redo chain, matching every editor).
-func (h *editHistory) record(undo, redo func()) {
-	h.undoStack = append(h.undoStack, editStep{undo, redo})
+// record pushes a reversible edit (with its description) and clears the redo stack (a
+// fresh edit invalidates the redo chain, matching every editor). dirty marks the step
+// as a project-data change for the unsaved-changes prompt.
+func (h *editHistory) record(label string, undo, redo func(), dirty bool) {
+	h.undoStack = append(h.undoStack, editStep{label, undo, redo, dirty})
 	if len(h.undoStack) > maxHistory {
 		h.undoStack = h.undoStack[len(h.undoStack)-maxHistory:]
 	}
 	h.redoStack = h.redoStack[:0]
+	if dirty {
+		h.dirty = true
+	}
 }
 
 // clear drops all history. Called when the target project switches, since undo entries
@@ -636,10 +659,18 @@ func (h *editHistory) record(undo, redo func()) {
 func (h *editHistory) clear() {
 	h.undoStack = nil
 	h.redoStack = nil
+	h.dirty = false
 }
 
-// undo reverts the most recent edit and moves it to the redo stack. It returns false
-// when there is nothing to undo.
+// markSaved records that the current document state has been saved, so the
+// unsaved-changes prompt stays quiet until the next dirty edit.
+func (h *editHistory) markSaved() { h.dirty = false }
+
+// isDirty reports whether there are unsaved project-data edits.
+func (h *editHistory) isDirty() bool { return h.dirty }
+
+// undo reverts the most recent edit and moves it to the redo stack, describing the
+// change in the console. It returns false when there is nothing to undo.
 func (h *editHistory) undo() bool {
 	if len(h.undoStack) == 0 {
 		return false
@@ -648,10 +679,15 @@ func (h *editHistory) undo() bool {
 	h.undoStack = h.undoStack[:len(h.undoStack)-1]
 	step.undo()
 	h.redoStack = append(h.redoStack, step)
+	console.Print("undid: " + step.label)
+	if step.dirty {
+		h.dirty = true
+	}
 	return true
 }
 
-// redo re-applies the most recently undone edit and moves it back to the undo stack.
+// redo re-applies the most recently undone edit and moves it back to the undo stack,
+// describing the change in the console.
 func (h *editHistory) redo() bool {
 	if len(h.redoStack) == 0 {
 		return false
@@ -660,6 +696,10 @@ func (h *editHistory) redo() bool {
 	h.redoStack = h.redoStack[:len(h.redoStack)-1]
 	step.redo()
 	h.undoStack = append(h.undoStack, step)
+	console.Print("redid: " + step.label)
+	if step.dirty {
+		h.dirty = true
+	}
 	return true
 }
 
@@ -792,7 +832,14 @@ func componentBaseName(kind string) string {
 // used on target, appending _2/_3/... as needed (matching the loader's own
 // duplicate-name behavior).
 func uniqueComponentName(target *core.Object, kind string) string {
-	base := componentBaseName(kind)
+	return uniqueComponentNameFrom(target, componentBaseName(kind))
+}
+
+// uniqueComponentNameFrom returns a component instance name on target starting from
+// base, appending _2/_3/... until it is unused. It is the name-suffixing half of
+// duplicateComponent, which must keep the original component's name rather than a
+// kind-derived base.
+func uniqueComponentNameFrom(target *core.Object, base string) string {
 	name := base
 	for n := 2; target.GetComponent(name) != nil; n++ {
 		name = fmt.Sprintf("%s_%d", base, n)
@@ -835,8 +882,10 @@ func addComponentTo(target *core.Object, kind string) core.Component {
 	}
 	comp.Initialize()
 	history.record(
+		"added component "+name,
 		func() { target.RemoveComponent(name) },
 		func() { restoreComponent(target, kind, name, nil, -1) },
+		true,
 	)
 	return comp
 }
@@ -877,9 +926,39 @@ func removeComponent(comp core.Component) {
 	index := owner.ComponentInsertionIndex(name) // capture the list position before removal
 	owner.RemoveComponent(name)
 	history.record(
+		"removed component "+name,
 		func() { restoreComponent(owner, kind, name, args, index) },
 		func() { owner.RemoveComponent(name) },
+		true,
 	)
+}
+
+// duplicateComponent clones comp onto its owner: it copies the component's current
+// args (its JSON data) into a fresh instance of the same kind with a unique name, and
+// records an undo entry that removes the copy (redo re-adds it with the same args).
+// Returns the copy, or nil when the component, owner, or build fails.
+func duplicateComponent(target *core.Object, comp core.Component) core.Component {
+	if target == nil || comp == nil {
+		return nil
+	}
+	kind, name := comp.GetKind(), comp.GetName()
+	args := core.ComponentArgs(comp)
+	newName := uniqueComponentNameFrom(target, name)
+	dup := buildComponent(kind, newName, args)
+	if dup == nil {
+		return nil
+	}
+	if err := target.AddComponent(dup); err != nil {
+		return nil
+	}
+	dup.Initialize()
+	history.record(
+		"duplicated component "+newName,
+		func() { target.RemoveComponent(newName) },
+		func() { restoreComponent(target, kind, newName, args, -1) },
+		true,
+	)
+	return dup
 }
 
 // ============================================================================
@@ -899,8 +978,10 @@ func addObjectTo(scene *core.Scene) *core.Object {
 		return nil
 	}
 	history.record(
+		"added object",
 		func() { scene.RemoveObject(obj.GetID()) },
 		func() { scene.AddObject(obj) },
+		true,
 	)
 	return obj
 }
@@ -916,7 +997,56 @@ func removeObjectFrom(scene *core.Scene, obj *core.Object) {
 	}
 	scene.RemoveObject(obj.GetID())
 	history.record(
+		"removed object "+obj.Name,
 		func() { scene.AddObject(obj) },
 		func() { scene.RemoveObject(obj.GetID()) },
+		true,
 	)
+}
+
+// duplicateObject clones obj into the scene: it copies the object's JSON data (its
+// config via ToJSONConfig, plus the live transform and active state) into a new object
+// with the same components, and records an undo entry that removes the copy (redo
+// re-adds the same object pointer). The scene's AddObject assigns a unique name. The
+// copy's components are initialized on its first Scene.Update (AddObject defers it), so
+// the injected args plus Initialize defaults land exactly as a fresh load would.
+// Returns the copy, or nil.
+func duplicateObject(scene *core.Scene, obj *core.Object) *core.Object {
+	if scene == nil || obj == nil {
+		return nil
+	}
+	cfg := obj.ToJSONConfig()
+	dup := core.NewObject(cfg.Name)
+	dup.Transform = obj.Transform
+	dup.Active = obj.Active
+	dup.Depth = cfg.Depth
+	dup.Layer = cfg.Layer
+	dup.UI = cfg.UI
+	dup.Draggable = cfg.Draggable
+	for _, tag := range cfg.Tags {
+		dup.AddTag(tag)
+	}
+	for _, c := range cfg.Components {
+		comp := buildComponent(c.Kind, c.Name, c.Args)
+		if comp == nil {
+			continue
+		}
+		if err := dup.AddComponent(comp); err != nil {
+			continue
+		}
+		// Initialize manually: the editor renders the target scene without running
+		// Scene.Update, so a component added at runtime never reaches the deferred
+		// initializeComponents pass. This mirrors addComponentTo/restoreComponent.
+		comp.Initialize()
+	}
+	if err := scene.AddObject(dup); err != nil {
+		return nil
+	}
+	history.record(
+		"duplicated object",
+		func() { scene.RemoveObject(dup.GetID()) },
+		func() { scene.AddObject(dup) },
+		true,
+	)
+	return dup
 }

@@ -73,7 +73,7 @@ func spawnAddComponentPanel(scene *core.Scene, target *core.Object) {
 
 	obj := core.NewObject("add_component_panel")
 	obj.UI = true
-	obj.Layer = 3 // same layer as the inspector, so the modal z-orders above it
+	obj.Layer = 3                                     // same layer as the inspector, so the modal z-orders above it
 	obj.Transform.Position = math.NewVector2(160, 80) // centered lazily on first Update
 
 	panel := &AddComponentPanelComponent{}

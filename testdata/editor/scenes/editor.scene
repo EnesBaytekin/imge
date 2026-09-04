@@ -17,22 +17,12 @@
       ]
     },
     {
-      "name": "header",
-      "ui": true,
-      "layer": 2,
-      "components": [
-        { "kind": "@Panel", "name": "bar", "args": { "color": "#1d2130", "width": 960, "height": 24 } },
-        { "kind": "@Label", "name": "title", "args": { "text": "IMGE EDITOR", "size": 12, "color": "#ffffff", "offset": { "x": 12, "y": 5 } } },
-        { "kind": "@Label", "name": "hint", "args": { "text": "middle-drag / Space+drag: pan    wheel: zoom    Ctrl+Z/Y: undo/redo", "size": 6, "color": "#8a8a9a", "offset": { "x": 170, "y": 8 } } }
-      ]
-    },
-    {
       "name": "toolbar",
       "ui": true,
       "layer": 2,
-      "transform": { "position": { "x": 0, "y": 24 } },
+      "transform": { "position": { "x": 0, "y": 0 } },
       "components": [
-        { "kind": "ToolbarComponent", "name": "toolbar", "args": { "width": 960, "height": 22 } }
+        { "kind": "MenuBarComponent", "name": "toolbar", "args": { "width": 960, "height": 22 } }
       ]
     },
     {

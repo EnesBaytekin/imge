@@ -138,8 +138,8 @@ func (c *ConsoleComponent) Update(ctx *core.Context) {
 	if ctx == nil || ctx.Input == nil {
 		return
 	}
-	// A modal is open (add-component panel / confirm dialog): this panel is inert.
-	if modalOpen() {
+	// A modal or an open menu bar is up: this panel is inert.
+	if modalOpen() || menusOpen() {
 		return
 	}
 	rect := c.Rect()
@@ -254,20 +254,21 @@ func charWrapLine(r core.Renderer, s, fontID string, size, maxWidth float64) []s
 		return []string{""}
 	}
 	var lines []string
-	for start := 0; start < len(s); {
-		_, sz := utf8.DecodeRuneInString(s[start:])
-		end := start + sz
-		for end < len(s) {
-			_, z := utf8.DecodeRuneInString(s[end:])
-			next := end + z
-			w, _ := r.MeasureText(s[start:next], fontID, size)
-			if w > maxWidth {
-				break
-			}
-			end = next
+	start := 0
+	width := 0.0
+	for i := 0; i < len(s); {
+		// Measure one rune at a time and accumulate so the whole wrap is O(n); the
+		// old code re-measured the growing prefix s[start:next] each step (O(n²)).
+		_, sz := utf8.DecodeRuneInString(s[i:])
+		w, _ := r.MeasureText(s[i:i+sz], fontID, size)
+		if i > start && width+w > maxWidth {
+			lines = append(lines, s[start:i])
+			start = i
+			width = 0
 		}
-		lines = append(lines, s[start:end])
-		start = end
+		width += w
+		i += sz
 	}
+	lines = append(lines, s[start:])
 	return lines
 }

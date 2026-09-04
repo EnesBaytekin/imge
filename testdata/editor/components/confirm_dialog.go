@@ -6,10 +6,10 @@ import (
 )
 
 // ConfirmDialogComponent is a small modal confirmation popup: it draws a message and
-// two buttons — "evet sil" (confirm) and "hayır iptal" (cancel). Confirm runs the
-// onConfirm callback (captured at spawn) and closes; cancel, or a click outside the
-// popup, closes without running it. It is generic: the inspector uses it to confirm a
-// component removal, but any confirm/cancel action can reuse it.
+// two buttons — "Delete" (confirm) and "Cancel". Confirm runs the onConfirm callback
+// (captured at spawn) and closes; cancel, or a click outside the popup, closes without
+// running it. It is generic: the inspector uses it to confirm a component removal, but
+// any confirm/cancel action can reuse it.
 //
 // Like AddComponentPanelComponent it is modal: while open every other hand-rolled
 // panel yields (see modalOpen) and an outside click dismisses it, finalized in Draw.
@@ -18,8 +18,8 @@ type ConfirmDialogComponent struct {
 
 	Background  math.Color `json:"background"`
 	TitleText   math.Color `json:"title_text"`
-	Accent      math.Color `json:"accent"`      // confirm ("evet sil") button
-	BorderColor math.Color `json:"border_color"` // cancel ("hayır iptal") button
+	Accent      math.Color `json:"accent"`       // confirm ("Delete") button
+	BorderColor math.Color `json:"border_color"` // cancel ("Cancel") button
 	FontID      string     `json:"font_id"`
 	FontSize    float64    `json:"font_size"`
 
@@ -53,7 +53,7 @@ func (c *ConfirmDialogComponent) Initialize() {
 }
 
 // spawnConfirmDialog opens a confirm modal showing message. onConfirm runs when the
-// "evet sil" button is clicked. It is a no-op when a modal is already open.
+// "Delete" button is clicked. It is a no-op when a modal is already open.
 func spawnConfirmDialog(scene *core.Scene, message string, onConfirm func()) {
 	if scene == nil || modalOpen() {
 		return
@@ -85,8 +85,8 @@ func spawnConfirmDialog(scene *core.Scene, message string, onConfirm func()) {
 // buildWidgets creates the confirm/cancel buttons as children of the same object.
 func (c *ConfirmDialogComponent) buildWidgets() {
 	owner := c.GetOwner()
-	c.confirm = makePanelButton(owner, "confirm", "evet sil", math.NewVector2(8, 40), 98, 20, c.FontID, c.FontSize, c.Accent)
-	c.cancel = makePanelButton(owner, "cancel", "hayır iptal", math.NewVector2(112, 40), 100, 20, c.FontID, c.FontSize, c.BorderColor)
+	c.confirm = makePanelButton(owner, "confirm", "Delete", math.NewVector2(8, 40), 98, 20, c.FontID, c.FontSize, c.Accent)
+	c.cancel = makePanelButton(owner, "cancel", "Cancel", math.NewVector2(112, 40), 100, 20, c.FontID, c.FontSize, c.BorderColor)
 }
 
 func (c *ConfirmDialogComponent) Update(ctx *core.Context) {

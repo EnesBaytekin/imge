@@ -337,6 +337,12 @@ type Window interface {
 	// ShouldClose returns true if the window should close (e.g., user clicked X).
 	ShouldClose() bool
 
+	// SetClosingHandled controls whether the OS close button closes the window
+	// immediately (false, the default) or is intercepted for the game to handle
+	// (true). When handled, ShouldClose reports the close request for one frame and
+	// the game must terminate itself (e.g. Game.Terminate) once it is done.
+	SetClosingHandled(handled bool)
+
 	// GetSize returns the current window size in pixels.
 	GetSize() (width, height int)
 

@@ -70,6 +70,15 @@ type Game struct {
 	// Game state
 	running     bool
 	initialized bool
+
+	// closeHandler, when set, intercepts the OS window-close button: on a close
+	// request it returns true to quit or false to keep running (e.g. an editor
+	// prompting to save). nil means "close immediately".
+	closeHandler func() bool
+
+	// terminate is set when the game should end; the platform loop polls
+	// ShouldTerminate and exits (returning a regular termination).
+	terminate bool
 }
 
 // NewGame creates a new game instance with default configuration.
@@ -227,6 +236,12 @@ func (g *Game) Update(ctx *Context) {
 	// Expose the game to components so they can switch scenes.
 	ctx.Game = g
 
+	// Handle an OS window-close request first. When one is pending and the game is
+	// about to quit, skip this frame's scene update.
+	if g.handleWindowClose() {
+		return
+	}
+
 	// Apply a queued scene switch before this frame's update so the new scene's
 	// objects initialize before they are ever drawn.
 	if g.pendingScene != "" {
@@ -239,6 +254,46 @@ func (g *Game) Update(ctx *Context) {
 	if g.activeScene != nil {
 		g.activeScene.Update(ctx)
 	}
+}
+
+// handleWindowClose intercepts an OS window-close request. It returns true when the
+// game is terminating this frame (the caller should skip the scene update). Without a
+// close handler the default is to quit immediately; with one, the handler decides —
+// true quits, false keeps the window open (the close request is reported for a single
+// frame, so returning false cleanly cancels it).
+func (g *Game) handleWindowClose() bool {
+	if g.platform == nil || g.platform.Window() == nil {
+		return false
+	}
+	if !g.platform.Window().ShouldClose() {
+		return false
+	}
+	if g.closeHandler == nil || g.closeHandler() {
+		g.terminate = true
+		return true
+	}
+	return false
+}
+
+// SetCloseHandler registers a close interceptor and switches the window into
+// close-handled mode. Pass nil to restore the default (close immediately). The
+// handler runs on each OS close request; return true to quit, false to keep running.
+func (g *Game) SetCloseHandler(h func() bool) {
+	g.closeHandler = h
+	if w := g.platform.Window(); w != nil {
+		w.SetClosingHandled(h != nil)
+	}
+}
+
+// Terminate requests the game loop to stop at the end of the current frame.
+func (g *Game) Terminate() {
+	g.terminate = true
+}
+
+// ShouldTerminate reports whether Terminate has been called and the platform loop
+// should exit now.
+func (g *Game) ShouldTerminate() bool {
+	return g.terminate
 }
 
 // Draw renders the game for the current frame. It clears the screen with the

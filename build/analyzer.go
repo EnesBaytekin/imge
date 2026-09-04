@@ -126,6 +126,9 @@ func (a *ProjectAnalysis) scanProject(root string) error {
 			a.SceneFiles = append(a.SceneFiles, relPath)
 		case strings.HasSuffix(name, ".obj"):
 			a.ObjectFiles = append(a.ObjectFiles, relPath)
+		case name == ".imge.editor":
+			// Editor-only settings cache: never embedded or copied into a build.
+			return nil
 		default:
 			a.AssetFiles = append(a.AssetFiles, relPath)
 		}

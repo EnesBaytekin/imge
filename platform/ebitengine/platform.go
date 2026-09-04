@@ -165,6 +165,9 @@ func (r *runner) Update() error {
 		Renderer: p.renderer,
 	}
 	r.game.Update(ctx)
+	if r.game.ShouldTerminate() {
+		return ebiten.Termination
+	}
 	return nil
 }
 

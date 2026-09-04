@@ -1,6 +1,8 @@
 package components
 
 import (
+	stdmath "math"
+
 	"github.com/EnesBaytekin/imge/core"
 	"github.com/EnesBaytekin/imge/core/math"
 )
@@ -193,6 +195,63 @@ func (s *Sprite) SetOffset(x, y float64) {
 // SetTexture sets the texture path to render.
 func (s *Sprite) SetTexture(path string) {
 	s.Texture = path
+}
+
+// ResetTexture clears the cached texture size so the next Draw reloads and re-sizes
+// from s.Texture. Call it after changing Texture at runtime (e.g. the editor applying
+// a new texture path) so the sprite immediately renders the new image with the right
+// natural size and frame geometry.
+func (s *Sprite) ResetTexture() {
+	s.sized = false
+	s.textureW = 0
+	s.textureH = 0
+}
+
+// DebugBounds returns the sprite's world-space rectangle for editor hit-testing and
+// selection: the owner's position plus Offset, sized to the sprite's display size
+// (Width/Height when set, else the natural frame/texture size), scaled by the owner's
+// transform. It is axis-aligned — rotation is ignored — matching the Collider's
+// DebugBounds. The natural size is only known after the sprite has drawn once (textures
+// load lazily), so before that, or for an empty texture path, the size falls back to the
+// explicit Width/Height or the frame dimensions, and ultimately a zero-size box.
+func (s *Sprite) DebugBounds() math.Rect {
+	owner := s.GetOwner()
+
+	w := s.Width
+	if w <= 0 {
+		w = s.naturalWidth()
+	}
+	h := s.Height
+	if h <= 0 {
+		h = s.naturalHeight()
+	}
+
+	pos := s.Offset
+	if owner != nil {
+		pos = owner.Transform.Position.Add(s.Offset)
+		w *= stdmath.Abs(owner.Transform.Scale.X)
+		h *= stdmath.Abs(owner.Transform.Scale.Y)
+	}
+
+	return math.NewRect(pos.X, pos.Y, w, h)
+}
+
+// naturalWidth returns the sprite's un-scaled natural width: the frame-cell width when
+// frame slicing is used, else the loaded texture width (0 until the texture is loaded).
+func (s *Sprite) naturalWidth() float64 {
+	if s.FrameWidth > 0 {
+		return s.FrameWidth
+	}
+	return s.textureW
+}
+
+// naturalHeight returns the sprite's un-scaled natural height (see naturalWidth). For a
+// horizontal-strip sheet (FrameWidth set, FrameHeight 0) the height is the full texture.
+func (s *Sprite) naturalHeight() float64 {
+	if s.FrameHeight > 0 {
+		return s.FrameHeight
+	}
+	return s.textureH
 }
 
 // SetColor sets the color transform for rendering.

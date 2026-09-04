@@ -45,6 +45,7 @@ type SceneTreeComponent struct {
 
 	hovered        *core.Object // object under the cursor (nil = none), for the hover highlight
 	hoverX         *core.Object // object whose "x" remove button is under the cursor (nil = none)
+	hoverDup       *core.Object // object whose "=" duplicate button is under the cursor (nil = none)
 	hoverPlus      bool         // the "+" add-object button is under the cursor
 	scrollDragging bool         // the scrollbar thumb is being dragged
 	scrollGrab     float64      // mouse Y offset within the thumb when the drag began
@@ -82,6 +83,14 @@ func (t *SceneTreeComponent) plusRect(rect math.Rect) math.Rect {
 func (t *SceneTreeComponent) xRect(rect math.Rect, rowY float64) math.Rect {
 	const xw, sbW = 14.0, 6.0
 	return math.NewRect(rect.X()+rect.Width()-sbW-xw-2, rowY, xw, t.RowHeight)
+}
+
+// dupRect returns the "=" duplicate-button strip at the right edge of a row, immediately
+// left of the "x" remove strip so the two controls sit side by side.
+func (t *SceneTreeComponent) dupRect(rect math.Rect, rowY float64) math.Rect {
+	const dw = 14.0
+	xr := t.xRect(rect, rowY)
+	return math.NewRect(xr.X()-dw, rowY, dw, t.RowHeight)
 }
 
 // scrollTrack returns the scrollbar track rect along the list's right edge.
@@ -195,8 +204,8 @@ func (t *SceneTreeComponent) Update(ctx *core.Context) {
 	if ctx == nil || ctx.Input == nil {
 		return
 	}
-	// A modal is open (add-component panel / confirm dialog): this panel is inert.
-	if modalOpen() {
+	// A modal or an open menu bar is up: this panel is inert.
+	if modalOpen() || menusOpen() {
 		return
 	}
 	mouse := ctx.Input.GetMousePosition()
@@ -216,6 +225,7 @@ func (t *SceneTreeComponent) Update(ctx *core.Context) {
 	if !rect.ContainsPoint(mouse) {
 		t.hovered = nil
 		t.hoverX = nil
+		t.hoverDup = nil
 		t.hoverPlus = false
 		return
 	}
@@ -224,6 +234,7 @@ func (t *SceneTreeComponent) Update(ctx *core.Context) {
 	if pointerOwnedElsewhere(t.GetScene(), t.GetOwner(), mouse) {
 		t.hovered = nil
 		t.hoverX = nil
+		t.hoverDup = nil
 		t.hoverPlus = false
 		return
 	}
@@ -240,10 +251,14 @@ func (t *SceneTreeComponent) Update(ctx *core.Context) {
 	ri := t.rowIndex(rows, mouse.Y)
 	t.hovered = nil
 	t.hoverX = nil
+	t.hoverDup = nil
 	if ri >= 0 {
 		t.hovered = rows[ri].obj
 		if t.xRect(rect, rows[ri].y-t.scroll).ContainsPoint(mouse) {
 			t.hoverX = rows[ri].obj
+		}
+		if t.dupRect(rect, rows[ri].y-t.scroll).ContainsPoint(mouse) {
+			t.hoverDup = rows[ri].obj
 		}
 	}
 	t.hoverPlus = t.plusRect(rect).ContainsPoint(mouse)
@@ -258,7 +273,7 @@ func (t *SceneTreeComponent) Update(ctx *core.Context) {
 		if vp := t.viewportComponent(); vp != nil {
 			if scene := vp.TargetScene(); scene != nil {
 				if obj := addObjectTo(scene); obj != nil {
-					vp.Select(obj)
+					vp.SelectSilent(obj)
 				}
 			}
 		}
@@ -268,16 +283,29 @@ func (t *SceneTreeComponent) Update(ctx *core.Context) {
 	// can be removed), so the confirm callback removes the right one.
 	if t.hoverX != nil {
 		obj := t.hoverX
-		spawnConfirmDialog(t.GetScene(), "emin misin? "+obj.Name+" silinsin mi?", func() {
+		spawnConfirmDialog(t.GetScene(), "Delete \""+obj.Name+"\"?", func() {
 			if vp := t.viewportComponent(); vp != nil {
 				if scene := vp.TargetScene(); scene != nil {
 					removeObjectFrom(scene, obj)
 					if vp.SelectedObject() == obj {
-						vp.Select(nil)
+						vp.SelectSilent(nil)
 					}
 				}
 			}
 		})
+		return
+	}
+	// "=" strip: duplicate that object (a fresh copy with a unique name), then select
+	// the copy so its name can be edited right away.
+	if t.hoverDup != nil {
+		obj := t.hoverDup
+		if vp := t.viewportComponent(); vp != nil {
+			if scene := vp.TargetScene(); scene != nil {
+				if dup := duplicateObject(scene, obj); dup != nil {
+					vp.SelectSilent(dup)
+				}
+			}
+		}
 		return
 	}
 	// Scrollbar press: grabbing the thumb starts a drag, clicking the track jumps the
@@ -395,6 +423,16 @@ func (t *SceneTreeComponent) Draw(r core.Renderer) {
 		if row.obj.UI {
 			r.DrawText("ui", t.FontID, t.FontSize, math.NewVector2(x+w+6, ty), t.TagText)
 		}
+
+		// "=" duplicate button in the strip left of the "x" remove button.
+		dr := t.dupRect(rect, y)
+		dupColor := t.TagText
+		if t.hoverDup != nil && t.hoverDup == row.obj {
+			r.DrawRect(dr, t.Accent)
+			dupColor = t.TitleText
+		}
+		dw, dh := r.MeasureText("=", t.FontID, t.FontSize)
+		r.DrawText("=", t.FontID, t.FontSize, math.NewVector2(dr.X()+(dr.Width()-dw)/2, y+(t.RowHeight-dh)/2), dupColor)
 
 		// "x" remove button in the right-edge strip (red on hover).
 		xr := t.xRect(rect, y)

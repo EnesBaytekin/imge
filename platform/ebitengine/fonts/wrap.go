@@ -86,29 +86,32 @@ func clipLine(text string, maxWidth float64, ellipsis bool, measure func(string)
 	if measure(text) <= maxWidth {
 		return text
 	}
+	// Accumulate per-rune widths in one pass (O(n)); the old code re-measured the
+	// growing prefix text[:end] each step (O(n²)). Summing single-rune advances is
+	// exact for every face here: opentype's Kern returns 0, so MeasureString is a
+	// plain sum of glyph advances.
+	cut := 0
+	width := 0.0
 	if ellipsis {
-		if measure(ellipsisMark) > maxWidth {
+		// Reserve room for the trailing marker up front; if even the marker alone
+		// doesn't fit, nothing can be shown.
+		width = measure(ellipsisMark)
+		if width > maxWidth {
 			return ""
 		}
-		cut := 0
-		for end := 0; end < len(text); {
-			_, size := utf8.DecodeRuneInString(text[end:])
-			end += size
-			if measure(text[:end]+ellipsisMark) > maxWidth {
-				break
-			}
-			cut = end
-		}
-		return text[:cut] + ellipsisMark
 	}
-	cut := 0
 	for end := 0; end < len(text); {
 		_, size := utf8.DecodeRuneInString(text[end:])
-		end += size
-		if measure(text[:end]) > maxWidth {
+		w := measure(text[end : end+size])
+		if width+w > maxWidth {
 			break
 		}
+		width += w
+		end += size
 		cut = end
+	}
+	if ellipsis {
+		return text[:cut] + ellipsisMark
 	}
 	return text[:cut]
 }
@@ -121,21 +124,24 @@ func breakChar(text string, maxWidth float64, measure func(string) float64) []st
 		return []string{""}
 	}
 	var lines []string
-	for start := 0; start < len(text); {
-		// Always take at least one rune, so an oversized rune doesn't loop forever.
-		_, size := utf8.DecodeRuneInString(text[start:])
-		end := start + size
-		for end < len(text) {
-			_, sz := utf8.DecodeRuneInString(text[end:])
-			next := end + sz
-			if measure(text[start:next]) > maxWidth {
-				break
-			}
-			end = next
+	start := 0
+	width := 0.0
+	for i := 0; i < len(text); {
+		// Measure one rune at a time and accumulate, so the whole wrap is O(n): the
+		// old code re-measured the growing prefix text[start:next] each step (O(n²)).
+		_, size := utf8.DecodeRuneInString(text[i:])
+		w := measure(text[i : i+size])
+		// Always keep at least one rune on the line, so an oversized rune (wider than
+		// maxWidth) still gets its own line and never loops forever.
+		if i > start && width+w > maxWidth {
+			lines = append(lines, text[start:i])
+			start = i
+			width = 0
 		}
-		lines = append(lines, text[start:end])
-		start = end
+		width += w
+		i += size
 	}
+	lines = append(lines, text[start:])
 	return lines
 }
 

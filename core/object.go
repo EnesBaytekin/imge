@@ -178,6 +178,38 @@ func (obj *Object) AddComponentAt(component Component, index int) error {
 	return nil
 }
 
+// RenameComponent renames a component in place, preserving its instance (and any
+// runtime state) and its position in the insertion order. It returns an error when no
+// component has oldName or another component already has newName. Unlike a
+// RemoveComponent+AddComponent round-trip, this keeps the same component value, so
+// references held elsewhere (e.g. the editor's args window) stay valid.
+func (obj *Object) RenameComponent(oldName, newName string) error {
+	if newName == "" {
+		return fmt.Errorf("component must have a name")
+	}
+	component, exists := obj.Components[oldName]
+	if !exists {
+		return fmt.Errorf("component '%s' not found", oldName)
+	}
+	if oldName == newName {
+		return nil
+	}
+	if _, taken := obj.Components[newName]; taken {
+		return fmt.Errorf("component with name '%s' already exists", newName)
+	}
+
+	component.SetName(newName)
+	delete(obj.Components, oldName)
+	obj.Components[newName] = component
+	for i, n := range obj.componentOrder {
+		if n == oldName {
+			obj.componentOrder[i] = newName
+			break
+		}
+	}
+	return nil
+}
+
 // ComponentInsertionIndex returns the insertion-order index of the named component,
 // or -1 when the object has no component with that name. Insertion order is the order
 // ComponentsInDrawOrder lists components when their draw layers are equal.

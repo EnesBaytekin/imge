@@ -1,7 +1,9 @@
 package components
 
 import (
+	"fmt"
 	"reflect"
+	"strings"
 
 	"github.com/EnesBaytekin/imge/core"
 	"github.com/EnesBaytekin/imge/core/math"
@@ -67,6 +69,27 @@ func (c *ComponentArgsComponent) titleH() float64 { return c.RowHeight + 8 }
 
 // IsOpen reports whether the window is showing a component.
 func (c *ComponentArgsComponent) IsOpen() bool { return c.target != nil }
+
+// clipsRowRect returns the body rect of the `clips` field row, which for an @Animator
+// opens the clips editor on click. The second result is false when the target is not
+// an Animator or has no `clips` field, so the callers treat it as a plain row.
+func (c *ComponentArgsComponent) clipsRowRect() (math.Rect, bool) {
+	anim, ok := c.target.(*Animator)
+	if !ok || anim == nil {
+		return math.Rect{}, false
+	}
+	fields := enumerateArgs(c.target)
+	for i, f := range fields {
+		if f.name != "clips" {
+			continue
+		}
+		rect := c.Rect()
+		bodyTop := rect.Y() + c.titleH()
+		y := bodyTop + float64(i+1)*c.RowHeight - c.scroll
+		return math.NewRect(rect.X(), y, rect.Width(), c.RowHeight), true
+	}
+	return math.Rect{}, false
+}
 
 // Open shows the window for the given component, resetting scroll and rebuilding its
 // argument widgets.
@@ -194,8 +217,8 @@ func (c *ComponentArgsComponent) Update(ctx *core.Context) {
 	if c.target == nil || ctx == nil || ctx.Input == nil {
 		return
 	}
-	// A modal is open (add-component panel / confirm dialog): this window is inert.
-	if modalOpen() {
+	// A modal or an open menu bar is up: this window is inert.
+	if modalOpen() || menusOpen() {
 		return
 	}
 	fields := enumerateArgs(c.target)
@@ -224,7 +247,7 @@ func (c *ComponentArgsComponent) Update(ctx *core.Context) {
 	// A scrollbar drag keeps following the cursor even outside the window.
 	if c.scrollDragging {
 		if ctx.Input.IsMouseButtonPressed(core.MouseButtonLeft) {
-			c.scroll = scrollFromThumb(c.scrollTrack(rect), float64(len(fields))*c.RowHeight, c.maxScroll(fields), mouse.Y, c.scrollGrab)
+			c.scroll = scrollFromThumb(c.scrollTrack(rect), float64(len(fields)+1)*c.RowHeight, c.maxScroll(fields), mouse.Y, c.scrollGrab)
 			c.layoutRows()
 		} else {
 			c.scrollDragging = false
@@ -265,6 +288,11 @@ func (c *ComponentArgsComponent) Update(ctx *core.Context) {
 			c.dragGrab = mouse.Subtract(rect.Position)
 			return
 		}
+		// The Animator's read-only `clips` row is a link into the clips editor.
+		if rr, ok := c.clipsRowRect(); ok && rr.ContainsPoint(mouse) {
+			spawnAnimatorClips(c.GetScene(), c.target.(*Animator))
+			return
+		}
 		c.handleScrollbarPress(mouse, fields, rect)
 	}
 }
@@ -289,7 +317,7 @@ func (c *ComponentArgsComponent) scrollTrack(rect math.Rect) math.Rect {
 // drag, and clicking the track jumps the thumb (centered) to the cursor.
 func (c *ComponentArgsComponent) handleScrollbarPress(mouse math.Vector2, fields []argField, rect math.Rect) {
 	track := c.scrollTrack(rect)
-	contentH := float64(len(fields)) * c.RowHeight
+	contentH := float64(len(fields)+1) * c.RowHeight
 	max := c.maxScroll(fields)
 	thumb, ok := scrollThumb(track, contentH, c.scroll, max)
 	if !ok {
@@ -307,12 +335,11 @@ func (c *ComponentArgsComponent) handleScrollbarPress(mouse math.Vector2, fields
 }
 
 // maxScroll returns the scroll offset at which the last argument row is just visible.
+// The row count includes the leading name row, so it is len(fields)+1.
 func (c *ComponentArgsComponent) maxScroll(fields []argField) float64 {
-	if len(fields) == 0 {
-		return 0
-	}
+	rows := len(fields) + 1
 	body := c.Rect().Height() - c.titleH()
-	if m := float64(len(fields))*c.RowHeight - body; m > 0 {
+	if m := float64(rows)*c.RowHeight - body; m > 0 {
 		return m
 	}
 	return 0
@@ -354,8 +381,19 @@ func (c *ComponentArgsComponent) Draw(r core.Renderer) {
 	body := math.NewRect(rect.X(), bodyTop, rect.Width(), rect.Height()-c.titleH())
 	r.SetClipRect(body)
 	valX := rect.X() + rect.Width()/2
+
+	// Name row (row 0): the label is drawn here; the value is an editable widget built
+	// in rebuildRows.
+	if y := bodyTop - c.scroll; y+c.RowHeight > bodyTop && y < rect.Y()+rect.Height() {
+		ty := y + (c.RowHeight-th)/2
+		if ty < y {
+			ty = y
+		}
+		r.DrawText("name", c.FontID, c.FontSize, math.NewVector2(rect.X()+6, ty), c.KeyText)
+	}
+
 	for i, f := range fields {
-		y := bodyTop + float64(i)*c.RowHeight - c.scroll
+		y := bodyTop + float64(i+1)*c.RowHeight - c.scroll
 		// Skip only rows fully scrolled out of the body; a partly-visible row is drawn
 		// and clipped to `body`.
 		if y+c.RowHeight <= bodyTop || y >= rect.Y()+rect.Height() {
@@ -369,14 +407,22 @@ func (c *ComponentArgsComponent) Draw(r core.Renderer) {
 		r.DrawText(f.name, c.FontID, c.FontSize, math.NewVector2(rect.X()+6, ty), c.KeyText)
 
 		if !f.editable {
-			r.DrawText(formatArg(f.value), c.FontID, c.FontSize, math.NewVector2(valX, ty), c.KeyText)
+			val := formatArg(f.value)
+			color := c.KeyText
+			// The Animator's `clips` row reads as a link into the clips editor rather
+			// than a raw JSON blob, and is highlighted to signal it is clickable.
+			if anim, ok := c.target.(*Animator); ok && f.name == "clips" {
+				val = fmt.Sprintf("Edit... (%d)", len(anim.Clips))
+				color = c.TitleText
+			}
+			r.DrawText(val, c.FontID, c.FontSize, math.NewVector2(valX, ty), color)
 		}
 	}
 
 	// Scrollbar, drawn on top when the argument list overflows the body.
 	r.SetClipRect(rect)
 	track := c.scrollTrack(rect)
-	if thumb, ok := scrollThumb(track, float64(len(fields))*c.RowHeight, c.scroll, c.maxScroll(fields)); ok {
+	if thumb, ok := scrollThumb(track, float64(len(fields)+1)*c.RowHeight, c.scroll, c.maxScroll(fields)); ok {
 		drawScrollbar(r, track, thumb, c.ScrollTrack, c.ScrollThumb)
 	}
 
@@ -400,20 +446,57 @@ func (c *ComponentArgsComponent) rebuildRows() {
 	rect := c.Rect()
 	valX := rect.X() + rect.Width()/2
 	valueW := rect.Width()/2 - 8 // leave room for the scrollbar
+
+	// The name row (row 0) is not a reflected JSON arg — it edits the component's own
+	// name, so it is built as a dedicated binding ahead of the reflected fields.
+	nb := c.buildNameBinding()
+	nb.widget = makeFieldWidget(&nb, c.GetOwner(), math.NewVector2(valX, rect.Y()+c.titleH()-c.scroll), valueW, c.RowHeight, c.FontID, c.FontSize, c.ValueText)
+	c.bindings = append(c.bindings, nb)
+
 	for i := range fields {
 		f := &fields[i]
 		if !f.editable {
 			continue
 		}
 		for _, b := range c.bindingsFor(*f) {
-			b.row = i
+			b.row = i + 1 // row 0 is the name row
 			pw := partWidth(valueW, b.parts)
 			x := partX(valX, b.col, pw)
-			y := rect.Y() + c.titleH() + float64(i)*c.RowHeight - c.scroll
+			y := rect.Y() + c.titleH() + float64(i+1)*c.RowHeight - c.scroll
 			b.widget = makeFieldWidget(&b, c.GetOwner(), math.NewVector2(x, y), pw, c.RowHeight, c.FontID, c.FontSize, c.ValueText)
 			c.bindings = append(c.bindings, b)
 		}
 	}
+}
+
+// buildNameBinding returns the field binding for the component's name. get/apply read
+// and write the name on the component itself; apply enforces non-empty and unique
+// within the owner object, and renames in place so the owner's name map and insertion
+// order stay consistent. Undo is recorded by commitString, not here.
+func (c *ComponentArgsComponent) buildNameBinding() fieldBinding {
+	b := fieldBinding{
+		key:   "_name",
+		row:   0,
+		parts: 1,
+		kind:  kindText,
+		get:   func() string { return c.target.GetName() },
+		apply: func(s string) error {
+			name := strings.TrimSpace(s)
+			if name == "" {
+				return fmt.Errorf("name cannot be empty")
+			}
+			if name == c.target.GetName() {
+				return nil
+			}
+			owner := c.target.GetOwner()
+			if owner == nil {
+				return fmt.Errorf("component has no owner")
+			}
+			return owner.RenameComponent(c.target.GetName(), name)
+		},
+	}
+	b.old = b.get()
+	return b
 }
 
 // bindingsFor builds the field binding(s) for one reflection-discovered argument: a
@@ -467,6 +550,21 @@ func (c *ComponentArgsComponent) bindingsFor(f argField) []fieldBinding {
 			kind:  kindText,
 			get:   func() string { return formatArg(fv) },
 			apply: func(s string) error { return setArg(fv, s) },
+		}
+		// A sprite's texture path must take effect immediately: clear the sprite's
+		// cached texture size as soon as the path is committed, so the next Draw loads
+		// and shows the new image at once. Undo/redo re-apply the same wrapped setter,
+		// so the reload stays consistent there too.
+		if f.name == "texture" {
+			if spr, ok := c.target.(*Sprite); ok {
+				b.apply = func(s string) error {
+					if err := setArg(fv, s); err != nil {
+						return err
+					}
+					spr.ResetTexture()
+					return nil
+				}
+			}
 		}
 		b.old = b.get()
 		return []fieldBinding{b}

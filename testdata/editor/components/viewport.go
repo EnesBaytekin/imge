@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/EnesBaytekin/imge/core"
+	imgejson "github.com/EnesBaytekin/imge/core/json"
 	"github.com/EnesBaytekin/imge/core/math"
 )
 
@@ -52,10 +53,12 @@ type ViewportComponent struct {
 	GridColor math.Color `json:"grid_color"`
 	AxesColor math.Color `json:"axes_color"`
 
-	// GridStep is the fixed spacing (in world units) between grid lines. The grid is
-	// a static world lattice — zooming in magnifies it, it does not add finer lines.
-	// Zero or negative means "use the default".
-	GridStep float64 `json:"grid_step"`
+	// GridStepX/GridStepY are the fixed spacing (in world units) between grid lines,
+	// horizontally and vertically. The grid is a static world lattice — zooming in
+	// magnifies it, it does not add finer lines. Zero or negative means "use the
+	// default". They are editor-only settings, edited from Edit → "Editor Settings...".
+	GridStepX float64 `json:"grid_step_x"`
+	GridStepY float64 `json:"grid_step_y"`
 
 	cam    editorCamera
 	scene  *core.Scene
@@ -69,6 +72,12 @@ type ViewportComponent struct {
 	// (the project json arg, or the IMGE_PROJECT env fallback). It is what the toolbar
 	// shows and what SetProject overrides.
 	projectDir string
+
+	// logicalW/logicalH is the target game's logical screen size (game.imge window
+	// width/height), read on load so drawViewBounds can outline where the game window
+	// will land in world space. Zero when unknown (no project, or game.imge missing).
+	logicalW float64
+	logicalH float64
 
 	panning   bool
 	lastMouse math.Vector2
@@ -103,12 +112,20 @@ const (
 	// before a left-press becomes a drag-to-move, so a plain click still just selects.
 	dragThreshold = 3.0
 
+	// Origin markers for objects with no debug bounds (no sprite/collider/other
+	// drawable shape): a small "+" at their origin, with a matching pick radius so they
+	// stay clickable in screen space.
+	emptyMarkerHalf      = 5.0
+	emptyMarkerThickness = 1.5
+	emptyPickRadius      = 9.0
+
 	// Line thicknesses in screen pixels. The grid, axes, and selection overlays are
 	// drawn in screen space (camera off), so a value here is the exact on-screen
 	// width at every zoom level.
 	gridLineThickness   = 1.0
 	axesLineThickness   = 2.0
 	selOutlineThickness = 2.0
+	viewRectThickness   = 2.0
 )
 
 var (
@@ -117,6 +134,10 @@ var (
 	defaultAxesColor   = math.NewColor(0x6b, 0x73, 0x85, 0xff)
 
 	selectionColor = math.NewColor(0xff, 0xff, 0xff, 0xff) // white outline
+
+	emptyMarkerColor = math.NewColor(0x9f, 0xa8, 0xbf, 0xff) // origin "+" for bounds-less objects
+
+	viewRectColor = math.NewColor(0x4f, 0xd1, 0xc5, 0xff) // teal outline of the game's logical screen area
 )
 
 // editorCamera is the viewport's navigation camera. (x, y) is the world point at
@@ -178,8 +199,11 @@ func (c *ViewportComponent) Initialize() {
 	if c.AxesColor == (math.Color{}) {
 		c.AxesColor = defaultAxesColor
 	}
-	if c.GridStep <= 0 {
-		c.GridStep = defaultGridStep
+	if c.GridStepX <= 0 {
+		c.GridStepX = defaultGridStep
+	}
+	if c.GridStepY <= 0 {
+		c.GridStepY = defaultGridStep
 	}
 	// The viewport is an opaque surface: it blocks pointer events so the @UIManager
 	// occludes whatever is drawn behind it (see pointerOwnedElsewhere).
@@ -195,8 +219,8 @@ func (c *ViewportComponent) Update(ctx *core.Context) {
 	if ctx == nil || ctx.Input == nil {
 		return
 	}
-	// A modal is open (add-component panel / confirm dialog): this panel is inert.
-	if modalOpen() {
+	// A modal or an open menu bar is up: this panel is inert.
+	if modalOpen() || menusOpen() {
 		return
 	}
 	rect := c.Rect()
@@ -265,11 +289,36 @@ func (c *ViewportComponent) selectAt(local math.Vector2) {
 	var obj *core.Object
 	if comp != nil {
 		obj = comp.GetOwner()
+	} else {
+		// scene.Pick only sees DebugBoundsProvider bounds; a bounds-less object (no
+		// sprite/collider) has none, so fall back to its small origin hitbox.
+		obj = c.pickEmptyObject(local)
 	}
 	c.Select(obj)
 	if obj != nil {
 		log.Printf("viewport: selected object %q", obj.Name)
 	}
+}
+
+// pickEmptyObject returns the topmost bounds-less world object whose origin is within
+// emptyPickRadius of a viewport-local point, or nil. Empty objects render as a small
+// "+" at their origin and have no debug bounds, so this gives them a clickable area.
+func (c *ViewportComponent) pickEmptyObject(local math.Vector2) *core.Object {
+	objs := c.scene.GetSortedObjects()
+	for i := len(objs) - 1; i >= 0; i-- {
+		obj := objs[i]
+		if obj == nil || !obj.Active || obj.IsDestroyed() || obj.UI {
+			continue
+		}
+		if _, ok := objectBounds(obj); ok {
+			continue // has real bounds; scene.Pick already covers it
+		}
+		screen := c.cam.WorldToScreen(obj.GetPosition())
+		if screen.Subtract(local).Length() <= emptyPickRadius {
+			return obj
+		}
+	}
+	return nil
 }
 
 // beginDrag handles a plain left-press: it selects the object under the cursor (via
@@ -303,11 +352,15 @@ func (c *ViewportComponent) updateDrag(ctx *core.Context, local math.Vector2) {
 	}
 	pos := c.dragStart.Add(c.cam.ScreenToWorld(local).Subtract(c.dragGrab))
 	if !ctx.Input.IsKeyPressed(core.KeyShift) {
-		step := c.GridStep
-		if step <= 0 {
-			step = defaultGridStep
+		stepX := c.GridStepX
+		if stepX <= 0 {
+			stepX = defaultGridStep
 		}
-		pos = math.NewVector2(stdmath.Round(pos.X/step)*step, stdmath.Round(pos.Y/step)*step)
+		stepY := c.GridStepY
+		if stepY <= 0 {
+			stepY = defaultGridStep
+		}
+		pos = math.NewVector2(stdmath.Round(pos.X/stepX)*stepX, stdmath.Round(pos.Y/stepY)*stepY)
 	}
 	c.dragObj.SetPosition(pos.X, pos.Y)
 	c.dragMoved = true
@@ -320,8 +373,10 @@ func (c *ViewportComponent) finishDrag() {
 		oldPos := c.dragStart
 		newPos := obj.GetPosition()
 		history.record(
+			"moved object",
 			func() { obj.SetPosition(oldPos.X, oldPos.Y) },
 			func() { obj.SetPosition(newPos.X, newPos.Y) },
+			true,
 		)
 	}
 	c.dragging = false
@@ -344,6 +399,9 @@ func (c *ViewportComponent) CurrentProject() string { return c.projectDir }
 // previous scene. This is the runtime "pick a project directory" entry point the
 // toolbar calls.
 func (c *ViewportComponent) SetProject(dir string) {
+	// Flush the outgoing project's editor settings before switching away, so a change
+	// of project mid-session doesn't lose the previous project's grid/camera/selection.
+	c.saveEditorPrefs()
 	c.Project = dir
 	c.selected = nil
 	c.dragging = false
@@ -360,7 +418,9 @@ func (c *ViewportComponent) SetProject(dir string) {
 }
 
 // Save serializes the loaded target scene and writes it back to its .scene file. It
-// returns an error when no scene is loaded (no project, or the load failed).
+// returns an error when no scene is loaded (no project, or the load failed). On success
+// it marks the document clean, so the unsaved-changes prompt stays quiet until the next
+// dirty edit.
 func (c *ViewportComponent) Save() error {
 	if c.scene == nil {
 		return fmt.Errorf("no scene loaded")
@@ -368,7 +428,90 @@ func (c *ViewportComponent) Save() error {
 	if c.sceneFile == "" {
 		return fmt.Errorf("no scene file to save to")
 	}
-	return c.scene.SaveToFile(c.sceneFile)
+	if err := c.scene.SaveToFile(c.sceneFile); err != nil {
+		return err
+	}
+	history.markSaved()
+	return nil
+}
+
+// RefreshLogicalSize re-reads the target project's game.imge window size so the
+// logical-screen outline stays in sync after the game settings modal changes it.
+func (c *ViewportComponent) RefreshLogicalSize() {
+	if c.projectDir == "" {
+		return
+	}
+	if cfg, err := imgejson.LoadGameConfig(filepath.Join(c.projectDir, "game.imge")); err == nil {
+		c.logicalW = float64(cfg.Window.Width)
+		c.logicalH = float64(cfg.Window.Height)
+	}
+}
+
+// saveEditorPrefs writes the editor-only viewport settings — grid spacing/colors, the
+// navigation camera, and the last selection — to the target project's .imge.editor
+// cache. It is a no-op when no project is loaded. Called on project switch and window
+// close so these settings survive an editor restart.
+func (c *ViewportComponent) saveEditorPrefs() {
+	if c.projectDir == "" {
+		return
+	}
+	s := editorSettings{
+		FormatVersion: 1,
+		GridStepX:     c.GridStepX,
+		GridStepY:     c.GridStepY,
+		GridColor:     c.GridColor.HexString(),
+		AxesColor:     c.AxesColor.HexString(),
+		Camera: &editorCameraSettings{
+			X:    c.cam.x,
+			Y:    c.cam.y,
+			Zoom: c.cam.zoom,
+		},
+	}
+	if c.selected != nil {
+		s.SelectedObject = c.selected.Name
+	}
+	if err := writeEditorSettings(c.projectDir, s); err != nil {
+		log.Printf("viewport: failed to write %s: %v", editorSettingsPath(c.projectDir), err)
+	}
+}
+
+// loadEditorPrefs restores the target project's saved editor settings (grid, camera,
+// last selection) from its .imge.editor cache. A missing or malformed cache is
+// ignored, leaving the defaults (and the first-frame camera framing) in place.
+func (c *ViewportComponent) loadEditorPrefs() {
+	s, err := readEditorSettings(c.projectDir)
+	if err != nil {
+		return
+	}
+	if s.GridStepX > 0 {
+		c.GridStepX = s.GridStepX
+	}
+	if s.GridStepY > 0 {
+		c.GridStepY = s.GridStepY
+	}
+	if s.GridColor != "" {
+		if col, err := math.ParseHex(s.GridColor); err == nil {
+			c.GridColor = col
+		}
+	}
+	if s.AxesColor != "" {
+		if col, err := math.ParseHex(s.AxesColor); err == nil {
+			c.AxesColor = col
+		}
+	}
+	if s.Camera != nil {
+		zoom := s.Camera.Zoom
+		if zoom <= 0 {
+			zoom = 1
+		}
+		c.cam = editorCamera{x: s.Camera.X, y: s.Camera.Y, zoom: zoom}
+		c.framed = true // a saved camera wins over the first-frame auto-framing
+	}
+	if s.SelectedObject != "" && c.scene != nil {
+		if obj := c.scene.GetObjectByName(s.SelectedObject); obj != nil {
+			c.applySelection(obj)
+		}
+	}
 }
 
 // SelectedObject returns the target object the user last picked, or nil.
@@ -380,6 +523,41 @@ func (c *ViewportComponent) SelectedObject() *core.Object { return c.selected }
 // selection. Other panels (e.g. the object tree) call this to drive selection, so the
 // viewport stays the single source of truth.
 func (c *ViewportComponent) Select(obj *core.Object) {
+	old := c.selected
+	if old == obj {
+		return
+	}
+	// Selection is itself undoable: record the transition so Ctrl+Z restores the prior
+	// selection first, then the next undo reverts the edit underneath it visibly. It is
+	// not dirty — selection is navigation, not a project-data change.
+	label := "deselected"
+	if old != nil {
+		label = "deselected " + old.Name
+	}
+	if obj != nil {
+		label = "selected " + obj.Name
+	}
+	history.record(
+		label,
+		func() { c.applySelection(old) },
+		func() { c.applySelection(obj) },
+		false,
+	)
+	c.applySelection(obj)
+}
+
+// SelectSilent changes the selection without recording an undo step. It is for
+// programmatic side effects (selecting a freshly added/duplicated object, or clearing
+// the selection after a removal) where the selection change is part of another
+// undoable action, not a user's deliberate click.
+func (c *ViewportComponent) SelectSilent(obj *core.Object) {
+	c.applySelection(obj)
+}
+
+// applySelection sets the current selection and keeps the target scene's debug
+// selection in sync. It never records history; Select and SelectSilent both delegate
+// here.
+func (c *ViewportComponent) applySelection(obj *core.Object) {
 	c.selected = obj
 	if c.scene != nil {
 		c.scene.SetDebugSelection(debugPick(obj))
@@ -402,8 +580,8 @@ func debugPick(obj *core.Object) core.Component {
 
 // objectBounds returns the union of the object's debug bounds (from every component
 // that reports them), plus whether any were found. Objects whose components report no
-// bounds (e.g. only logic components) have no bounds; the selection outline falls back
-// to marking their origin.
+// bounds — or only a degenerate (zero-area) box, e.g. a sprite with an empty texture
+// path — have no bounds; the selection outline falls back to marking their origin.
 func objectBounds(obj *core.Object) (math.Rect, bool) {
 	var b math.Rect
 	found := false
@@ -417,6 +595,9 @@ func objectBounds(obj *core.Object) (math.Rect, bool) {
 				b = b.Union(r)
 			}
 		}
+	}
+	if found && (b.Width() <= 0 || b.Height() <= 0) {
+		return b, false // degenerate: fall back to the origin "+" marker
 	}
 	return b, found
 }
@@ -458,26 +639,36 @@ func (c *ViewportComponent) Draw(r core.Renderer) {
 	r.SetCamera(0, 0, 0)
 
 	// Selection: a screen-space outline drawn on top of the world.
+	c.drawEmptyMarkers(r, rect)
+	c.drawViewBounds(r, rect)
 	c.drawSelection(r, rect)
 
 	r.ClearClip()
 }
 
-// drawGrid draws a fixed world-space grid: vertical and horizontal lines every
-// GridStep world units, snapped so x=0 (and y=0) always carries a line. The step is
-// fixed in world space, so zooming magnifies the lattice instead of adding lines.
-// Each line is drawn in screen space at a constant gridLineThickness pixels.
+// drawGrid draws a fixed world-space grid: vertical lines every GridStepX world
+// units and horizontal lines every GridStepY world units, snapped so x=0 (and y=0)
+// always carries a line. The steps are fixed in world space, so zooming magnifies the
+// lattice instead of adding lines. Each line is drawn in screen space at a constant
+// gridLineThickness pixels.
 func (c *ViewportComponent) drawGrid(r core.Renderer, rect math.Rect) {
-	step := c.GridStep
+	stepX := c.GridStepX
+	if stepX <= 0 {
+		stepX = defaultGridStep
+	}
+	stepY := c.GridStepY
+	if stepY <= 0 {
+		stepY = defaultGridStep
+	}
 	left, top := c.cam.x, c.cam.y
 	right := c.cam.x + rect.Width()/c.cam.zoom
 	bottom := c.cam.y + rect.Height()/c.cam.zoom
 
-	startX := stdmath.Floor(left/step) * step
-	startY := stdmath.Floor(top/step) * step
+	startX := stdmath.Floor(left/stepX) * stepX
+	startY := stdmath.Floor(top/stepY) * stepY
 
 	for i := 0; ; i++ {
-		x := startX + float64(i)*step
+		x := startX + float64(i)*stepX
 		if x > right {
 			break
 		}
@@ -486,7 +677,7 @@ func (c *ViewportComponent) drawGrid(r core.Renderer, rect math.Rect) {
 		r.DrawLine(p0, p1, c.GridColor, gridLineThickness)
 	}
 	for i := 0; ; i++ {
-		y := startY + float64(i)*step
+		y := startY + float64(i)*stepY
 		if y > bottom {
 			break
 		}
@@ -515,6 +706,28 @@ func (c *ViewportComponent) drawAxes(r core.Renderer, rect math.Rect) {
 	}
 }
 
+// drawEmptyMarkers draws a small "+" at the origin of every world object that has no
+// debug bounds (no sprite/collider/other drawable shape), so such objects stay visible
+// and clickable in the viewport even though they render nothing themselves. Drawn in
+// screen space so the marker keeps a constant size at any zoom.
+func (c *ViewportComponent) drawEmptyMarkers(r core.Renderer, rect math.Rect) {
+	if c.scene == nil {
+		return
+	}
+	for _, obj := range c.scene.GetSortedObjects() {
+		if obj == nil || !obj.Active || obj.IsDestroyed() || obj.UI {
+			continue
+		}
+		if _, ok := objectBounds(obj); ok {
+			continue
+		}
+		p := c.cam.WorldToScreen(obj.GetPosition()).Add(rect.Position)
+		h := emptyMarkerHalf
+		r.DrawLine(math.NewVector2(p.X-h, p.Y), math.NewVector2(p.X+h, p.Y), emptyMarkerColor, emptyMarkerThickness)
+		r.DrawLine(math.NewVector2(p.X, p.Y-h), math.NewVector2(p.X, p.Y+h), emptyMarkerColor, emptyMarkerThickness)
+	}
+}
+
 // drawSelection outlines the picked object's bounds in white, drawn in screen space
 // on top of the world so the outline stays crisp at a constant width at any zoom (it
 // never fills the interior, so the object stays fully visible). An object whose
@@ -539,37 +752,52 @@ func (c *ViewportComponent) drawSelection(r core.Renderer, rect math.Rect) {
 		tl = c.cam.WorldToScreen(bounds.Position).Add(rect.Position)
 		br = c.cam.WorldToScreen(bounds.Position.Add(bounds.Size)).Add(rect.Position)
 	}
-	c.drawOutlineEdges(r, rect, tl, br)
+	c.drawOutlineEdges(r, rect, tl, br, selectionColor, selOutlineThickness)
+}
+
+// drawViewBounds outlines the target game's logical screen area — the rectangle from
+// the world origin to (logicalWidth, logicalHeight), read from the target project's
+// game.imge. Drawn in screen space (constant line width) so that, while panning and
+// zooming the scene, the user can see exactly where the game's window will land. When
+// the logical size is unknown (no project, or game.imge can't be read), nothing is
+// drawn.
+func (c *ViewportComponent) drawViewBounds(r core.Renderer, rect math.Rect) {
+	if c.logicalW <= 0 || c.logicalH <= 0 {
+		return
+	}
+	tl := c.cam.WorldToScreen(math.Zero()).Add(rect.Position)
+	br := c.cam.WorldToScreen(math.NewVector2(c.logicalW, c.logicalH)).Add(rect.Position)
+	c.drawOutlineEdges(r, rect, tl, br, viewRectColor, viewRectThickness)
 }
 
 // drawOutlineEdges draws a rectangle outline from tl (top-left) to br (bottom-right)
 // in screen space as four line segments, each clipped to the clip rect. Clipping keeps
 // every primitive no larger than the viewport, so the chunky renderer never builds an
 // oversized atlas image for a zoomed-in large object.
-func (c *ViewportComponent) drawOutlineEdges(r core.Renderer, clip math.Rect, tl, br math.Vector2) {
+func (c *ViewportComponent) drawOutlineEdges(r core.Renderer, clip math.Rect, tl, br math.Vector2, color math.Color, thickness float64) {
 	x0, x1 := clip.Left(), clip.Right()
 	y0, y1 := clip.Top(), clip.Bottom()
 
 	// Horizontal edges (top at tl.Y, bottom at br.Y), clipped in X.
 	if tl.Y >= y0 && tl.Y <= y1 {
 		if lo, hi := stdmath.Max(tl.X, x0), stdmath.Min(br.X, x1); hi > lo {
-			r.DrawLine(math.NewVector2(lo, tl.Y), math.NewVector2(hi, tl.Y), selectionColor, selOutlineThickness)
+			r.DrawLine(math.NewVector2(lo, tl.Y), math.NewVector2(hi, tl.Y), color, thickness)
 		}
 	}
 	if br.Y >= y0 && br.Y <= y1 {
 		if lo, hi := stdmath.Max(tl.X, x0), stdmath.Min(br.X, x1); hi > lo {
-			r.DrawLine(math.NewVector2(lo, br.Y), math.NewVector2(hi, br.Y), selectionColor, selOutlineThickness)
+			r.DrawLine(math.NewVector2(lo, br.Y), math.NewVector2(hi, br.Y), color, thickness)
 		}
 	}
 	// Vertical edges (left at tl.X, right at br.X), clipped in Y.
 	if tl.X >= x0 && tl.X <= x1 {
 		if lo, hi := stdmath.Max(tl.Y, y0), stdmath.Min(br.Y, y1); hi > lo {
-			r.DrawLine(math.NewVector2(tl.X, lo), math.NewVector2(tl.X, hi), selectionColor, selOutlineThickness)
+			r.DrawLine(math.NewVector2(tl.X, lo), math.NewVector2(tl.X, hi), color, thickness)
 		}
 	}
 	if br.X >= x0 && br.X <= x1 {
 		if lo, hi := stdmath.Max(tl.Y, y0), stdmath.Min(br.Y, y1); hi > lo {
-			r.DrawLine(math.NewVector2(br.X, lo), math.NewVector2(br.X, hi), selectionColor, selOutlineThickness)
+			r.DrawLine(math.NewVector2(br.X, lo), math.NewVector2(br.X, hi), color, thickness)
 		}
 	}
 }
@@ -579,12 +807,19 @@ func (c *ViewportComponent) drawOutlineEdges(r core.Renderer, clip math.Rect, tl
 // only a fallback when Project is empty. On success it records the resolved project
 // directory and scene file path for Save.
 func (c *ViewportComponent) loadTarget() {
+	c.logicalW, c.logicalH = 0, 0
 	project := c.Project
 	if project == "" {
 		project = os.Getenv("IMGE_PROJECT")
 	}
 	if project == "" {
 		return
+	}
+	// Resolve to an absolute path so every later step — scene resolution, Save, and the
+	// working-directory switch below — agrees on one project root regardless of how the
+	// path was entered.
+	if abs, err := filepath.Abs(project); err == nil {
+		project = abs
 	}
 	sceneFile := resolveSceneFile(project, c.Scene)
 	if sceneFile == "" {
@@ -599,6 +834,30 @@ func (c *ViewportComponent) loadTarget() {
 	c.projectDir = project
 	c.sceneFile = sceneFile
 	c.scene = scene
+	// Make the target project the process working directory so the renderer resolves a
+	// sprite's "texture" path (and any custom font/audio path) against the project root,
+	// exactly as the built game does (it os.Chdir's into its extracted project data).
+	// The editor's own scene is already loaded and draws only vectors with the embedded
+	// pixel font, so this switch does not affect the editor UI. RUN already sets its own
+	// cmd.Dir, so it is unaffected too.
+	if err := os.Chdir(project); err != nil {
+		log.Printf("viewport: failed to chdir to project %q: %v", project, err)
+	}
+
+	// Read the target's logical screen size so drawViewBounds can outline the game
+	// window's world area. A missing/unreadable game.imge only means no outline — the
+	// scene still loads and edits fine.
+	if cfg, err := imgejson.LoadGameConfig(filepath.Join(project, "game.imge")); err == nil {
+		c.logicalW = float64(cfg.Window.Width)
+		c.logicalH = float64(cfg.Window.Height)
+	} else {
+		log.Printf("viewport: no logical size (game.imge): %v", err)
+	}
+
+	// Restore the project's saved editor settings (grid, camera, last selection). This
+	// runs after the scene is set so the saved selection can be re-applied to it.
+	c.loadEditorPrefs()
+
 	log.Printf("viewport: loaded %s (%d objects)", sceneFile, len(scene.Objects))
 }
 

@@ -1,6 +1,7 @@
 package components
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -70,5 +71,70 @@ func TestComboBoxFilter(t *testing.T) {
 	step(&stubInput{justPressed: justPressedKeys(core.KeyEscape)})
 	if c.open {
 		t.Fatal("list still open after second Escape; want closed")
+	}
+}
+
+// TestComboBoxKeyboardNavigation verifies the ↑/↓/Enter keyboard flow: arrows move the
+// highlight (wrapping and keeping it scrolled into view), Enter selects, and ↑/↓ open
+// the list when it is closed.
+func TestComboBoxKeyboardNavigation(t *testing.T) {
+	items := make([]string, 20)
+	for i := range items {
+		items[i] = fmt.Sprintf("item%02d", i)
+	}
+	c := &ComboBoxComponent{Items: items, ItemHeight: 10}
+	c.Width = 100
+	c.Height = 20
+	c.Initialize()
+	c.viewportH = 80 // a tiny viewport caps the 20×10 list so it must scroll
+
+	step := func(in *stubInput) {
+		c.HandleInput(&core.Context{Input: in, Time: &stubTime{}})
+	}
+	// The highlighted item must always be scrolled fully into the dropdown.
+	inView := func() bool {
+		dr := c.dropdownRect()
+		rowTop := dr.Top() + float64(c.highlight)*c.itemHeight() - c.scrollOffset
+		return c.highlight >= 0 && rowTop >= dr.Top() && rowTop+c.itemHeight() <= dr.Bottom()
+	}
+
+	// ↓ opens the closed list.
+	step(&stubInput{justPressed: justPressedKeys(core.KeyDown)})
+	if !c.open {
+		t.Fatal("↓ with the list closed should open it")
+	}
+
+	// Arrow down through the whole list, checking the cursor stays visible and in range.
+	for i := 0; i < len(items); i++ {
+		step(&stubInput{justPressed: justPressedKeys(core.KeyDown)})
+		if c.highlight < 0 || c.highlight >= len(items) {
+			t.Fatalf("step %d: highlight = %d out of range", i, c.highlight)
+		}
+		if !inView() {
+			t.Fatalf("step %d: highlight %d not scrolled into view (scroll=%v)", i, c.highlight, c.scrollOffset)
+		}
+	}
+	// Down twice more wraps around rather than running off the end.
+	before := c.highlight
+	step(&stubInput{justPressed: justPressedKeys(core.KeyDown)})
+	step(&stubInput{justPressed: justPressedKeys(core.KeyDown)})
+	if c.highlight == before {
+		t.Fatal("↓ should advance (and wrap) the highlight")
+	}
+
+	// Enter selects the highlighted item and closes the list.
+	want := c.visibleItems()[c.highlight]
+	step(&stubInput{justPressed: justPressedKeys(core.KeyEnter)})
+	if c.Value != want {
+		t.Fatalf("Enter: Value = %q, want %q", c.Value, want)
+	}
+	if c.open {
+		t.Fatal("Enter should close the list after selecting")
+	}
+
+	// ↑ also reopens the list.
+	step(&stubInput{justPressed: justPressedKeys(core.KeyUp)})
+	if !c.open {
+		t.Fatal("↑ with the list closed should open it")
 	}
 }

@@ -120,6 +120,13 @@ func (w *Window) ShouldClose() bool {
 	return ebiten.IsWindowBeingClosed()
 }
 
+// SetClosingHandled enables or disables close interception. With it enabled, the OS
+// close button no longer terminates the process; ShouldClose reports the request for
+// one frame and the game is expected to terminate itself when ready.
+func (w *Window) SetClosingHandled(handled bool) {
+	ebiten.SetWindowClosingHandled(handled)
+}
+
 // GetSize returns the current window size in pixels.
 func (w *Window) GetSize() (width, height int) {
 	return w.width, w.height

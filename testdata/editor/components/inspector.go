@@ -42,6 +42,7 @@ type InspectorComponent struct {
 	hoverComp   int            // component-list row under the cursor (-1 = none)
 	hoverPlus   bool           // the "+" add-component button is under the cursor
 	hoverX      int            // component row whose "x" remove button is under the cursor (-1 = none)
+	hoverDup    int            // component row whose "=" duplicate button is under the cursor (-1 = none)
 }
 
 // prop is one editable object property: a label, a getter that renders the current
@@ -124,6 +125,14 @@ func (c *InspectorComponent) plusRect(rect math.Rect, nProps int) math.Rect {
 func (c *InspectorComponent) xRect(rect math.Rect, rowY float64) math.Rect {
 	const w = 14.0
 	return math.NewRect(rect.X()+rect.Width()-w, rowY, w, c.RowHeight)
+}
+
+// dupRect returns the "=" duplicate button strip at the right edge of a component row,
+// immediately left of the "x" remove strip so the two controls sit side by side.
+func (c *InspectorComponent) dupRect(rect math.Rect, rowY float64) math.Rect {
+	const w = 14.0
+	xr := c.xRect(rect, rowY)
+	return math.NewRect(xr.X()-w, rowY, w, c.RowHeight)
 }
 
 // props builds the editable property list for an object. Each setter applies the parsed
@@ -310,8 +319,8 @@ func (c *InspectorComponent) Update(ctx *core.Context) {
 	if ctx == nil || ctx.Input == nil {
 		return
 	}
-	// A modal is open (add-component panel / confirm dialog): this panel is inert.
-	if modalOpen() {
+	// A modal or an open menu bar is up: this panel is inert.
+	if modalOpen() || menusOpen() {
 		return
 	}
 	vp := lookupViewport(c.GetScene())
@@ -338,6 +347,7 @@ func (c *InspectorComponent) Update(ctx *core.Context) {
 		c.hoverComp = -1
 		c.hoverPlus = false
 		c.hoverX = -1
+		c.hoverDup = -1
 		return
 	}
 
@@ -347,6 +357,7 @@ func (c *InspectorComponent) Update(ctx *core.Context) {
 		c.hoverComp = -1
 		c.hoverPlus = false
 		c.hoverX = -1
+		c.hoverDup = -1
 		return
 	}
 
@@ -362,6 +373,7 @@ func (c *InspectorComponent) Update(ctx *core.Context) {
 	// cursor, so the COMPONENTS list reads as clickable.
 	c.hoverComp = -1
 	c.hoverX = -1
+	c.hoverDup = -1
 	c.hoverPlus = c.plusRect(rect, len(props)).ContainsPoint(mouse)
 	for i := range comps {
 		y := compY + float64(i)*c.RowHeight - c.scroll
@@ -369,6 +381,9 @@ func (c *InspectorComponent) Update(ctx *core.Context) {
 			c.hoverComp = i
 			if c.xRect(rect, y).ContainsPoint(mouse) {
 				c.hoverX = i
+			}
+			if c.dupRect(rect, y).ContainsPoint(mouse) {
+				c.hoverDup = i
 			}
 			break
 		}
@@ -402,9 +417,15 @@ func (c *InspectorComponent) Update(ctx *core.Context) {
 	// right one.
 	if c.hoverX >= 0 && c.hoverX < len(comps) {
 		comp := comps[c.hoverX]
-		spawnConfirmDialog(c.GetScene(), "emin misin? "+comp.GetName()+" silinsin mi?", func() {
+		spawnConfirmDialog(c.GetScene(), "Delete \""+comp.GetName()+"\"?", func() {
 			removeComponent(comp)
 		})
+		return
+	}
+
+	// "=" strip: duplicate that component (a fresh copy with a unique name).
+	if c.hoverDup >= 0 && c.hoverDup < len(comps) {
+		duplicateComponent(obj, comps[c.hoverDup])
 		return
 	}
 
@@ -505,6 +526,16 @@ func (c *InspectorComponent) Draw(r core.Renderer) {
 		}
 		r.DrawText(comp.GetName(), c.FontID, c.FontSize, math.NewVector2(rect.X()+6, ty), c.ValueText)
 		r.DrawText(comp.GetKind(), c.FontID, c.FontSize, math.NewVector2(valX, ty), c.KeyText)
+
+		// "=" duplicate button in the strip left of the "x" remove button.
+		dr := c.dupRect(rect, y)
+		dupColor := c.KeyText
+		if i == c.hoverDup {
+			r.DrawRect(dr, c.Accent)
+			dupColor = c.TitleText
+		}
+		dw, dh := r.MeasureText("=", c.FontID, c.FontSize)
+		r.DrawText("=", c.FontID, c.FontSize, math.NewVector2(dr.X()+(dr.Width()-dw)/2, y+(c.RowHeight-dh)/2), dupColor)
 
 		// "x" remove button in the right-edge strip (red on hover).
 		xr := c.xRect(rect, y)

@@ -53,6 +53,12 @@ type ComboBoxComponent struct {
 	// Value is the currently selected item (one of Items, or "" for none).
 	Value string `json:"value"`
 
+	// ShowNone prepends a "none" option to the top of the dropdown. Selecting it
+	// clears the selection (Value becomes ""). NoneLabel customizes its text; empty
+	// (the default) shows "None".
+	ShowNone  bool   `json:"show_none"`
+	NoneLabel string `json:"none_label"`
+
 	// Event is emitted on selection, with the combobox itself as the data (so a
 	// handler can read GetValue()/GetIndex() and GetName()/GetOwner()), matching
 	// @Button and @Slider.
@@ -366,8 +372,17 @@ func (c *ComboBoxComponent) HandleInput(ctx *core.Context) {
 		return
 	}
 
-	if in.IsKeyJustPressed(core.KeyEnter) || in.IsKeyJustPressed(core.KeySpace) {
+	// Closed: Enter/Space open the list; ↑/↓ open it and move the highlight, so the
+	// whole selection flow is keyboard-driven without the mouse.
+	switch {
+	case in.IsKeyJustPressed(core.KeyEnter), in.IsKeyJustPressed(core.KeySpace):
 		c.openDropdown()
+	case in.IsKeyJustPressed(core.KeyUp):
+		c.openDropdown()
+		c.moveHighlight(-1)
+	case in.IsKeyJustPressed(core.KeyDown):
+		c.openDropdown()
+		c.moveHighlight(1)
 	}
 }
 
@@ -375,10 +390,12 @@ func (c *ComboBoxComponent) HandleInput(ctx *core.Context) {
 // item when nothing is selected).
 func (c *ComboBoxComponent) openDropdown() {
 	c.open = true
+	c.scrollOffset = 0
 	c.highlight = c.visibleIndex(c.Value)
 	if c.highlight < 0 && len(c.visibleItems()) > 0 {
 		c.highlight = 0
 	}
+	c.scrollToHighlight()
 }
 
 // closeDropdown closes the list and clears the highlight, press state, and filter.
@@ -395,13 +412,17 @@ func (c *ComboBoxComponent) closeDropdown() {
 }
 
 // selectIndex sets Value to the visible item at index i, closes the list, and emits
-// Event (only when the value actually changed).
+// Event (only when the value actually changed). The "none" option (index 0 when
+// ShowNone) clears the selection (Value becomes "").
 func (c *ComboBoxComponent) selectIndex(i int) {
 	items := c.visibleItems()
 	if i < 0 || i >= len(items) {
 		return
 	}
 	selected := items[i]
+	if c.ShowNone && i == 0 {
+		selected = ""
+	}
 	c.closeDropdown()
 	if selected == c.Value {
 		return
@@ -412,7 +433,8 @@ func (c *ComboBoxComponent) selectIndex(i int) {
 	}
 }
 
-// moveHighlight moves the keyboard cursor by delta, wrapping around.
+// moveHighlight moves the keyboard cursor by delta, wrapping around, and keeps the
+// new cursor scrolled into view.
 func (c *ComboBoxComponent) moveHighlight(delta int) {
 	n := len(c.visibleItems())
 	if n == 0 {
@@ -424,12 +446,32 @@ func (c *ComboBoxComponent) moveHighlight(delta int) {
 		} else {
 			c.highlight = 0
 		}
+		c.scrollToHighlight()
 		return
 	}
 	c.highlight = (c.highlight + delta) % n
 	if c.highlight < 0 {
 		c.highlight += n
 	}
+	c.scrollToHighlight()
+}
+
+// scrollToHighlight adjusts the scroll offset so the highlighted item is fully visible
+// within the (possibly capped) dropdown, so keyboard navigation never leaves the
+// cursor scrolled out of view.
+func (c *ComboBoxComponent) scrollToHighlight() {
+	if c.highlight < 0 {
+		return
+	}
+	ih := c.itemHeight()
+	dr := c.dropdownRect()
+	rowTop := dr.Top() + float64(c.highlight)*ih - c.scrollOffset
+	if rowTop < dr.Top() {
+		c.scrollOffset -= dr.Top() - rowTop
+	} else if rowTop+ih > dr.Bottom() {
+		c.scrollOffset += rowTop + ih - dr.Bottom()
+	}
+	c.clampScroll()
 }
 
 // selectedIndex returns the index of Value in Items, or -1 when absent.
@@ -444,23 +486,44 @@ func (c *ComboBoxComponent) selectedIndex() int {
 
 // visibleItems returns the items currently shown in the dropdown: all of Items when
 // the filter is empty, or the subset whose text contains the filter substring
-// (case-insensitive) otherwise.
+// (case-insensitive) otherwise. When ShowNone is set, a "none" option is always
+// prepended (index 0), regardless of the filter.
 func (c *ComboBoxComponent) visibleItems() []string {
+	var base []string
 	if c.filter == "" {
-		return c.Items
-	}
-	needle := strings.ToLower(c.filter)
-	out := make([]string, 0, len(c.Items))
-	for _, item := range c.Items {
-		if strings.Contains(strings.ToLower(item), needle) {
-			out = append(out, item)
+		base = c.Items
+	} else {
+		needle := strings.ToLower(c.filter)
+		base = make([]string, 0, len(c.Items))
+		for _, item := range c.Items {
+			if strings.Contains(strings.ToLower(item), needle) {
+				base = append(base, item)
+			}
 		}
 	}
+	if !c.ShowNone {
+		return base
+	}
+	out := make([]string, 0, len(base)+1)
+	out = append(out, c.noneLabel())
+	out = append(out, base...)
 	return out
 }
 
+// noneLabel returns the "none" option's text.
+func (c *ComboBoxComponent) noneLabel() string {
+	if c.NoneLabel != "" {
+		return c.NoneLabel
+	}
+	return "None"
+}
+
 // visibleIndex returns the index of item within the visible (filtered) list, or -1.
+// An empty item maps to the "none" option's index (0) when ShowNone is set.
 func (c *ComboBoxComponent) visibleIndex(item string) int {
+	if c.ShowNone && item == "" {
+		return 0
+	}
 	for i, v := range c.visibleItems() {
 		if v == item {
 			return i
