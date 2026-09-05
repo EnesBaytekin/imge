@@ -20,10 +20,11 @@ const maxPushDepth = 4
 
 // Mover moves its owner with collision resolution. It holds no speed state:
 // callers pass an explicit displacement in pixels. When the owner has @Collider
-// shapes, movement that would overlap another object's colliders is resolved
-// axis-by-axis (so a diagonal move slides along walls): solids block, pushables
-// are pushed — mover and obstacle advance together at a reduced speed, so they
-// never interpenetrate. Without a collider, the mover teleports freely.
+// shapes, movement is swept along each axis: the owner advances only up to the
+// first contact and rests flush against it, so it never leaves a sub-pixel gap
+// and never tunnels through a thin obstacle. Solids block; pushables are pushed
+// ahead and the mover follows, so they stay flush. Without a collider, the mover
+// teleports freely.
 type Mover struct {
 	core.BaseComponent
 }
@@ -41,9 +42,18 @@ func (m *Mover) Teleport(x, y float64) {
 // When a move is blocked, a "blocked_collision" event is emitted with the
 // blocking object as Data. Returns which axes were applied.
 func (m *Mover) Move(dx, dy float64) MoveResult {
+	owner := m.GetOwner()
+	if owner == nil {
+		return MoveResult{}
+	}
+
+	// Compute the body and candidate obstacles once and share them across both
+	// axes, instead of re-scanning the scene per axis.
+	own := core.GetAllFrom[*Collider](owner)
+	others := shapeCandidates(owner, unionCollidesWith(own))
 	return MoveResult{
-		X: m.moveAxis(0, dx, 0),
-		Y: m.moveAxis(1, dy, 0),
+		X: m.moveAxisPrepared(0, dx, 0, own, others),
+		Y: m.moveAxisPrepared(1, dy, 0, own, others),
 	}
 }
 
@@ -68,99 +78,120 @@ func (m *Mover) MoveTowards(target math.Vector2, distance float64) bool {
 	return m.Move(dir.X*distance, dir.Y*distance).Moved()
 }
 
-// moveAxis attempts to move the owner by `delta` along one axis (0 = X, 1 = Y),
-// resolving collisions. depth limits push recursion. Returns true if applied.
+// moveAxis resolves movement along one axis (0 = X, 1 = Y), computing the owner's
+// body and candidate obstacles fresh. It is the entry point for push recursion,
+// where the mover is a pushed obstacle and may have a different body than the
+// original mover.
 func (m *Mover) moveAxis(axis int, delta float64, depth int) bool {
 	owner := m.GetOwner()
-	if owner == nil || delta == 0 {
-		return delta == 0
+	if owner == nil {
+		return false
+	}
+	own := core.GetAllFrom[*Collider](owner)
+	others := shapeCandidates(owner, unionCollidesWith(own))
+	return m.moveAxisPrepared(axis, delta, depth, own, others)
+}
+
+// moveAxisPrepared performs the swept, single-axis movement using a precomputed
+// body and candidate list. delta is signed; depth caps push recursion. Returns
+// true when the full requested distance was applied.
+func (m *Mover) moveAxisPrepared(axis int, delta float64, depth int, own []*Collider, others []*core.Object) bool {
+	owner := m.GetOwner()
+	if delta == 0 {
+		return true
+	}
+	if owner == nil {
+		return false
 	}
 
-	ownColliders := core.GetAllFrom[*Collider](owner)
-	if len(ownColliders) == 0 {
+	if len(own) == 0 {
 		// No body: teleport freely along this axis.
 		m.shift(owner, axis, delta)
 		return true
 	}
 
-	// The body's own push factor (0 = solid, the default). It scales how hard this
-	// mover pushes: a pushable mover (itself > 0) pushes less. Compound bodies have
-	// a uniform factor in practice; take the max so any pushable part registers.
+	dir := 1.0
+	if delta < 0 {
+		dir = -1.0
+	}
+	dist := delta
+	if dist < 0 {
+		dist = -dist
+	}
+
+	// Precompute the body's bounds and push factor once, outside the obstacle loop.
+	ownBounds := make([]math.Rect, len(own))
 	ownPushFactor := 0.0
-	for _, c := range ownColliders {
+	for i, c := range own {
+		ownBounds[i] = c.GetBounds()
 		if c.PushFactor > ownPushFactor {
 			ownPushFactor = c.PushFactor
 		}
 	}
 
-	for _, other := range shapeCandidates(owner, unionCollidesWith(ownColliders)) {
+	// Earliest contact distance along the axis, and the collider that imposes it.
+	limit := dist
+	var hitObj *core.Object
+	var hitCollider *Collider
+
+	for _, other := range others {
 		otherColliders := core.GetAllFrom[*Collider](other)
 		if len(otherColliders) == 0 {
 			continue
 		}
-
-		// Test each of the mover's colliders (translated by delta) against each of
-		// the obstacle's colliders. Any overlap triggers resolution.
-		for _, own := range ownColliders {
-			bounds := own.GetBounds()
-			if axis == 0 {
-				bounds.Position.X += delta
-			} else {
-				bounds.Position.Y += delta
-			}
-
+		for _, ob := range ownBounds {
 			for _, oc := range otherColliders {
-				if !bounds.Overlaps(oc.GetBounds()) {
-					continue
+				if d := contactAlong(axis, dir, ob, oc.GetBounds(), limit); d < limit {
+					limit = d
+					hitObj = other
+					hitCollider = oc
 				}
-
-				if oc.PushFactor <= 0 {
-					// Solid: blocks outright.
-					m.Emit("blocked_collision", other)
-					return false
-				}
-
-				if depth >= maxPushDepth {
-					m.Emit("blocked_collision", other)
-					return false
-				}
-
-				otherMover := core.GetFrom[*Mover](other)
-				if otherMover == nil {
-					m.Emit("blocked_collision", other)
-					return false
-				}
-
-				// Combined push factor: how hard the mover pushes (1 - p_a) scaled by
-				// how easily the obstacle gives (p_b). Both advance the SAME distance
-				// so they stay flush and never interpenetrate.
-				f := (1 - ownPushFactor) * oc.PushFactor
-				amount := delta * f
-
-				before := other.Transform.Position
-				if !otherMover.moveAxis(axis, amount, depth+1) {
-					// The obstacle couldn't move (e.g. a wall behind it), so neither
-					// does the mover.
-					m.Emit("blocked_collision", other)
-					return false
-				}
-
-				// Move the mover by however far the obstacle actually went, keeping
-				// the two flush even when the obstacle only moved partway.
-				var actual float64
-				if axis == 0 {
-					actual = other.Transform.Position.X - before.X
-				} else {
-					actual = other.Transform.Position.Y - before.Y
-				}
-				m.shift(owner, axis, actual)
-				return true
 			}
 		}
 	}
 
-	m.shift(owner, axis, delta)
-	return true
+	if hitObj == nil {
+		// No contact: the whole distance is clear.
+		m.shift(owner, axis, delta)
+		return true
+	}
+
+	if hitCollider.PushFactor <= 0 || depth >= maxPushDepth {
+		// Solid (or push chain too deep): rest flush against the contact and stop.
+		m.shift(owner, axis, dir*limit)
+		m.Emit("blocked_collision", hitObj)
+		return false
+	}
+
+	otherMover := core.GetFrom[*Mover](hitObj)
+	if otherMover == nil {
+		m.shift(owner, axis, dir*limit)
+		m.Emit("blocked_collision", hitObj)
+		return false
+	}
+
+	// Push the obstacle the remaining distance, scaled by the combined push factor,
+	// then follow by however far it actually went so the two stay flush (whether it
+	// moved fully, partway, or not at all).
+	push := (dist - limit) * (1 - ownPushFactor) * hitCollider.PushFactor
+	before := hitObj.Transform.Position
+	pushed := otherMover.moveAxis(axis, dir*push, depth+1)
+
+	var actual float64
+	if axis == 0 {
+		actual = hitObj.Transform.Position.X - before.X
+	} else {
+		actual = hitObj.Transform.Position.Y - before.Y
+	}
+	if actual < 0 {
+		actual = -actual
+	}
+
+	m.shift(owner, axis, dir*(limit+actual))
+	if !pushed {
+		m.Emit("blocked_collision", hitObj)
+	}
+	return pushed
 }
 
 // shift moves the owner by delta along one axis (0 = X, 1 = Y).
@@ -170,4 +201,68 @@ func (m *Mover) shift(owner *core.Object, axis int, delta float64) {
 	} else {
 		owner.Transform.Position.Y += delta
 	}
+}
+
+// contactAlong returns how far a rect may travel along one axis in direction dir
+// before first touching the obstacle rect, capped at maxDist. The two rects must
+// overlap on the perpendicular axis for a collision to be possible; otherwise the
+// obstacle is irrelevant and maxDist is returned. A rect already overlapping the
+// obstacle returns 0 (already in contact, so it can't move further in this
+// direction).
+func contactAlong(axis int, dir float64, mover, obstacle math.Rect, maxDist float64) float64 {
+	if axis == 0 {
+		// Moving in X: the Y intervals must overlap.
+		if mover.Top() >= obstacle.Bottom() || mover.Bottom() <= obstacle.Top() {
+			return maxDist
+		}
+		if dir > 0 {
+			if obstacle.Right() <= mover.Left() {
+				return maxDist // obstacle is behind
+			}
+			if obstacle.Left() < mover.Right() {
+				return 0 // already overlapping
+			}
+			if d := obstacle.Left() - mover.Right(); d < maxDist {
+				return d
+			}
+			return maxDist
+		}
+		if obstacle.Left() >= mover.Right() {
+			return maxDist // obstacle is ahead
+		}
+		if obstacle.Right() > mover.Left() {
+			return 0 // already overlapping
+		}
+		if d := mover.Left() - obstacle.Right(); d < maxDist {
+			return d
+		}
+		return maxDist
+	}
+
+	// Moving in Y: the X intervals must overlap.
+	if mover.Left() >= obstacle.Right() || mover.Right() <= obstacle.Left() {
+		return maxDist
+	}
+	if dir > 0 {
+		if obstacle.Bottom() <= mover.Top() {
+			return maxDist // obstacle is above
+		}
+		if obstacle.Top() < mover.Bottom() {
+			return 0 // already overlapping
+		}
+		if d := obstacle.Top() - mover.Bottom(); d < maxDist {
+			return d
+		}
+		return maxDist
+	}
+	if obstacle.Top() >= mover.Bottom() {
+		return maxDist // obstacle is below
+	}
+	if obstacle.Bottom() > mover.Top() {
+		return 0 // already overlapping
+	}
+	if d := mover.Top() - obstacle.Bottom(); d < maxDist {
+		return d
+	}
+	return maxDist
 }

@@ -167,3 +167,67 @@ func TestMoverBlockedByWallBehindPushable(t *testing.T) {
 			player.Transform.Position.X, crate.Transform.Position.X)
 	}
 }
+
+func TestMoverLandsFlushOnPlatform(t *testing.T) {
+	scene := core.NewScene("main")
+	platform := testObject("platform", 0, 100, testCollider("body", 200, 20, 0))
+	player := testObject("player", 0, 50,
+		testCollider("body", 32, 32, 0),
+		testMover("mover"),
+	)
+	mustAdd(scene, platform)
+	mustAdd(scene, player)
+
+	res := getMover(player).Move(0, 30)
+	if res.Y {
+		t.Fatalf("expected the fall to be blocked by the platform")
+	}
+	// The bottom edge must sit exactly on the platform top (y=100): no gap, no overlap.
+	if player.Transform.Position.Y != 68 {
+		t.Fatalf("player should rest flush on the platform (y=68), got y=%v", player.Transform.Position.Y)
+	}
+}
+
+func TestMoverNoTunnelingThroughThinSolid(t *testing.T) {
+	scene := core.NewScene("main")
+	// A 5px-thick platform; a large single-frame fall must not pass through it.
+	platform := testObject("platform", 0, 100, testCollider("body", 200, 5, 0))
+	player := testObject("player", 0, 0,
+		testCollider("body", 32, 32, 0),
+		testMover("mover"),
+	)
+	mustAdd(scene, platform)
+	mustAdd(scene, player)
+
+	res := getMover(player).Move(0, 100)
+	if res.Y {
+		t.Fatalf("expected the fall to be blocked by the thin platform")
+	}
+	if player.Transform.Position.Y != 68 {
+		t.Fatalf("player should rest on top of the thin platform (y=68), got y=%v", player.Transform.Position.Y)
+	}
+}
+
+func TestMoverPushClosesGap(t *testing.T) {
+	scene := core.NewScene("main")
+	crate := testObject("crate", 40, 0,
+		testCollider("body", 32, 32, 1),
+		testMover("mover"),
+	)
+	player := testObject("player", 0, 0,
+		testCollider("body", 32, 32, 0),
+		testMover("mover"),
+	)
+	mustAdd(scene, crate)
+	mustAdd(scene, player)
+
+	res := getMover(player).Move(10, 0)
+	if !res.X {
+		t.Fatalf("expected the push to succeed")
+	}
+	// The 8px gap is closed: player advances 10, crate is pushed 2, and they end flush.
+	if player.Transform.Position.X != 10 || crate.Transform.Position.X != 42 {
+		t.Fatalf("expected player=10 crate=42 (flush), got player=%v crate=%v",
+			player.Transform.Position.X, crate.Transform.Position.X)
+	}
+}
