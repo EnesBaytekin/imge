@@ -18,11 +18,12 @@ type stubInput struct {
 	chars            []rune
 	held             map[core.KeyCode]bool // keys currently pressed
 	justPressed      map[core.KeyCode]bool // keys pressed this frame
+	justReleased     map[core.KeyCode]bool // keys released this frame
 }
 
 func (s *stubInput) IsKeyPressed(k core.KeyCode) bool           { return s.held[k] }
 func (s *stubInput) IsKeyJustPressed(k core.KeyCode) bool       { return s.justPressed[k] }
-func (s *stubInput) IsKeyJustReleased(core.KeyCode) bool        { return false }
+func (s *stubInput) IsKeyJustReleased(k core.KeyCode) bool      { return s.justReleased[k] }
 func (s *stubInput) IsMouseButtonPressed(core.MouseButton) bool { return s.mouseHeld }
 func (s *stubInput) IsMouseButtonJustPressed(core.MouseButton) bool {
 	return s.justPressedLeft

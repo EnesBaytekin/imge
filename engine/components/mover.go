@@ -78,6 +78,35 @@ func (m *Mover) MoveTowards(target math.Vector2, distance float64) bool {
 	return m.Move(dir.X*distance, dir.Y*distance).Moved()
 }
 
+// IsGrounded reports whether a collider sits directly below the owner's body,
+// within a small tolerance — the ground probe platformer jump logic uses to decide
+// whether a jump may start. It is a pure query (no movement), so it is independent
+// of component update order. Solid and pushable colliders both count as ground.
+func (m *Mover) IsGrounded() bool {
+	const probe = 1.0
+	owner := m.GetOwner()
+	if owner == nil {
+		return false
+	}
+	own := core.GetAllFrom[*Collider](owner)
+	if len(own) == 0 {
+		return false
+	}
+
+	others := shapeCandidates(owner, unionCollidesWith(own))
+	for _, other := range others {
+		for _, oc := range core.GetAllFrom[*Collider](other) {
+			ob := oc.GetBounds()
+			for _, c := range own {
+				if contactAlong(1, 1, c.GetBounds(), ob, probe) < probe {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 // moveAxis resolves movement along one axis (0 = X, 1 = Y), computing the owner's
 // body and candidate obstacles fresh. It is the entry point for push recursion,
 // where the mover is a pushed obstacle and may have a different body than the

@@ -2,7 +2,6 @@ package components
 
 import (
 	"github.com/EnesBaytekin/imge/core"
-	"github.com/EnesBaytekin/imge/core/math"
 )
 
 // PlayerComponent is the platformer brain. It reads keyboard input, writes the
@@ -145,34 +144,14 @@ func (c *PlayerComponent) Update(ctx *core.Context) {
 	}
 }
 
-// grounded reports whether a collider sits directly below the owner. Objects that
-// only have a @Trigger (no @Collider) are skipped by the nil check below.
+// grounded reports whether the owner is standing on the ground, via the @Mover's
+// built-in ground probe (respects collidesWith tags and is independent of update
+// order).
 func (c *PlayerComponent) grounded() bool {
-	owner := c.GetOwner()
-	if owner == nil || owner.Scene == nil {
+	if c.mover == nil {
 		return false
 	}
-	col := core.GetFrom[*Collider](owner)
-	if col == nil {
-		return false
-	}
-
-	b := col.GetBounds()
-	probe := math.NewRect(b.Position.X, b.Position.Y+2, b.Size.X, b.Size.Y)
-
-	for _, other := range owner.Scene.Objects {
-		if other == owner || !other.Active || other.IsDestroyed() {
-			continue
-		}
-		oc := core.GetFrom[*Collider](other)
-		if oc == nil {
-			continue
-		}
-		if probe.Overlaps(oc.GetBounds()) {
-			return true
-		}
-	}
-	return false
+	return c.mover.IsGrounded()
 }
 
 // attack damages the nearest crate within reach.
