@@ -417,6 +417,67 @@ func (c *ViewportComponent) SetProject(dir string) {
 	c.loadTarget()
 }
 
+// CurrentSceneName returns the loaded scene's filename basename (the stable identity
+// the scene list keys on), or "" when no scene is loaded. It is the file name, not the
+// scene's display name (the JSON "name" field), because selection/delete key on files.
+func (c *ViewportComponent) CurrentSceneName() string {
+	if c.sceneFile == "" {
+		return ""
+	}
+	return strings.TrimSuffix(filepath.Base(c.sceneFile), ".scene")
+}
+
+// SceneFile returns the loaded scene's resolved .scene path, or "" when none.
+func (c *ViewportComponent) SceneFile() string { return c.sceneFile }
+
+// SetScene switches the viewport to another scene within the current project. It
+// flushes the outgoing scene's edits (so switching never loses work), resets the
+// transient edit state, and loads the new scene without restoring editor prefs (so
+// camera/selection reset per scene). It is a no-op when name is empty, no project is
+// loaded, or it is already the current scene.
+func (c *ViewportComponent) SetScene(name string) {
+	if name == "" || c.projectDir == "" || name == c.CurrentSceneName() {
+		return
+	}
+	if c.scene != nil && c.sceneFile != "" {
+		if err := c.Save(); err != nil {
+			console.Print("scene switch: " + err.Error())
+		}
+	}
+	c.selected = nil
+	c.dragging = false
+	c.dragObj = nil
+	c.dragActive = false
+	c.dragMoved = false
+	c.scene = nil
+	c.sceneFile = ""
+	c.framed = false
+	history.clear() // undo entries reference the outgoing scene's live components
+	closeAllArgsWindows()
+	closeActiveModal()
+	c.Scene = name
+	c.loadProjectScene()
+}
+
+// ClearScene unloads the current target scene (used after the last scene is deleted),
+// resetting transient state so the viewport draws only the grid/axes. It does not close
+// the active modal — the delete-confirm dialog closes itself.
+func (c *ViewportComponent) ClearScene() {
+	if c.scene == nil && c.sceneFile == "" {
+		return
+	}
+	c.selected = nil
+	c.dragging = false
+	c.dragObj = nil
+	c.dragActive = false
+	c.dragMoved = false
+	c.scene = nil
+	c.sceneFile = ""
+	c.framed = false
+	history.clear()
+	closeAllArgsWindows()
+}
+
 // Save serializes the loaded target scene and writes it back to its .scene file. It
 // returns an error when no scene is loaded (no project, or the load failed). On success
 // it marks the document clean, so the unsaved-changes prompt stays quiet until the next
@@ -836,18 +897,29 @@ func (c *ViewportComponent) drawOutlineEdges(r core.Renderer, clip math.Rect, tl
 	}
 }
 
-// loadTarget resolves and loads the target scene for display. The configured Project
-// (json arg, or set via SetProject) wins; the IMGE_PROJECT environment variable is
-// only a fallback when Project is empty. On success it records the resolved project
-// directory and scene file path for Save.
+// loadTarget resolves and loads the target scene for display, then restores the
+// project's saved editor settings (grid, camera, selection). It is the initial-load
+// path (Initialize and SetProject); SetScene calls loadProjectScene directly so a
+// scene switch resets camera/selection instead of restoring them.
 func (c *ViewportComponent) loadTarget() {
+	if c.loadProjectScene() {
+		c.loadEditorPrefs()
+	}
+}
+
+// loadProjectScene resolves the configured Project (json arg, or set via SetProject;
+// the IMGE_PROJECT env var is a fallback when Project is empty) and the scene within
+// it, and loads that scene into c.scene for display. It records the resolved project
+// directory and scene file path for Save. It does not touch editor prefs. Returns
+// false when there is nothing to load (no project, no scene file, or load error).
+func (c *ViewportComponent) loadProjectScene() bool {
 	c.logicalW, c.logicalH = 0, 0
 	project := c.Project
 	if project == "" {
 		project = os.Getenv("IMGE_PROJECT")
 	}
 	if project == "" {
-		return
+		return false
 	}
 	// Resolve to an absolute path so every later step — scene resolution, Save, and the
 	// working-directory switch below — agrees on one project root regardless of how the
@@ -858,13 +930,14 @@ func (c *ViewportComponent) loadTarget() {
 	sceneFile := resolveSceneFile(project, c.Scene)
 	if sceneFile == "" {
 		log.Printf("viewport: no scene file found in %q (scene=%q)", project, c.Scene)
-		return
+		return false
 	}
 	scene := core.NewScene(filepath.Base(sceneFile))
 	if err := scene.LoadForDisplay(sceneFile); err != nil {
 		log.Printf("viewport: failed to load %s: %v", sceneFile, err)
-		return
+		return false
 	}
+	c.Project = project // pin to the resolved absolute dir so a later SetScene re-resolves
 	c.projectDir = project
 	c.sceneFile = sceneFile
 	c.scene = scene
@@ -888,11 +961,8 @@ func (c *ViewportComponent) loadTarget() {
 		log.Printf("viewport: no logical size (game.imge): %v", err)
 	}
 
-	// Restore the project's saved editor settings (grid, camera, last selection). This
-	// runs after the scene is set so the saved selection can be re-applied to it.
-	c.loadEditorPrefs()
-
 	log.Printf("viewport: loaded %s (%d objects)", sceneFile, len(scene.Objects))
+	return true
 }
 
 // resolveSceneFile finds a scene file in a project directory. A non-empty scene

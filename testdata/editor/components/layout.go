@@ -21,6 +21,9 @@ type EditorLayoutComponent struct {
 	SidebarW float64 `json:"sidebar_w"`
 	// ConsoleH is the console strip height at the bottom.
 	ConsoleH float64 `json:"console_h"`
+	// ScenesH is the height of the scene-list panel pinned to the bottom-left corner,
+	// below the scene tree (which shortens by the same amount).
+	ScenesH float64 `json:"scenes_h"`
 }
 
 func (c *EditorLayoutComponent) Initialize() {
@@ -32,6 +35,9 @@ func (c *EditorLayoutComponent) Initialize() {
 	}
 	if c.ConsoleH <= 0 {
 		c.ConsoleH = 90
+	}
+	if c.ScenesH <= 0 {
+		c.ScenesH = 140
 	}
 }
 
@@ -58,12 +64,18 @@ func (c *EditorLayoutComponent) Update(ctx *core.Context) {
 	if midH < 0 {
 		midH = 0
 	}
+	treeH := fh - top - c.ScenesH
+	if treeH < 0 {
+		treeH = 0
+	}
 
 	// Edge-anchored: the toolbar spans the top; the tree/inspector hug the left/right
-	// edges full-height below it; the console hugs the bottom; the viewport fills the
-	// middle. Component names match editor.scene.
+	// edges full-height below it (the tree stops above the scene list); the scene list
+	// hugs the bottom-left; the console hugs the bottom; the viewport fills the middle.
+	// Component names match editor.scene.
 	setPanel(scene, "toolbar", "toolbar", 0, 0, fw, c.ToolbarH)
-	setPanel(scene, "scene_tree", "tree", 0, top, c.SidebarW, fh-top)
+	setPanel(scene, "scene_tree", "tree", 0, top, c.SidebarW, treeH)
+	setPanel(scene, "scenes", "scenes", 0, fh-c.ScenesH, c.SidebarW, c.ScenesH)
 	setPanel(scene, "inspector", "inspector", fw-c.SidebarW, top, c.SidebarW, fh-top)
 	setPanel(scene, "console", "console", c.SidebarW, fh-c.ConsoleH, midW, c.ConsoleH)
 	setPanel(scene, "viewport", "viewport", c.SidebarW, top, midW, midH)

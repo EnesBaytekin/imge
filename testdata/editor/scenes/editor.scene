@@ -35,6 +35,15 @@
       ]
     },
     {
+      "name": "scenes",
+      "ui": true,
+      "layer": 1,
+      "transform": { "position": { "x": 0, "y": 400 } },
+      "components": [
+        { "kind": "SceneListComponent", "name": "scenes", "args": { "width": 180, "height": 140 } }
+      ]
+    },
+    {
       "name": "viewport",
       "ui": true,
       "layer": 0,
