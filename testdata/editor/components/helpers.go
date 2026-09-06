@@ -907,7 +907,7 @@ func addComponentTo(target *core.Object, kind string) core.Component {
 	comp.Initialize()
 	history.record(
 		"added component "+name,
-		func() { target.RemoveComponent(name) },
+		func() { removeComponentByName(target, name) },
 		func() { restoreComponent(target, kind, name, nil, -1) },
 		true,
 	)
@@ -948,13 +948,28 @@ func removeComponent(comp core.Component) {
 	}
 	kind, name, args := comp.GetKind(), comp.GetName(), core.ComponentArgs(comp)
 	index := owner.ComponentInsertionIndex(name) // capture the list position before removal
+	closeArgsWindowFor(comp)                     // close any open args window editing it
 	owner.RemoveComponent(name)
 	history.record(
 		"removed component "+name,
 		func() { restoreComponent(owner, kind, name, args, index) },
-		func() { owner.RemoveComponent(name) },
+		func() { removeComponentByName(owner, name) },
 		true,
 	)
+}
+
+// removeComponentByName removes the named component from owner and closes any open
+// args window for it. Used by redo, where the component instance differs from the one
+// captured at remove time (undo restored a fresh copy), so it can't be matched by
+// pointer identity.
+func removeComponentByName(owner *core.Object, name string) {
+	if owner == nil {
+		return
+	}
+	if comp := owner.GetComponent(name); comp != nil {
+		closeArgsWindowFor(comp)
+	}
+	owner.RemoveComponent(name)
 }
 
 // duplicateComponent clones comp onto its owner: it copies the component's current
@@ -978,7 +993,7 @@ func duplicateComponent(target *core.Object, comp core.Component) core.Component
 	dup.Initialize()
 	history.record(
 		"duplicated component "+newName,
-		func() { target.RemoveComponent(newName) },
+		func() { removeComponentByName(target, newName) },
 		func() { restoreComponent(target, kind, newName, args, -1) },
 		true,
 	)

@@ -118,16 +118,12 @@ func (c *CloseConfirmDialogComponent) Update(ctx *core.Context) {
 			}
 		}
 		c.dismiss = true
-		if c.game != nil {
-			c.game.Terminate()
-		}
+		c.quit()
 		return
 	}
 	if c.dontSave != nil && c.dontSave.ConsumeClick() {
 		c.dismiss = true
-		if c.game != nil {
-			c.game.Terminate()
-		}
+		c.quit()
 		return
 	}
 
@@ -175,5 +171,16 @@ func (c *CloseConfirmDialogComponent) close() {
 	clearModal()
 	if owner := c.GetOwner(); owner != nil {
 		owner.Destroy()
+	}
+}
+
+// quit stops any running preview and then terminates the game. The preview is a
+// separate process group, so it would otherwise outlive the editor.
+func (c *CloseConfirmDialogComponent) quit() {
+	if mb := lookupMenuBar(c.GetScene()); mb != nil {
+		mb.stop()
+	}
+	if c.game != nil {
+		c.game.Terminate()
 	}
 }

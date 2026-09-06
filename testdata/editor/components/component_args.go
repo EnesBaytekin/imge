@@ -176,6 +176,17 @@ func closeAllArgsWindows() {
 	argWindows = nil
 }
 
+// closeArgsWindowFor closes the open component-args window editing the given component,
+// if one is open. Called when a component is removed so its window doesn't linger over
+// a detached component. Iterates over a copy because destroyArgsWindow mutates argWindows.
+func closeArgsWindowFor(comp core.Component) {
+	for _, w := range append([]*ComponentArgsComponent(nil), argWindows...) {
+		if w != nil && w.target == comp {
+			destroyArgsWindow(w)
+		}
+	}
+}
+
 // nextArgsWindowPos cascades each new window down-right from the base position so newly
 // opened windows don't stack exactly on top of the previous one.
 func nextArgsWindowPos() math.Vector2 {

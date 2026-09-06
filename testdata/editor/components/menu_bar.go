@@ -93,6 +93,19 @@ var menusOpenFlag bool
 
 func menusOpen() bool { return menusOpenFlag }
 
+// lookupMenuBar resolves the editor's MenuBarComponent by object name. It owns the
+// RUN/STOP process management, so a quit path (the clean close handler or the
+// unsaved-changes prompt) can kill a still-running preview before the editor exits.
+func lookupMenuBar(scene *core.Scene) *MenuBarComponent {
+	if scene == nil {
+		return nil
+	}
+	if obj := scene.GetObjectByName("toolbar"); obj != nil {
+		return core.GetFrom[*MenuBarComponent](obj)
+	}
+	return nil
+}
+
 // Dropdown geometry. The tab strip is a fixed layout (constant tab width), so these
 // constants replace per-label measurement in Update (Draw still measures text to
 // center it, but hit-testing must not depend on the renderer).
@@ -320,6 +333,7 @@ func (c *MenuBarComponent) Update(ctx *core.Context) {
 				vp.saveEditorPrefs()
 			}
 			if !history.isDirty() {
+				c.stop() // kill a running preview so it doesn't outlive the editor
 				return true
 			}
 			spawnCloseConfirm(c.GetScene(), game)
