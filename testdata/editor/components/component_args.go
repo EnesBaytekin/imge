@@ -187,6 +187,19 @@ func closeArgsWindowFor(comp core.Component) {
 	}
 }
 
+// closeArgsWindowsForObject closes every open component-args window whose target
+// component belongs to obj. Called when an object is removed, so a window editing one
+// of its components doesn't linger over a detached component (the object-level analog
+// of closeArgsWindowFor).
+func closeArgsWindowsForObject(obj *core.Object) {
+	if obj == nil {
+		return
+	}
+	for _, comp := range obj.ComponentsInDrawOrder() {
+		closeArgsWindowFor(comp)
+	}
+}
+
 // nextArgsWindowPos cascades each new window down-right from the base position so newly
 // opened windows don't stack exactly on top of the previous one.
 func nextArgsWindowPos() math.Vector2 {

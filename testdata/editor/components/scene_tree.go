@@ -271,26 +271,21 @@ func (t *SceneTreeComponent) Update(ctx *core.Context) {
 	// in the inspector.
 	if t.hoverPlus {
 		if vp := t.viewportComponent(); vp != nil {
-			if scene := vp.TargetScene(); scene != nil {
-				if obj := addObjectTo(scene); obj != nil {
-					vp.SelectSilent(obj)
-				}
+			if obj := vp.AddObject(); obj != nil {
+				vp.SelectSilent(obj)
 			}
 		}
 		return
 	}
 	// "x" strip: confirm removal of that object. The object is captured now (before it
-	// can be removed), so the confirm callback removes the right one.
+	// can be removed), so the confirm callback removes the right one. RemoveObject also
+	// closes any open args window for the object's components and clears the selection
+	// (and therefore the inspector) when it pointed at the removed object.
 	if t.hoverX != nil {
 		obj := t.hoverX
 		spawnConfirmDialog(t.GetScene(), "Delete \""+obj.Name+"\"?", func() {
 			if vp := t.viewportComponent(); vp != nil {
-				if scene := vp.TargetScene(); scene != nil {
-					removeObjectFrom(scene, obj)
-					if vp.SelectedObject() == obj {
-						vp.SelectSilent(nil)
-					}
-				}
+				vp.RemoveObject(obj)
 			}
 		})
 		return
@@ -300,10 +295,8 @@ func (t *SceneTreeComponent) Update(ctx *core.Context) {
 	if t.hoverDup != nil {
 		obj := t.hoverDup
 		if vp := t.viewportComponent(); vp != nil {
-			if scene := vp.TargetScene(); scene != nil {
-				if dup := duplicateObject(scene, obj); dup != nil {
-					vp.SelectSilent(dup)
-				}
+			if dup := vp.DuplicateObject(obj); dup != nil {
+				vp.SelectSilent(dup)
 			}
 		}
 		return

@@ -639,6 +639,115 @@ func debugPick(obj *core.Object) core.Component {
 	return nil
 }
 
+// ============================================================================
+// Object add/remove/duplicate (undoable), owned by the viewport because removal
+// must tear down editor state that references the object — its open component-args
+// windows and a selection pointing at it. The scene tree's + / x / = controls call
+// these.
+// ============================================================================
+
+// removeObject detaches obj from the target scene, closing any open component-args
+// window for its components and clearing a selection that points at it. It does not
+// record history — it is the shared body of RemoveObject and the undo/redo closures of
+// AddObject/DuplicateObject, so every path that detaches an object tears down its
+// editor state consistently.
+func (c *ViewportComponent) removeObject(obj *core.Object) {
+	if obj == nil || c.scene == nil {
+		return
+	}
+	closeArgsWindowsForObject(obj)
+	if c.selected == obj {
+		c.SelectSilent(nil)
+	}
+	c.scene.RemoveObject(obj.GetID())
+}
+
+// AddObject appends a fresh empty object to the target scene and records an undo entry
+// that removes it (redo re-adds the same object). The scene's AddObject assigns a unique
+// default name ("Object", "Object2", ...) and ID; the caller selects the new object so
+// its name can be edited in the inspector. Returns the new object, or nil.
+func (c *ViewportComponent) AddObject() *core.Object {
+	if c.scene == nil {
+		return nil
+	}
+	obj := core.NewObject("")
+	if err := c.scene.AddObject(obj); err != nil {
+		return nil
+	}
+	history.record(
+		"added object",
+		func() { c.removeObject(obj) },
+		func() { c.scene.AddObject(obj) },
+		true,
+	)
+	return obj
+}
+
+// RemoveObject detaches obj from the target scene and records an undo entry that re-adds
+// the same object pointer. RemoveObject only detaches the object (unsubscribing events
+// and clearing its scene ref); it leaves the object's components and name intact, so an
+// undone remove brings the object back exactly as it was. Removing also closes any open
+// args window for the object's components and clears a selection pointing at it.
+func (c *ViewportComponent) RemoveObject(obj *core.Object) {
+	if obj == nil || c.scene == nil {
+		return
+	}
+	c.removeObject(obj)
+	history.record(
+		"removed object "+obj.Name,
+		func() { c.scene.AddObject(obj) },
+		func() { c.removeObject(obj) },
+		true,
+	)
+}
+
+// DuplicateObject clones obj into the target scene: it copies the object's JSON data
+// (its config via ToJSONConfig, plus the live transform and active state) into a new
+// object with the same components, and records an undo entry that removes the copy (redo
+// re-adds the same object pointer). The scene's AddObject assigns a unique name. The
+// copy's components are initialized on its first Scene.Update (AddObject defers it), so
+// the injected args plus Initialize defaults land exactly as a fresh load would.
+// Returns the copy, or nil.
+func (c *ViewportComponent) DuplicateObject(obj *core.Object) *core.Object {
+	if obj == nil || c.scene == nil {
+		return nil
+	}
+	cfg := obj.ToJSONConfig()
+	dup := core.NewObject(cfg.Name)
+	dup.Transform = obj.Transform
+	dup.Active = obj.Active
+	dup.Depth = cfg.Depth
+	dup.Layer = cfg.Layer
+	dup.UI = cfg.UI
+	dup.Draggable = cfg.Draggable
+	for _, tag := range cfg.Tags {
+		dup.AddTag(tag)
+	}
+	for _, comp := range cfg.Components {
+		cmp := buildComponent(comp.Kind, comp.Name, comp.Args)
+		if cmp == nil {
+			continue
+		}
+		if err := dup.AddComponent(cmp); err != nil {
+			continue
+		}
+		// Initialize manually: the editor renders the target scene without running
+		// Scene.Update, so a component added at runtime never reaches the deferred
+		// initializeComponents pass. This mirrors addComponentTo/restoreComponent.
+		cmp.Initialize()
+	}
+	if err := c.scene.AddObject(dup); err != nil {
+		return nil
+	}
+	history.record(
+		"duplicated object",
+		func() { c.removeObject(dup) },
+		func() { c.scene.AddObject(dup) },
+		true,
+	)
+	return dup
+}
+
 // objectBounds returns the debug bounds the selection outline is drawn around. Sprites
 // are the object's visible footprint, so their bounds win when present: a sprite's
 // offset then shifts the outline together with the drawn texture instead of growing the

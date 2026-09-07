@@ -44,7 +44,10 @@ type Renderer struct {
 	// shapeCache caches logical-resolution rasterizations of vector shapes. A
 	// shape's chunky pixels depend only on its geometry and color — not its
 	// position — so the same buffer is reused every frame (like the texture cache).
-	shapeCache map[string]*ebiten.Image
+	// shapeCacheOrder records insertion order so the cache can evict its oldest
+	// entries once it passes shapeCacheMaxEntries (see chunkySprite).
+	shapeCache      map[string]*ebiten.Image
+	shapeCacheOrder []string
 
 	// fonts caches parsed fonts and size-specific text faces for DrawText and
 	// MeasureText. See font.go.
@@ -116,6 +119,14 @@ func (r *Renderer) chunky() bool {
 	return !r.smoothShapes
 }
 
+// shapeCacheMaxEntries bounds the shape cache so a long session can't exhaust
+// memory. Every entry is a rasterized image; a shape whose size varies each frame
+// (a slider fill, an outline under a smooth zoom) would otherwise mint a new entry
+// indefinitely. Beyond the cap the oldest entries are disposed — their chunky
+// pixels are cheap to re-rasterize on next use, so the cache only needs to hold
+// the shapes drawn in the last few frames, not every shape ever drawn.
+const shapeCacheMaxEntries = 4096
+
 // chunkySprite returns a cached logical-resolution rasterization of a shape,
 // creating and rasterizing it on first use. The buffer's pixel (0,0) is the
 // shape's world-space top-left, which callers position via blitChunky.
@@ -126,6 +137,18 @@ func (r *Renderer) chunkySprite(key string, w, h int, rasterize func(*ebiten.Ima
 	img := ebiten.NewImage(w, h)
 	rasterize(img)
 	r.shapeCache[key] = img
+	r.shapeCacheOrder = append(r.shapeCacheOrder, key)
+
+	// Evict the oldest entries past the cap. Dispose releases the image's atlas
+	// region immediately; a bare delete would keep GPU memory held until GC.
+	for len(r.shapeCache) > shapeCacheMaxEntries {
+		oldest := r.shapeCacheOrder[0]
+		r.shapeCacheOrder = r.shapeCacheOrder[1:]
+		if evicted, ok := r.shapeCache[oldest]; ok {
+			evicted.Dispose()
+			delete(r.shapeCache, oldest)
+		}
+	}
 	return img
 }
 
@@ -240,14 +263,19 @@ func (r *Renderer) DrawRect(rect math.Rect, c math.Color) {
 
 // drawRectChunky rasterizes the rect at logical resolution and blits it upscaled.
 func (r *Renderer) drawRectChunky(rect math.Rect, c math.Color) {
-	w, h := rect.Width(), rect.Height()
+	// Snap width/height to whole units (matching the line path, which snaps its
+	// endpoints) so a rect whose size changes fractionally each frame — a slider
+	// fill, a scrollbar thumb — reuses one of a few cached buffers instead of
+	// minting a new image per sub-pixel change.
+	w := stdmath.Round(rect.Width())
+	h := stdmath.Round(rect.Height())
 	if w <= 0 || h <= 0 {
 		return
 	}
 	qx := stdmath.Round(rect.Position.X)
 	qy := stdmath.Round(rect.Position.Y)
-	bw, bh := int(stdmath.Ceil(w)), int(stdmath.Ceil(h))
-	key := fmt.Sprintf("rect:%g:%g:%s", w, h, colorKey(c))
+	bw, bh := int(w), int(h)
+	key := fmt.Sprintf("rect:%d:%d:%s", bw, bh, colorKey(c))
 	img := r.chunkySprite(key, bw, bh, func(dst *ebiten.Image) {
 		vector.DrawFilledRect(dst, 0, 0, float32(w), float32(h), toRGBA(c), false)
 	})
@@ -278,31 +306,32 @@ func (r *Renderer) DrawRectOutline(rect math.Rect, c math.Color, thickness float
 // old centered StrokeRect straddled the boundary by half a pixel, which read as a
 // one-pixel shift at high zoom.
 func (r *Renderer) drawRectOutlineChunky(rect math.Rect, c math.Color, thickness float64) {
-	if thickness <= 0 {
+	t := stdmath.Round(thickness)
+	if t <= 0 {
 		return
 	}
-	w, h := rect.Width(), rect.Height()
+	w := stdmath.Round(rect.Width())
+	h := stdmath.Round(rect.Height())
 	if w <= 0 || h <= 0 {
 		return
 	}
 	qx := stdmath.Round(rect.Position.X)
 	qy := stdmath.Round(rect.Position.Y)
-	bw := int(stdmath.Ceil(w))
-	bh := int(stdmath.Ceil(h))
-	key := fmt.Sprintf("rectoutline:%g:%g:%g:%s", w, h, thickness, colorKey(c))
+	bw, bh := int(w), int(h)
+	key := fmt.Sprintf("rectoutline:%d:%d:%d:%s", bw, bh, int(t), colorKey(c))
 	img := r.chunkySprite(key, bw, bh, func(dst *ebiten.Image) {
 		fw, fh := float32(w), float32(h)
-		t := float32(thickness)
+		ft := float32(t)
 		// Top and bottom strips.
-		vector.DrawFilledRect(dst, 0, 0, fw, t, toRGBA(c), false)
-		vector.DrawFilledRect(dst, 0, fh-t, fw, t, toRGBA(c), false)
+		vector.DrawFilledRect(dst, 0, 0, fw, ft, toRGBA(c), false)
+		vector.DrawFilledRect(dst, 0, fh-ft, fw, ft, toRGBA(c), false)
 		// Left and right strips, minus the corners already covered.
-		inner := fh - 2*t
+		inner := fh - 2*ft
 		if inner < 0 {
 			inner = 0
 		}
-		vector.DrawFilledRect(dst, 0, t, t, inner, toRGBA(c), false)
-		vector.DrawFilledRect(dst, fw-t, t, t, inner, toRGBA(c), false)
+		vector.DrawFilledRect(dst, 0, ft, ft, inner, toRGBA(c), false)
+		vector.DrawFilledRect(dst, fw-ft, ft, ft, inner, toRGBA(c), false)
 	})
 	r.blitChunky(img, math.NewVector2(qx, qy), math.NewVector2(rect.Position.X-qx, rect.Position.Y-qy))
 }
@@ -327,13 +356,14 @@ func (r *Renderer) DrawCircle(center math.Vector2, radius float64, c math.Color)
 // upscaled. The center is quantized to a whole unit so the circle's edge snaps to
 // the unit grid; the sub-unit remainder is applied as a sub-pixel blit offset.
 func (r *Renderer) drawCircleChunky(center math.Vector2, radius float64, c math.Color) {
+	radius = stdmath.Round(radius)
 	if radius <= 0 {
 		return
 	}
 	qx := stdmath.Round(center.X)
 	qy := stdmath.Round(center.Y)
-	pad := int(stdmath.Ceil(radius)) + 1 // +1 keeps the edge from clipping
-	key := fmt.Sprintf("circle:%g:%s", radius, colorKey(c))
+	pad := int(radius) + 1 // +1 keeps the edge from clipping
+	key := fmt.Sprintf("circle:%d:%s", int(radius), colorKey(c))
 	img := r.chunkySprite(key, 2*pad, 2*pad, func(dst *ebiten.Image) {
 		vector.DrawFilledCircle(dst, float32(pad), float32(pad), float32(radius), toRGBA(c), false)
 	})
@@ -362,15 +392,20 @@ func (r *Renderer) DrawCircleOutline(center math.Vector2, radius float64, c math
 // upscaled. The stroke is centered on the circle of the given radius, so it extends
 // half the thickness beyond it.
 func (r *Renderer) drawCircleOutlineChunky(center math.Vector2, radius float64, c math.Color, thickness float64) {
-	if thickness <= 0 {
+	t := stdmath.Round(thickness)
+	if t <= 0 {
+		return
+	}
+	radius = stdmath.Round(radius)
+	if radius <= 0 {
 		return
 	}
 	qx := stdmath.Round(center.X)
 	qy := stdmath.Round(center.Y)
-	pad := int(stdmath.Ceil(radius+thickness/2)) + 1
-	key := fmt.Sprintf("circleoutline:%g:%g:%s", radius, thickness, colorKey(c))
+	pad := int(radius+t/2) + 1
+	key := fmt.Sprintf("circleoutline:%d:%d:%s", int(radius), int(t), colorKey(c))
 	img := r.chunkySprite(key, 2*pad, 2*pad, func(dst *ebiten.Image) {
-		vector.StrokeCircle(dst, float32(pad), float32(pad), float32(radius), float32(thickness), toRGBA(c), false)
+		vector.StrokeCircle(dst, float32(pad), float32(pad), float32(radius), float32(t), toRGBA(c), false)
 	})
 	r.blitChunky(img,
 		math.NewVector2(qx-float64(pad), qy-float64(pad)),
@@ -399,7 +434,8 @@ func (r *Renderer) DrawLine(start, end math.Vector2, c math.Color, thickness flo
 // Both endpoints snap to whole units (a line has no single anchor to keep
 // fractional), and the stroke extends half the thickness around the line.
 func (r *Renderer) drawLineChunky(start, end math.Vector2, c math.Color, thickness float64) {
-	if thickness <= 0 {
+	t := stdmath.Round(thickness)
+	if t <= 0 {
 		return
 	}
 	x0 := stdmath.Round(start.X)
@@ -410,15 +446,15 @@ func (r *Renderer) drawLineChunky(start, end math.Vector2, c math.Color, thickne
 	minY := stdmath.Min(y0, y1)
 	maxX := stdmath.Max(x0, x1)
 	maxY := stdmath.Max(y0, y1)
-	pad := stdmath.Ceil(thickness / 2)
+	pad := stdmath.Ceil(t / 2)
 	bw := int(maxX - minX + 2*pad)
 	bh := int(maxY - minY + 2*pad)
-	key := fmt.Sprintf("line:%g:%g:%g:%s", x1-x0, y1-y0, thickness, colorKey(c))
+	key := fmt.Sprintf("line:%d:%d:%d:%s", int(x1-x0), int(y1-y0), int(t), colorKey(c))
 	img := r.chunkySprite(key, bw, bh, func(dst *ebiten.Image) {
 		vector.StrokeLine(dst,
 			float32(x0-minX+pad), float32(y0-minY+pad),
 			float32(x1-minX+pad), float32(y1-minY+pad),
-			float32(thickness), toRGBA(c), false)
+			float32(t), toRGBA(c), false)
 	})
 	// No fractional offset: both endpoints are snapped to the grid.
 	r.blitChunky(img, math.NewVector2(minX-pad, minY-pad), math.NewVector2(0, 0))

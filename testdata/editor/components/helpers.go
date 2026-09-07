@@ -1039,91 +1039,9 @@ func missingDependencies(obj *core.Object, deps []string) []string {
 }
 
 // ============================================================================
-// Object add/remove (undoable), shared by the scene tree's + / x controls.
+// Object add/remove (undoable) lives on the ViewportComponent (AddObject /
+// RemoveObject / DuplicateObject): removing an object must also tear down editor
+// state that references it — its open component-args windows and a selection
+// pointing at it — which needs the viewport. The scene tree's + / x / = controls
+// call those methods.
 // ============================================================================
-
-// addObjectTo appends a fresh empty object to the target scene and records an undo
-// entry that removes it (redo re-adds the same object). The scene's AddObject assigns
-// a unique default name ("Object", "Object2", ...) and ID; the caller selects the new
-// object so its name can be edited in the inspector. Returns the new object, or nil.
-func addObjectTo(scene *core.Scene) *core.Object {
-	if scene == nil {
-		return nil
-	}
-	obj := core.NewObject("")
-	if err := scene.AddObject(obj); err != nil {
-		return nil
-	}
-	history.record(
-		"added object",
-		func() { scene.RemoveObject(obj.GetID()) },
-		func() { scene.AddObject(obj) },
-		true,
-	)
-	return obj
-}
-
-// removeObjectFrom detaches obj from the scene and records an undo entry that re-adds
-// the same object pointer. RemoveObject only detaches the object (unsubscribing events
-// and clearing its scene ref); it leaves the object's components and name intact, so an
-// undone remove brings the object back exactly as it was. The redo closure reads the
-// object's (possibly re-assigned) ID at call time, so it stays correct across undo/redo.
-func removeObjectFrom(scene *core.Scene, obj *core.Object) {
-	if scene == nil || obj == nil {
-		return
-	}
-	scene.RemoveObject(obj.GetID())
-	history.record(
-		"removed object "+obj.Name,
-		func() { scene.AddObject(obj) },
-		func() { scene.RemoveObject(obj.GetID()) },
-		true,
-	)
-}
-
-// duplicateObject clones obj into the scene: it copies the object's JSON data (its
-// config via ToJSONConfig, plus the live transform and active state) into a new object
-// with the same components, and records an undo entry that removes the copy (redo
-// re-adds the same object pointer). The scene's AddObject assigns a unique name. The
-// copy's components are initialized on its first Scene.Update (AddObject defers it), so
-// the injected args plus Initialize defaults land exactly as a fresh load would.
-// Returns the copy, or nil.
-func duplicateObject(scene *core.Scene, obj *core.Object) *core.Object {
-	if scene == nil || obj == nil {
-		return nil
-	}
-	cfg := obj.ToJSONConfig()
-	dup := core.NewObject(cfg.Name)
-	dup.Transform = obj.Transform
-	dup.Active = obj.Active
-	dup.Depth = cfg.Depth
-	dup.Layer = cfg.Layer
-	dup.UI = cfg.UI
-	dup.Draggable = cfg.Draggable
-	for _, tag := range cfg.Tags {
-		dup.AddTag(tag)
-	}
-	for _, c := range cfg.Components {
-		comp := buildComponent(c.Kind, c.Name, c.Args)
-		if comp == nil {
-			continue
-		}
-		if err := dup.AddComponent(comp); err != nil {
-			continue
-		}
-		// Initialize manually: the editor renders the target scene without running
-		// Scene.Update, so a component added at runtime never reaches the deferred
-		// initializeComponents pass. This mirrors addComponentTo/restoreComponent.
-		comp.Initialize()
-	}
-	if err := scene.AddObject(dup); err != nil {
-		return nil
-	}
-	history.record(
-		"duplicated object",
-		func() { scene.RemoveObject(dup.GetID()) },
-		func() { scene.AddObject(dup) },
-		true,
-	)
-	return dup
-}
