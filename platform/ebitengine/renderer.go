@@ -575,8 +575,15 @@ func (r *Renderer) SetClipRect(rect math.Rect) {
 	}
 
 	// Reuse the offscreen across frames and clip regions; reallocate only on a
-	// size change, and clear it (it holds the previous frame's pixels).
+	// size change, and clear it (it holds the previous frame's pixels). The old
+	// image MUST be disposed before it is replaced: ebiten.Image pins GPU memory
+	// until Dispose (a bare drop waits for GC, which can't keep pace with a
+	// per-frame size change), so replacing it without disposing leaks one
+	// framebuffer-sized texture every time the clip size changes.
 	if r.clipTarget == nil || r.clipW != w || r.clipH != h {
+		if r.clipTarget != nil {
+			r.clipTarget.Dispose()
+		}
 		r.clipTarget = ebiten.NewImage(w, h)
 		r.clipW, r.clipH = w, h
 	} else {

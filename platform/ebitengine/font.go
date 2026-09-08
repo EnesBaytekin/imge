@@ -61,6 +61,12 @@ func (r *Renderer) drawLine(str string, fontID string, size float64, x, y float6
 
 	scratch := r.fonts.scratch
 	if scratch == nil || scratch.Bounds().Dx() < bw || scratch.Bounds().Dy() < bh {
+		// Dispose the old buffer before replacing it: like clipTarget, a dropped
+		// ebiten.Image keeps its GPU memory until GC, so growing the scratch on a
+		// new largest text would otherwise leak the previous buffer.
+		if scratch != nil {
+			scratch.Dispose()
+		}
 		scratch = ebiten.NewImage(bw, bh)
 		r.fonts.scratch = scratch
 	}

@@ -174,16 +174,12 @@ func (c *ObjectEditorComponent) buildWidgets() {
 	c.closeBtn = makePanelButton(owner, "close", "Close", math.NewVector2(132, c.Height-24), 120, 20, c.FontID, c.FontSize, c.BorderColor)
 }
 
-// frame centers the camera on the object's debug bounds (or the origin when it has
-// none) at the current zoom.
+// frame centers the camera on the object's origin (0,0) — the object's own position,
+// which a .obj has no scene transform to move away from. The object and its components
+// (whose offsets are relative to that origin) then sit centered in the viewport, so the
+// object is visible immediately on open with no panning. Pan/zoom stay free afterward.
 func (c *ObjectEditorComponent) frame(worldRect math.Rect) {
-	center := math.Zero()
-	if c.obj != nil {
-		if b, ok := objectBounds(c.obj); ok {
-			center = math.NewVector2(b.Position.X+b.Width()/2, b.Position.Y+b.Height()/2)
-		}
-	}
-	c.cam.frame(center, worldRect.Width(), worldRect.Height())
+	c.cam.frame(math.Zero(), worldRect.Width(), worldRect.Height())
 }
 
 func (c *ObjectEditorComponent) doSave() {

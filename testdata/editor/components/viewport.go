@@ -60,9 +60,8 @@ type ViewportComponent struct {
 	GridStepX float64 `json:"grid_step_x"`
 	GridStepY float64 `json:"grid_step_y"`
 
-	cam    editorCamera
-	scene  *core.Scene
-	framed bool
+	cam   editorCamera
+	scene *core.Scene
 
 	// sceneFile is the resolved path of the loaded target scene ("" when none loaded).
 	// Save writes the serialized scene back to it.
@@ -410,7 +409,7 @@ func (c *ViewportComponent) SetProject(dir string) {
 	c.dragMoved = false
 	c.scene = nil
 	c.sceneFile = ""
-	c.framed = false
+	c.cam = newEditorCamera()
 	history.clear() // undo entries reference the previous project's live components
 	closeAllArgsWindows()
 	closeActiveModal() // a modal references the previous project's live components
@@ -452,7 +451,7 @@ func (c *ViewportComponent) SetScene(name string) {
 	c.dragMoved = false
 	c.scene = nil
 	c.sceneFile = ""
-	c.framed = false
+	c.cam = newEditorCamera()
 	history.clear() // undo entries reference the outgoing scene's live components
 	closeAllArgsWindows()
 	closeActiveModal()
@@ -475,7 +474,7 @@ func (c *ViewportComponent) ClearScene() {
 	c.dragMoved = false
 	c.scene = nil
 	c.sceneFile = ""
-	c.framed = false
+	c.cam = newEditorCamera()
 	history.clear()
 	closeAllArgsWindows()
 	closeActiveObjectEditor()
@@ -501,7 +500,9 @@ func (c *ViewportComponent) ReloadScene() {
 	c.dragMoved = false
 	c.scene = nil
 	c.sceneFile = ""
-	c.framed = false
+	// The camera is intentionally preserved: ReloadScene refreshes scene data (e.g. a
+	// .obj save propagating to file-referenced instances), not navigation, so the user's
+	// view stays where it was.
 	history.clear() // undo entries reference the outgoing scene's live components
 	closeAllArgsWindows()
 	c.loadProjectScene()
@@ -567,7 +568,7 @@ func (c *ViewportComponent) saveEditorPrefs() {
 
 // loadEditorPrefs restores the target project's saved editor settings (grid, camera,
 // last selection) from its .imge.editor cache. A missing or malformed cache is
-// ignored, leaving the defaults (and the first-frame camera framing) in place.
+// ignored, leaving the defaults (a top-left-anchored camera at the origin) in place.
 func (c *ViewportComponent) loadEditorPrefs() {
 	s, err := readEditorSettings(c.projectDir)
 	if err != nil {
@@ -595,7 +596,6 @@ func (c *ViewportComponent) loadEditorPrefs() {
 			zoom = 1
 		}
 		c.cam = editorCamera{x: s.Camera.X, y: s.Camera.Y, zoom: zoom}
-		c.framed = true // a saved camera wins over the first-frame auto-framing
 	}
 	if s.SelectedObject != "" && c.scene != nil {
 		if obj := c.scene.GetObjectByName(s.SelectedObject); obj != nil {
@@ -872,11 +872,6 @@ func (c *ViewportComponent) Draw(r core.Renderer) {
 	if rect.Width() <= 0 || rect.Height() <= 0 {
 		return
 	}
-	if !c.framed {
-		c.cam.frame(math.Zero(), rect.Width(), rect.Height())
-		c.framed = true
-	}
-
 	r.SetClipRect(rect)
 
 	// Background: the target scene's own clear color, or the editor's dark paper.
