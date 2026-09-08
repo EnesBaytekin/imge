@@ -29,6 +29,11 @@ type editorSettings struct {
 	Camera *editorCameraSettings `json:"camera,omitempty"`
 
 	SelectedObject string `json:"selected_object,omitempty"`
+
+	// ObjectCams stores the object editor's pan/zoom per .obj file (keyed by the
+	// project-relative path), so reopening a given .obj restores the view the user left
+	// it at instead of re-framing on the origin every time.
+	ObjectCams map[string]*editorCameraSettings `json:"object_cameras,omitempty"`
 }
 
 type editorCameraSettings struct {

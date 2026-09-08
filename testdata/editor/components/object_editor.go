@@ -152,6 +152,12 @@ func spawnObjectEditor(scene *core.Scene, rel string) {
 	editor.obj = obj
 	editor.world = world
 	editor.cam = newEditorCamera()
+	// Restore this .obj's last pan/zoom when one was saved, skipping the auto-frame on
+	// the origin so reopening the file lands exactly where the user left it.
+	if saved, ok := vp.objectCams[rel]; ok {
+		editor.cam = editorCamera{x: saved.X, y: saved.Y, zoom: saved.Zoom}
+		editor.framed = true
+	}
 	win.AddComponent(editor)
 
 	if err := scene.AddObject(win); err != nil {
@@ -180,6 +186,24 @@ func (c *ObjectEditorComponent) buildWidgets() {
 // object is visible immediately on open with no panning. Pan/zoom stay free afterward.
 func (c *ObjectEditorComponent) frame(worldRect math.Rect) {
 	c.cam.frame(math.Zero(), worldRect.Width(), worldRect.Height())
+}
+
+// gridStep returns the current grid spacing (world units) from the editor-settings view,
+// falling back to the default when no viewport is available or a step is unset. The
+// object editor uses the same grid size as the scene viewport so both lattices align.
+func (c *ObjectEditorComponent) gridStep() (float64, float64) {
+	vp := lookupViewport(c.GetScene())
+	if vp == nil {
+		return defaultGridStep, defaultGridStep
+	}
+	stepX, stepY := vp.GridStepX, vp.GridStepY
+	if stepX <= 0 {
+		stepX = defaultGridStep
+	}
+	if stepY <= 0 {
+		stepY = defaultGridStep
+	}
+	return stepX, stepY
 }
 
 func (c *ObjectEditorComponent) doSave() {
@@ -335,9 +359,10 @@ func (c *ObjectEditorComponent) Update(ctx *core.Context) {
 			// Snap the component's offset to the grid by default (hold Shift to move
 			// unsnapped), matching the viewport's object drag.
 			if !ctx.Input.IsKeyPressed(core.KeyShift) {
+				stepX, stepY := c.gridStep()
 				pos = math.NewVector2(
-					stdmath.Round(pos.X/defaultGridStep)*defaultGridStep,
-					stdmath.Round(pos.Y/defaultGridStep)*defaultGridStep,
+					stdmath.Round(pos.X/stepX)*stepX,
+					stdmath.Round(pos.Y/stepY)*stepY,
 				)
 			}
 			setComponentOffset(c.dragComp, pos)
@@ -430,9 +455,10 @@ func (c *ObjectEditorComponent) Draw(r core.Renderer) {
 	}
 }
 
-// drawGrid draws a fixed world-space grid, snapped so the origin carries a line.
+// drawGrid draws a fixed world-space grid, snapped so the origin carries a line. The
+// step is the editor-settings grid size, matching the scene viewport's lattice.
 func (c *ObjectEditorComponent) drawGrid(r core.Renderer, worldRect math.Rect) {
-	stepX, stepY := defaultGridStep, defaultGridStep
+	stepX, stepY := c.gridStep()
 	left, top := c.cam.x, c.cam.y
 	right := c.cam.x + worldRect.Width()/c.cam.zoom
 	bottom := c.cam.y + worldRect.Height()/c.cam.zoom
@@ -522,8 +548,22 @@ func drawClippedOutline(r core.Renderer, clip math.Rect, tl, br math.Vector2, co
 	}
 }
 
+// captureCam writes the current view into the viewport's per-file object-camera store,
+// so this .obj reopens at the same pan/zoom. Idempotent; a no-op without a viewport.
+func (c *ObjectEditorComponent) captureCam() {
+	vp := lookupViewport(c.GetScene())
+	if vp == nil {
+		return
+	}
+	if vp.objectCams == nil {
+		vp.objectCams = make(map[string]editorCameraSettings)
+	}
+	vp.objectCams[c.rel] = editorCameraSettings{X: c.cam.x, Y: c.cam.y, Zoom: c.cam.zoom}
+}
+
 // closeSelf clears the object-editor focus and destroys the window's object.
 func (c *ObjectEditorComponent) closeSelf() {
+	c.captureCam()
 	if activeObjectEditor == c {
 		activeObjectEditor = nil
 	}

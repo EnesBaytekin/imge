@@ -63,6 +63,11 @@ type ViewportComponent struct {
 	cam   editorCamera
 	scene *core.Scene
 
+	// objectCams is the object editor's pan/zoom per project-relative .obj path, loaded
+	// from and saved to .imge.editor. The object editor reads/updates it so each .obj
+	// reopens at the view it was left at.
+	objectCams map[string]editorCameraSettings
+
 	// sceneFile is the resolved path of the loaded target scene ("" when none loaded).
 	// Save writes the serialized scene back to it.
 	sceneFile string
@@ -546,6 +551,11 @@ func (c *ViewportComponent) saveEditorPrefs() {
 	if c.projectDir == "" {
 		return
 	}
+	// Capture the open object editor's current view first, so a window-close (or project
+	// switch) while the object editor is still open persists its pan/zoom too.
+	if objectEditorActive() {
+		activeObjectEditor.captureCam()
+	}
 	s := editorSettings{
 		FormatVersion: 1,
 		GridStepX:     c.GridStepX,
@@ -561,6 +571,12 @@ func (c *ViewportComponent) saveEditorPrefs() {
 	if c.selected != nil {
 		s.SelectedObject = c.selected.Name
 	}
+	if len(c.objectCams) > 0 {
+		s.ObjectCams = make(map[string]*editorCameraSettings, len(c.objectCams))
+		for rel, cam := range c.objectCams {
+			s.ObjectCams[rel] = &editorCameraSettings{X: cam.X, Y: cam.Y, Zoom: cam.Zoom}
+		}
+	}
 	if err := writeEditorSettings(c.projectDir, s); err != nil {
 		log.Printf("viewport: failed to write %s: %v", editorSettingsPath(c.projectDir), err)
 	}
@@ -570,6 +586,9 @@ func (c *ViewportComponent) saveEditorPrefs() {
 // last selection) from its .imge.editor cache. A missing or malformed cache is
 // ignored, leaving the defaults (a top-left-anchored camera at the origin) in place.
 func (c *ViewportComponent) loadEditorPrefs() {
+	// Reset the per-file object-camera store: it is rebuilt from this project's cache so
+	// switching projects never leaks the previous project's object-editor views.
+	c.objectCams = nil
 	s, err := readEditorSettings(c.projectDir)
 	if err != nil {
 		return
@@ -596,6 +615,15 @@ func (c *ViewportComponent) loadEditorPrefs() {
 			zoom = 1
 		}
 		c.cam = editorCamera{x: s.Camera.X, y: s.Camera.Y, zoom: zoom}
+	}
+	if len(s.ObjectCams) > 0 {
+		c.objectCams = make(map[string]editorCameraSettings, len(s.ObjectCams))
+		for rel, cam := range s.ObjectCams {
+			if cam == nil || cam.Zoom <= 0 {
+				continue
+			}
+			c.objectCams[rel] = editorCameraSettings{X: cam.X, Y: cam.Y, Zoom: cam.Zoom}
+		}
 	}
 	if s.SelectedObject != "" && c.scene != nil {
 		if obj := c.scene.GetObjectByName(s.SelectedObject); obj != nil {
@@ -1123,6 +1151,20 @@ func (c *ViewportComponent) loadProjectScene() bool {
 	if abs, err := filepath.Abs(project); err == nil {
 		project = abs
 	}
+
+	// Make the target project the process working directory BEFORE loading the scene, so
+	// a file-referenced object's relative .obj path (and any custom sprite/font/audio
+	// path) resolves against the project root exactly as the built game does (it
+	// os.Chdir's into its extracted project data). This must precede LoadForDisplay: that
+	// load resolves each {file: ...} object's template relative to the current directory,
+	// and resolving them against the launch CWD is why a freshly-launched editor could
+	// come up with its file-referenced objects missing until the project was re-opened.
+	// The editor's own scene is already loaded and draws only vectors with the embedded
+	// pixel font, so this switch does not affect the editor UI. RUN sets its own cmd.Dir.
+	if err := os.Chdir(project); err != nil {
+		log.Printf("viewport: failed to chdir to project %q: %v", project, err)
+	}
+
 	sceneFile := resolveSceneFile(project, c.Scene)
 	if sceneFile == "" {
 		log.Printf("viewport: no scene file found in %q (scene=%q)", project, c.Scene)
@@ -1137,15 +1179,6 @@ func (c *ViewportComponent) loadProjectScene() bool {
 	c.projectDir = project
 	c.sceneFile = sceneFile
 	c.scene = scene
-	// Make the target project the process working directory so the renderer resolves a
-	// sprite's "texture" path (and any custom font/audio path) against the project root,
-	// exactly as the built game does (it os.Chdir's into its extracted project data).
-	// The editor's own scene is already loaded and draws only vectors with the embedded
-	// pixel font, so this switch does not affect the editor UI. RUN already sets its own
-	// cmd.Dir, so it is unaffected too.
-	if err := os.Chdir(project); err != nil {
-		log.Printf("viewport: failed to chdir to project %q: %v", project, err)
-	}
 
 	// Read the target's logical screen size so drawViewBounds can outline the game
 	// window's world area. A missing/unreadable game.imge only means no outline — the

@@ -131,17 +131,25 @@ func (c *InspectorComponent) tagListY(nProps int) float64 {
 	return c.tagHeaderY(nProps) + c.RowHeight
 }
 
-// tagListH returns the visible height of the scrollable tag list.
-func (c *InspectorComponent) tagListH() float64 {
-	return tagListVisible * c.RowHeight
+// tagListH returns the visible height of the scrollable tag list. It collapses to zero
+// when there are no tags, grows one row at a time up to tagListVisible rows, then stays
+// capped so the remaining tags scroll.
+func (c *InspectorComponent) tagListH(nTags int) float64 {
+	if nTags > tagListVisible {
+		nTags = tagListVisible
+	}
+	if nTags <= 0 {
+		return 0
+	}
+	return float64(nTags) * c.RowHeight
 }
 
 // compStart returns the content-space y (relative to the panel's top) where the first
-// component row begins, given the number of property rows above it. The COMPONENTS
-// header sits one row above this, and the tags section sits between the properties and
-// the components.
-func (c *InspectorComponent) compStart(nProps int) float64 {
-	return c.tagListY(nProps) + c.tagListH() + c.RowHeight
+// component row begins, given the number of property rows above it and the tag count.
+// The COMPONENTS header sits one row above this, and the tags section sits between the
+// properties and the components.
+func (c *InspectorComponent) compStart(nProps, nTags int) float64 {
+	return c.tagListY(nProps) + c.tagListH(nTags) + c.RowHeight
 }
 
 // tagAddRect returns the inline add-tag input rect within the TAGS header row.
@@ -166,7 +174,7 @@ func (c *InspectorComponent) tagXRect(rect math.Rect, rowY float64) math.Rect {
 
 // tagMaxScroll returns the scroll offset at which the last tag row is just visible.
 func (c *InspectorComponent) tagMaxScroll(nTags int) float64 {
-	if m := float64(nTags)*c.RowHeight - c.tagListH(); m > 0 {
+	if m := float64(nTags)*c.RowHeight - c.tagListH(nTags); m > 0 {
 		return m
 	}
 	return 0
@@ -184,8 +192,8 @@ func (c *InspectorComponent) clampTagScroll(nTags int) {
 
 // plusRect returns the "+" add-component button rect in the COMPONENTS header row's
 // top-right corner, computed from the header row (one row above the list).
-func (c *InspectorComponent) plusRect(rect math.Rect, nProps int) math.Rect {
-	y := rect.Y() + c.compStart(nProps) - c.RowHeight // the header row
+func (c *InspectorComponent) plusRect(rect math.Rect, nProps, nTags int) math.Rect {
+	y := rect.Y() + c.compStart(nProps, nTags) - c.RowHeight // the header row
 	const s = 14.0
 	return math.NewRect(rect.X()+rect.Width()-18, y+(c.RowHeight-s)/2, s, s)
 }
@@ -550,15 +558,17 @@ func (c *InspectorComponent) Update(ctx *core.Context) {
 	}
 	inObjEditor := objectEditorActive()
 	props := c.props(obj, inObjEditor)
-	compY := rect.Y() + c.compStart(len(props))
-	available := rect.Height() - c.compStart(len(props))
+	tags := sortedTags(obj)
+	nProps, nTags := len(props), len(tags)
+	compY := rect.Y() + c.compStart(nProps, nTags)
+	available := rect.Height() - c.compStart(nProps, nTags)
 
 	// Track the component row (and its "x" strip) plus the "+" button under the
 	// cursor, so the COMPONENTS list reads as clickable.
 	c.hoverComp = -1
 	c.hoverX = -1
 	c.hoverDup = -1
-	c.hoverPlus = c.plusRect(rect, len(props)).ContainsPoint(mouse)
+	c.hoverPlus = c.plusRect(rect, nProps, nTags).ContainsPoint(mouse)
 	c.hoverAction = !inObjEditor && obj != nil && c.actionRect(rect).ContainsPoint(mouse)
 	c.hoverEdit = !inObjEditor && obj != nil && obj.File != "" && c.editRect(rect).ContainsPoint(mouse)
 	for i := range comps {
@@ -577,15 +587,14 @@ func (c *InspectorComponent) Update(ctx *core.Context) {
 
 	// Tags section: the "+" add button and each tag row's "x" remove button under the
 	// cursor, so the tags list reads as clickable.
-	tags := sortedTags(obj)
 	c.hoverTagAdd = false
 	c.hoverTagX = -1
 	if obj != nil {
-		c.hoverTagAdd = c.tagPlusRect(rect, len(props)).ContainsPoint(mouse)
-		listY := rect.Y() + c.tagListY(len(props))
+		c.hoverTagAdd = c.tagPlusRect(rect, nProps).ContainsPoint(mouse)
+		listY := rect.Y() + c.tagListY(nProps)
 		for i := range tags {
 			y := listY + float64(i)*c.RowHeight - c.tagScroll
-			if y+c.RowHeight < listY || y > listY+c.tagListH() {
+			if y+c.RowHeight < listY || y > listY+c.tagListH(nTags) {
 				continue
 			}
 			if mouse.Y >= y && mouse.Y < y+c.RowHeight {
@@ -596,7 +605,7 @@ func (c *InspectorComponent) Update(ctx *core.Context) {
 			}
 		}
 	}
-	c.clampTagScroll(len(tags))
+	c.clampTagScroll(nTags)
 
 	// Wheel scrolls the tags list when the cursor is over it, otherwise the component
 	// list — unless a widget holds focus (so a focused TextInput never scrolls out from
@@ -604,10 +613,10 @@ func (c *InspectorComponent) Update(ctx *core.Context) {
 	if s := ctx.Input.GetMouseScroll(); s.Y != 0 {
 		if mgr := lookupUIManager(c.GetScene()); mgr == nil || !mgr.HasFocus() {
 			if obj != nil {
-				listY := rect.Y() + c.tagListY(len(props))
-				if mouse.Y >= listY && mouse.Y < listY+c.tagListH() {
+				listY := rect.Y() + c.tagListY(nProps)
+				if mouse.Y >= listY && mouse.Y < listY+c.tagListH(nTags) {
 					c.tagScroll -= s.Y * c.RowHeight * 2
-					c.clampTagScroll(len(tags))
+					c.clampTagScroll(nTags)
 				} else {
 					c.scroll -= s.Y * c.RowHeight * 2
 					if max := c.maxScroll(len(comps), available); c.scroll > max {
@@ -764,6 +773,8 @@ func (c *InspectorComponent) Draw(r core.Renderer) {
 	// Property rows: the host draws the name label and any read-only value; editable
 	// values are drawn by their widgets (layer 1, above this chrome).
 	props := c.props(obj, inObjEditor)
+	tags := sortedTags(obj)
+	nProps, nTags := len(props), len(tags)
 	bodyTop := rect.Y() + c.titleH()
 	valX := rect.X() + 64
 	for i, p := range props {
@@ -779,24 +790,32 @@ func (c *InspectorComponent) Draw(r core.Renderer) {
 	}
 
 	// Tags section: a "TAGS" header with an inline add-tag field (the widget draws itself
-	// on layer 1 above this chrome) and a "+" button, then a scrollable list of tag rows
-	// each with an "x" remove button.
-	tagHeaderY := rect.Y() + c.tagHeaderY(len(props))
+	// on layer 1 above this chrome) and a "+" button, then a list of tag rows each with an
+	// "x" remove button. The list collapses when empty and grows up to tagListVisible rows
+	// before scrolling; a subtle inset panel groups the rows so they read as one area.
+	tagHeaderY := rect.Y() + c.tagHeaderY(nProps)
 	tsY := tagHeaderY + (c.RowHeight-th)/2
 	r.DrawText("TAGS", c.FontID, c.FontSize, math.NewVector2(rect.X()+6, tsY), c.Section)
-	tplus := c.tagPlusRect(rect, len(props))
+	tplus := c.tagPlusRect(rect, nProps)
 	if c.hoverTagAdd {
 		r.DrawRect(tplus, c.Background.Lerp(math.White, 0.12))
 	}
 	tpw, tph := r.MeasureText("+", c.FontID, c.FontSize)
 	r.DrawText("+", c.FontID, c.FontSize, math.NewVector2(tplus.X()+(tplus.Width()-tpw)/2, tplus.Y()+(tplus.Height()-tph)/2), c.Section)
 
-	tags := sortedTags(obj)
-	tagListTop := rect.Y() + c.tagListY(len(props))
-	r.SetClipRect(math.NewRect(rect.X(), tagListTop, rect.Width(), c.tagListH()))
+	tagListTop := rect.Y() + c.tagListY(nProps)
+	listH := c.tagListH(nTags)
+	if listH > 0 {
+		// Grouping panel behind the tag rows so they read as a single field rather than
+		// free-floating labels.
+		panelRect := math.NewRect(rect.X()+1, tagListTop, rect.Width()-2, listH)
+		r.DrawRect(panelRect, c.Background.Lerp(math.White, 0.04))
+		r.DrawRectOutline(panelRect, c.Accent, 1)
+	}
+	r.SetClipRect(math.NewRect(rect.X(), tagListTop, rect.Width(), listH))
 	for i, tag := range tags {
 		y := tagListTop + float64(i)*c.RowHeight - c.tagScroll
-		if y+c.RowHeight < tagListTop || y > tagListTop+c.tagListH() {
+		if y+c.RowHeight < tagListTop || y > tagListTop+listH {
 			continue
 		}
 		ty := y + (c.RowHeight-th)/2
@@ -817,10 +836,10 @@ func (c *InspectorComponent) Draw(r core.Renderer) {
 
 	// Components section header — one row above the scrollable list, with a "+"
 	// add-component button in its top-right corner.
-	compY := rect.Y() + c.compStart(len(props))
+	compY := rect.Y() + c.compStart(nProps, nTags)
 	sty := (compY - c.RowHeight) + (c.RowHeight-th)/2
 	r.DrawText("COMPONENTS", c.FontID, c.FontSize, math.NewVector2(rect.X()+6, sty), c.Section)
-	plus := c.plusRect(rect, len(props))
+	plus := c.plusRect(rect, nProps, nTags)
 	if c.hoverPlus {
 		r.DrawRect(plus, c.Background.Lerp(math.White, 0.12))
 	}
