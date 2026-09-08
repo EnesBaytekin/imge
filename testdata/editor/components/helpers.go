@@ -885,6 +885,28 @@ func uniqueComponentNameFrom(target *core.Object, base string) string {
 	return name
 }
 
+// stripNumericSuffix returns name with any trailing "N" (object style, e.g.
+// "Object2") or "_N" (component style, e.g. "sprite_2") duplicate counter removed, so
+// re-uniquifying a duplicated name continues the sequence (2 -> 3 -> 4) instead of
+// nesting it (2 -> 22 -> 222). A name with no trailing digits — or one that is
+// entirely digits — is returned unchanged.
+func stripNumericSuffix(name string) string {
+	i := len(name)
+	for i > 0 && name[i-1] >= '0' && name[i-1] <= '9' {
+		i--
+	}
+	if i == len(name) || i == 0 {
+		return name
+	}
+	if name[i-1] == '_' {
+		i--
+	}
+	if i == 0 {
+		return name
+	}
+	return name[:i]
+}
+
 // buildComponent creates a named component of the given kind. Registered kinds are
 // built from the engine registry (args injected before Initialize applies defaults);
 // unregistered kinds — custom project components the editor did not compile in —
@@ -1000,7 +1022,10 @@ func duplicateComponent(target *core.Object, comp core.Component) core.Component
 	}
 	kind, name := comp.GetKind(), comp.GetName()
 	args := core.ComponentArgs(comp)
-	newName := uniqueComponentNameFrom(target, name)
+	// Strip a trailing "N"/"_N" duplicate counter from the copied component's name so
+	// re-duplicating continues the sequence (sprite -> sprite_2 -> sprite_3) instead of
+	// nesting it (sprite_2 -> sprite_2_2 -> sprite_2_2_2).
+	newName := uniqueComponentNameFrom(target, stripNumericSuffix(name))
 	dup := buildComponent(kind, newName, args)
 	if dup == nil {
 		return nil
@@ -1144,6 +1169,18 @@ func inspectorTarget(scene *core.Scene) *core.Object {
 	}
 	if vp := lookupViewport(scene); vp != nil {
 		return vp.SelectedObject()
+	}
+	return nil
+}
+
+// selectedComponent returns the component currently selected in the object editor, if
+// the object editor is open and editing obj. Otherwise nil — normal scene editing has
+// no per-component selection (clicking a component row there just opens its args
+// window). The inspector uses this to highlight the selected component and to keep its
+// args window open.
+func selectedComponent(obj *core.Object) core.Component {
+	if objectEditorActive() && activeObjectEditor.obj == obj {
+		return activeObjectEditor.selectedComp
 	}
 	return nil
 }

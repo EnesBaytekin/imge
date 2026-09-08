@@ -1,6 +1,7 @@
 package components
 
 import (
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -46,6 +47,12 @@ type InspectorComponent struct {
 	hoverDup    int            // component row whose "=" duplicate button is under the cursor (-1 = none)
 	hoverAction bool           // the make-unique / make-object title-bar button is under the cursor
 	hoverEdit   bool           // the "edit" (open object editor) title-bar button is under the cursor
+
+	tagInput    *TextInputComponent // inline "add tag" field (Enter adds a tag)
+	tagScroll   float64             // tags-list scroll offset (pixels, 0 = top)
+	hoverTagAdd bool                // the "+" add-tag button is under the cursor
+	hoverTagX   int                 // tag row whose "x" remove button is under the cursor (-1 = none)
+	lastSelComp core.Component      // last selected component (object editor), for args-window sync
 }
 
 // prop is one editable object property: a label, a getter that renders the current
@@ -110,10 +117,69 @@ func (c *InspectorComponent) Initialize() {
 // titleH returns the title-bar height.
 func (c *InspectorComponent) titleH() float64 { return c.RowHeight + 8 }
 
+// tagListVisible is the number of tag rows shown before the tags list scrolls.
+const tagListVisible = 5
+
+// tagHeaderY returns the content-space y (relative to the panel's top) of the "TAGS"
+// header row, given the number of property rows above it.
+func (c *InspectorComponent) tagHeaderY(nProps int) float64 {
+	return c.titleH() + float64(nProps)*c.RowHeight
+}
+
+// tagListY returns the content-space y of the first tag row (below the header).
+func (c *InspectorComponent) tagListY(nProps int) float64 {
+	return c.tagHeaderY(nProps) + c.RowHeight
+}
+
+// tagListH returns the visible height of the scrollable tag list.
+func (c *InspectorComponent) tagListH() float64 {
+	return tagListVisible * c.RowHeight
+}
+
 // compStart returns the content-space y (relative to the panel's top) where the first
-// component row begins, given the number of property rows above it.
+// component row begins, given the number of property rows above it. The COMPONENTS
+// header sits one row above this, and the tags section sits between the properties and
+// the components.
 func (c *InspectorComponent) compStart(nProps int) float64 {
-	return c.titleH() + float64(nProps+1)*c.RowHeight
+	return c.tagListY(nProps) + c.tagListH() + c.RowHeight
+}
+
+// tagAddRect returns the inline add-tag input rect within the TAGS header row.
+func (c *InspectorComponent) tagAddRect(rect math.Rect, nProps int) math.Rect {
+	y := rect.Y() + c.tagHeaderY(nProps)
+	const labelW, plusW = 40.0, 18.0
+	return math.NewRect(rect.X()+labelW, y+1, rect.Width()-labelW-plusW-4, c.RowHeight-2)
+}
+
+// tagPlusRect returns the "+" add-tag button rect at the header row's right edge.
+func (c *InspectorComponent) tagPlusRect(rect math.Rect, nProps int) math.Rect {
+	y := rect.Y() + c.tagHeaderY(nProps)
+	const s = 14.0
+	return math.NewRect(rect.X()+rect.Width()-18, y+(c.RowHeight-s)/2, s, s)
+}
+
+// tagXRect returns the "x" remove-button strip at the right edge of a tag row.
+func (c *InspectorComponent) tagXRect(rect math.Rect, rowY float64) math.Rect {
+	const w = 14.0
+	return math.NewRect(rect.X()+rect.Width()-w, rowY, w, c.RowHeight)
+}
+
+// tagMaxScroll returns the scroll offset at which the last tag row is just visible.
+func (c *InspectorComponent) tagMaxScroll(nTags int) float64 {
+	if m := float64(nTags)*c.RowHeight - c.tagListH(); m > 0 {
+		return m
+	}
+	return 0
+}
+
+// clampTagScroll keeps the tags-list scroll offset within [0, tagMaxScroll].
+func (c *InspectorComponent) clampTagScroll(nTags int) {
+	if max := c.tagMaxScroll(nTags); c.tagScroll > max {
+		c.tagScroll = max
+	}
+	if c.tagScroll < 0 {
+		c.tagScroll = 0
+	}
 }
 
 // plusRect returns the "+" add-component button rect in the COMPONENTS header row's
@@ -169,17 +235,6 @@ func (c *InspectorComponent) actionLabel(obj *core.Object) string {
 func (c *InspectorComponent) props(obj *core.Object, inObjEditor bool) []prop {
 	if obj == nil {
 		return nil
-	}
-	tags := func() string {
-		t := make([]string, 0, len(obj.Tags))
-		for tag := range obj.Tags {
-			t = append(t, tag)
-		}
-		sort.Strings(t)
-		if len(t) == 0 {
-			return "-"
-		}
-		return strings.Join(t, ", ")
 	}
 	out := []prop{
 		{"name", func() string { return obj.Name }, func(s string) error { return obj.SetName(s) }, kindText, nil},
@@ -259,7 +314,6 @@ func (c *InspectorComponent) props(obj *core.Object, inObjEditor bool) []prop {
 			prop{"active", func() string { return strconv.FormatBool(obj.Active) }, nil, kindText, nil},
 		)
 	}
-	out = append(out, prop{"tags", tags, func(s string) error { return setTags(obj, s) }, kindText, nil})
 	return out
 }
 
@@ -319,9 +373,10 @@ func (c *InspectorComponent) buildBindings(obj *core.Object) []fieldBinding {
 			b.getBool = p.getBool
 		}
 		b.old = b.get()
-		// name and tags are .obj-owned on a file-referenced object, so a commit (and any
-		// undo/redo) writes through to the shared template.
-		if p.label == "name" || p.label == "tags" {
+		// name is .obj-owned on a file-referenced object, so a commit (and any undo/redo)
+		// writes through to the shared template. (tags are edited by their own add/remove
+		// controls, which persist directly.)
+		if p.label == "name" {
 			b.afterApply = func() { persistObjectFile(obj) }
 		}
 		out = append(out, b)
@@ -334,6 +389,7 @@ func (c *InspectorComponent) buildBindings(obj *core.Object) []fieldBinding {
 // per-frame, or a focused widget would lose focus every frame.
 func (c *InspectorComponent) rebuildRows(obj *core.Object) {
 	c.removeWidgets()
+	c.rebuildTagInput(obj)
 	c.bindings = c.buildBindings(obj)
 	rect := c.Rect()
 	valX := rect.X() + 64
@@ -345,6 +401,50 @@ func (c *InspectorComponent) rebuildRows(obj *core.Object) {
 		y := rect.Y() + c.titleH() + float64(b.row)*c.RowHeight
 		b.widget = makeFieldWidget(b, c.GetOwner(), math.NewVector2(x, y), pw, c.RowHeight, c.FontID, c.FontSize, c.ValueText)
 	}
+}
+
+// rebuildTagInput (re)builds the inline "add tag" @TextInput as a child of the panel
+// object. It is detached and rebuilt on selection change (matching rebuildRows), and
+// repositioned per-frame by layoutRows.
+func (c *InspectorComponent) rebuildTagInput(obj *core.Object) {
+	if c.tagInput != nil {
+		c.GetOwner().RemoveComponent(c.tagInput.GetName())
+		c.tagInput = nil
+	}
+	if obj == nil {
+		return
+	}
+	ti := &TextInputComponent{}
+	ti.FontID = c.FontID
+	ti.Size = c.FontSize
+	ti.TextColor = c.ValueText
+	ti.PlaceholderColor = c.KeyText
+	ti.BackgroundColor = fieldBackground
+	ti.OutlineColor = fieldOutline
+	ti.OutlineThickness = 1
+	ti.Placeholder = "add tag..."
+	ti.Height = c.RowHeight - 2
+	ti.DrawLayer = 1
+	ti.SetName("tags_add")
+	if err := c.GetOwner().AddComponent(ti); err != nil {
+		return
+	}
+	ti.Initialize()
+	c.tagInput = ti
+}
+
+// commitTagInput adds the current text of the add-tag input as a new tag and clears the
+// input, so Enter (or the "+" button) both add-and-reset in one gesture.
+func (c *InspectorComponent) commitTagInput(obj *core.Object) {
+	if c.tagInput == nil {
+		return
+	}
+	tag := strings.TrimSpace(c.tagInput.Text)
+	c.tagInput.Text = ""
+	if tag == "" {
+		return
+	}
+	addTag(obj, tag)
 }
 
 // removeWidgets detaches every property widget from the panel object.
@@ -365,6 +465,15 @@ func (c *InspectorComponent) layoutRows() {
 	rect := c.Rect()
 	valueW := rect.Width() - 64 - 4
 	layoutWidgets(c.bindings, c.GetOwner(), rect.Y()+c.titleH(), rect.X()+64, valueW, 0, c.RowHeight, rect.Y()+rect.Height())
+	if c.tagInput != nil {
+		obj := inspectorTarget(c.GetScene())
+		ar := c.tagAddRect(rect, len(c.props(obj, objectEditorActive())))
+		if ar.Width() > 0 {
+			c.tagInput.Width = ar.Width()
+			c.tagInput.Height = ar.Height()
+			c.tagInput.SetOffset(ar.Position.Subtract(c.GetOwner().Transform.Position))
+		}
+	}
 }
 
 func (c *InspectorComponent) Update(ctx *core.Context) {
@@ -392,6 +501,21 @@ func (c *InspectorComponent) Update(ctx *core.Context) {
 	// so commits fire even after the pointer leaves the panel.
 	c.pollAndRefresh(ctx)
 
+	// Add-tag input: Enter commits a new tag (the input may be focused even when the
+	// pointer has left the panel).
+	if c.tagInput != nil && c.tagInput.IsFocused() && ctx.Input.IsKeyJustPressed(core.KeyEnter) {
+		c.commitTagInput(obj)
+	}
+
+	// Selected component (object editor): open its args window when the selection
+	// changes, so the component being edited always has its window up.
+	if sel := selectedComponent(obj); sel != c.lastSelComp {
+		c.lastSelComp = sel
+		if sel != nil {
+			spawnArgsWindow(c.GetScene(), sel)
+		}
+	}
+
 	rect := c.Rect()
 	mouse := ctx.Input.GetMousePosition()
 	if !rect.ContainsPoint(mouse) {
@@ -401,6 +525,8 @@ func (c *InspectorComponent) Update(ctx *core.Context) {
 		c.hoverDup = -1
 		c.hoverAction = false
 		c.hoverEdit = false
+		c.hoverTagAdd = false
+		c.hoverTagX = -1
 		return
 	}
 
@@ -413,6 +539,8 @@ func (c *InspectorComponent) Update(ctx *core.Context) {
 		c.hoverDup = -1
 		c.hoverAction = false
 		c.hoverEdit = false
+		c.hoverTagAdd = false
+		c.hoverTagX = -1
 		return
 	}
 
@@ -447,16 +575,56 @@ func (c *InspectorComponent) Update(ctx *core.Context) {
 		}
 	}
 
-	// Wheel scrolls the component list, unless a widget holds focus (so a focused
-	// TextInput never scrolls out from under the caret).
+	// Tags section: the "+" add button and each tag row's "x" remove button under the
+	// cursor, so the tags list reads as clickable.
+	tags := sortedTags(obj)
+	c.hoverTagAdd = false
+	c.hoverTagX = -1
+	if obj != nil {
+		c.hoverTagAdd = c.tagPlusRect(rect, len(props)).ContainsPoint(mouse)
+		listY := rect.Y() + c.tagListY(len(props))
+		for i := range tags {
+			y := listY + float64(i)*c.RowHeight - c.tagScroll
+			if y+c.RowHeight < listY || y > listY+c.tagListH() {
+				continue
+			}
+			if mouse.Y >= y && mouse.Y < y+c.RowHeight {
+				if c.tagXRect(rect, y).ContainsPoint(mouse) {
+					c.hoverTagX = i
+				}
+				break
+			}
+		}
+	}
+	c.clampTagScroll(len(tags))
+
+	// Wheel scrolls the tags list when the cursor is over it, otherwise the component
+	// list — unless a widget holds focus (so a focused TextInput never scrolls out from
+	// under the caret).
 	if s := ctx.Input.GetMouseScroll(); s.Y != 0 {
 		if mgr := lookupUIManager(c.GetScene()); mgr == nil || !mgr.HasFocus() {
-			c.scroll -= s.Y * c.RowHeight * 2
-			if max := c.maxScroll(len(comps), available); c.scroll > max {
-				c.scroll = max
-			}
-			if c.scroll < 0 {
-				c.scroll = 0
+			if obj != nil {
+				listY := rect.Y() + c.tagListY(len(props))
+				if mouse.Y >= listY && mouse.Y < listY+c.tagListH() {
+					c.tagScroll -= s.Y * c.RowHeight * 2
+					c.clampTagScroll(len(tags))
+				} else {
+					c.scroll -= s.Y * c.RowHeight * 2
+					if max := c.maxScroll(len(comps), available); c.scroll > max {
+						c.scroll = max
+					}
+					if c.scroll < 0 {
+						c.scroll = 0
+					}
+				}
+			} else {
+				c.scroll -= s.Y * c.RowHeight * 2
+				if max := c.maxScroll(len(comps), available); c.scroll > max {
+					c.scroll = max
+				}
+				if c.scroll < 0 {
+					c.scroll = 0
+				}
 			}
 		}
 	}
@@ -505,11 +673,27 @@ func (c *InspectorComponent) Update(ctx *core.Context) {
 		return
 	}
 
-	// Component rows: click to open the args window. Property rows are the widgets'
-	// job (a click focuses the TextInput or toggles the CheckBox).
+	// Tags section: "+" commits the text in the inline add-tag field, "x" removes that
+	// tag. (The field itself is a real widget, so clicking it focuses it, not routed here.)
+	if c.hoverTagAdd {
+		c.commitTagInput(obj)
+		return
+	}
+	if c.hoverTagX >= 0 && c.hoverTagX < len(tags) {
+		removeTag(obj, tags[c.hoverTagX])
+		return
+	}
+
+	// Component rows: click to open the args window, and in the object editor also move
+	// the editor selection to that component (so clicking a row selects it in the editor
+	// view). Property rows are the widgets' job (a click focuses the TextInput or toggles
+	// the CheckBox).
 	for i, comp := range comps {
 		y := compY + float64(i)*c.RowHeight - c.scroll
 		if mouse.Y >= y && mouse.Y < y+c.RowHeight {
+			if inObjEditor {
+				activeObjectEditor.selectedComp = comp
+			}
 			spawnArgsWindow(c.GetScene(), comp)
 			return
 		}
@@ -594,6 +778,43 @@ func (c *InspectorComponent) Draw(r core.Renderer) {
 		}
 	}
 
+	// Tags section: a "TAGS" header with an inline add-tag field (the widget draws itself
+	// on layer 1 above this chrome) and a "+" button, then a scrollable list of tag rows
+	// each with an "x" remove button.
+	tagHeaderY := rect.Y() + c.tagHeaderY(len(props))
+	tsY := tagHeaderY + (c.RowHeight-th)/2
+	r.DrawText("TAGS", c.FontID, c.FontSize, math.NewVector2(rect.X()+6, tsY), c.Section)
+	tplus := c.tagPlusRect(rect, len(props))
+	if c.hoverTagAdd {
+		r.DrawRect(tplus, c.Background.Lerp(math.White, 0.12))
+	}
+	tpw, tph := r.MeasureText("+", c.FontID, c.FontSize)
+	r.DrawText("+", c.FontID, c.FontSize, math.NewVector2(tplus.X()+(tplus.Width()-tpw)/2, tplus.Y()+(tplus.Height()-tph)/2), c.Section)
+
+	tags := sortedTags(obj)
+	tagListTop := rect.Y() + c.tagListY(len(props))
+	r.SetClipRect(math.NewRect(rect.X(), tagListTop, rect.Width(), c.tagListH()))
+	for i, tag := range tags {
+		y := tagListTop + float64(i)*c.RowHeight - c.tagScroll
+		if y+c.RowHeight < tagListTop || y > tagListTop+c.tagListH() {
+			continue
+		}
+		ty := y + (c.RowHeight-th)/2
+		if ty < y {
+			ty = y
+		}
+		r.DrawText(tag, c.FontID, c.FontSize, math.NewVector2(rect.X()+6, ty), c.ValueText)
+		xr := c.tagXRect(rect, y)
+		xColor := c.KeyText
+		if i == c.hoverTagX {
+			r.DrawRect(xr, c.ErrorColor)
+			xColor = c.TitleText
+		}
+		txw, txh := r.MeasureText("x", c.FontID, c.FontSize)
+		r.DrawText("x", c.FontID, c.FontSize, math.NewVector2(xr.X()+(xr.Width()-txw)/2, y+(c.RowHeight-txh)/2), xColor)
+	}
+	r.SetClipRect(rect)
+
 	// Components section header — one row above the scrollable list, with a "+"
 	// add-component button in its top-right corner.
 	compY := rect.Y() + c.compStart(len(props))
@@ -609,13 +830,16 @@ func (c *InspectorComponent) Draw(r core.Renderer) {
 	// Component rows (scrollable): name + kind + an "x" remove button, clipped to the
 	// list region below the header so scrolled-out rows don't bleed over it.
 	comps := obj.ComponentsInDrawOrder()
+	sel := selectedComponent(obj)
 	r.SetClipRect(math.NewRect(rect.X(), compY, rect.Width(), rect.Height()-(compY-rect.Y())))
 	for i, comp := range comps {
 		y := compY + float64(i)*c.RowHeight - c.scroll
 		if y+c.RowHeight < compY || y > rect.Y()+rect.Height() {
 			continue
 		}
-		if i == c.hoverComp {
+		if sel != nil && sel == comp {
+			r.DrawRect(math.NewRect(rect.X(), y, rect.Width(), c.RowHeight), c.Accent.Lerp(math.White, 0.10))
+		} else if i == c.hoverComp {
 			r.DrawRect(math.NewRect(rect.X(), y, rect.Width(), c.RowHeight), c.Background.Lerp(math.White, 0.07))
 		}
 		ty := y + (c.RowHeight-th)/2
@@ -658,31 +882,49 @@ func (c *InspectorComponent) Draw(r core.Renderer) {
 	r.ClearClip()
 }
 
-// setTags replaces the object's tag set from a comma-separated string, adding new tags
-// and removing dropped ones through the object's tag API so the scene's tag index stays
-// in sync.
-func setTags(obj *core.Object, s string) error {
-	want := make(map[string]bool)
-	for _, t := range strings.Split(s, ",") {
-		if t = strings.TrimSpace(t); t != "" {
-			want[t] = true
-		}
+// sortedTags returns the object's tags sorted by name, for stable list rendering.
+func sortedTags(obj *core.Object) []string {
+	if obj == nil {
+		return nil
 	}
-	for tag := range want {
-		if !obj.HasTag(tag) {
-			obj.AddTag(tag)
-		}
-	}
-	var remove []string
+	tags := make([]string, 0, len(obj.Tags))
 	for tag := range obj.Tags {
-		if !want[tag] {
-			remove = append(remove, tag)
-		}
+		tags = append(tags, tag)
 	}
-	for _, tag := range remove {
-		obj.RemoveTag(tag)
+	sort.Strings(tags)
+	return tags
+}
+
+// addTag adds a tag to obj and records an undoable entry that removes it. It is a no-op
+// when the tag is empty or already present. The write-through (persistObjectFile) keeps
+// a file-referenced object's .obj in sync.
+func addTag(obj *core.Object, tag string) {
+	if obj == nil || tag == "" || obj.HasTag(tag) {
+		return
 	}
-	return nil
+	obj.AddTag(tag)
+	history.record(
+		"added tag "+tag,
+		func() { obj.RemoveTag(tag); persistObjectFile(obj) },
+		func() { obj.AddTag(tag); persistObjectFile(obj) },
+		true,
+	)
+	persistObjectFile(obj)
+}
+
+// removeTag removes a tag from obj and records an undoable entry that restores it.
+func removeTag(obj *core.Object, tag string) {
+	if obj == nil || tag == "" || !obj.HasTag(tag) {
+		return
+	}
+	obj.RemoveTag(tag)
+	history.record(
+		"removed tag "+tag,
+		func() { obj.AddTag(tag); persistObjectFile(obj) },
+		func() { obj.RemoveTag(tag); persistObjectFile(obj) },
+		true,
+	)
+	persistObjectFile(obj)
 }
 
 // makeUnique drops a file-referenced object's File reference, inlining its current
@@ -703,10 +945,10 @@ func makeUnique(obj *core.Object) {
 	)
 }
 
-// makeObject saves an inline object's current definition as a .obj under the project's
-// objects/ directory and records its file reference, converting it to a file-referenced
-// object. The transform stays scene-owned, so the object's placement is unchanged.
-// Records an undo entry that drops the reference.
+// makeObject prompts for a filename and saves an inline object's current definition as a
+// .obj under the project's objects/ directory, recording its file reference so it becomes
+// a file-referenced object. The transform stays scene-owned, so placement is unchanged.
+// The prompt auto-appends ".obj" when missing and refuses to overwrite an existing file.
 func makeObject(scene *core.Scene, obj *core.Object) {
 	if obj == nil || obj.File != "" {
 		return
@@ -715,17 +957,29 @@ func makeObject(scene *core.Scene, obj *core.Object) {
 	if vp == nil || vp.CurrentProject() == "" {
 		return
 	}
-	rel := filepath.Join("objects", obj.Name+".obj")
-	abs := filepath.Join(vp.CurrentProject(), rel)
-	if err := obj.SaveToFile(abs); err != nil {
-		console.Print("make object: " + err.Error())
-		return
-	}
-	obj.File = rel
-	history.record(
-		"made object from file",
-		func() { obj.File = "" },
-		func() { obj.File = rel },
-		true,
-	)
+	spawnTextPrompt(scene, "SAVE AS OBJECT", obj.Name, "Save", func(name string) string {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return "name is required"
+		}
+		if !strings.HasSuffix(name, ".obj") {
+			name += ".obj"
+		}
+		rel := filepath.Join("objects", filepath.Base(name))
+		abs := filepath.Join(vp.CurrentProject(), rel)
+		if _, err := os.Stat(abs); err == nil {
+			return "already exists: " + rel
+		}
+		if err := obj.SaveToFile(abs); err != nil {
+			return err.Error()
+		}
+		obj.File = rel
+		history.record(
+			"made object from file",
+			func() { obj.File = "" },
+			func() { obj.File = rel },
+			true,
+		)
+		return ""
+	})
 }

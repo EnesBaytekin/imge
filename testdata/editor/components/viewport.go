@@ -763,22 +763,31 @@ func (c *ViewportComponent) RemoveObject(obj *core.Object) {
 // DuplicateObject clones obj into the target scene: it copies the object's JSON data
 // (its config via ToJSONConfig, plus the live transform and active state) into a new
 // object with the same components, and records an undo entry that removes the copy (redo
-// re-adds the same object pointer). The scene's AddObject assigns a unique name. The
-// copy's components are initialized on its first Scene.Update (AddObject defers it), so
-// the injected args plus Initialize defaults land exactly as a fresh load would.
-// Returns the copy, or nil.
+// re-adds the same object pointer). The scene's AddObject assigns a unique name. A
+// file-referenced source keeps its File reference on the copy, so the duplicate stays
+// derived from the same .obj template. The copy's components are initialized on its first
+// Scene.Update (AddObject defers it), so the injected args plus Initialize defaults land
+// exactly as a fresh load would. Returns the copy, or nil.
 func (c *ViewportComponent) DuplicateObject(obj *core.Object) *core.Object {
 	if obj == nil || c.scene == nil {
 		return nil
 	}
 	cfg := obj.ToJSONConfig()
-	dup := core.NewObject(cfg.Name)
+	// Strip a trailing duplicate counter from the source name so re-duplicating
+	// continues the sequence (Object -> Object2 -> Object3) instead of nesting it
+	// (Object2 -> Object22 -> Object222). The scene's AddObject re-uniquifies the base.
+	dup := core.NewObject(stripNumericSuffix(cfg.Name))
 	dup.Transform = obj.Transform
 	dup.Active = obj.Active
 	dup.Depth = cfg.Depth
 	dup.Layer = cfg.Layer
 	dup.UI = cfg.UI
 	dup.Draggable = cfg.Draggable
+	// A duplicate of a file-referenced object stays file-referenced: the copy points at
+	// the same .obj template and inherits its components/tags (the tags/components copied
+	// below are the template's current definition, needed so the copy renders immediately;
+	// on save the scene emits the File reference rather than re-inlining them).
+	dup.File = obj.File
 	for _, tag := range cfg.Tags {
 		dup.AddTag(tag)
 	}
@@ -896,6 +905,10 @@ func (c *ViewportComponent) Draw(r core.Renderer) {
 	}
 	r.SetCamera(0, 0, 0)
 
+	// UI objects: drawn with no camera (screen space), positioned relative to the
+	// viewport's top-left origin — the same convention the game uses.
+	c.drawUIObjects(r, rect)
+
 	// Selection: a screen-space outline drawn on top of the world.
 	c.drawEmptyMarkers(r, rect)
 	c.drawViewBounds(r, rect)
@@ -984,6 +997,26 @@ func (c *ViewportComponent) drawEmptyMarkers(r core.Renderer, rect math.Rect) {
 		r.DrawLine(math.NewVector2(p.X-h, p.Y), math.NewVector2(p.X+h, p.Y), emptyMarkerColor, emptyMarkerThickness)
 		r.DrawLine(math.NewVector2(p.X, p.Y-h), math.NewVector2(p.X, p.Y+h), emptyMarkerColor, emptyMarkerThickness)
 	}
+}
+
+// drawUIObjects draws the target scene's UI objects in raw screen space, positioned
+// relative to the viewport's top-left origin. The game draws UI objects with no camera
+// (their position is already in screen coordinates), so a UI object at (0,0) lands at
+// the viewport's top-left. The camera is offset by -rect.Position so each object draws
+// at rect.Position + its own position, which the clip rect then maps back to the
+// viewport's local space.
+func (c *ViewportComponent) drawUIObjects(r core.Renderer, rect math.Rect) {
+	if c.scene == nil {
+		return
+	}
+	r.SetCamera(-rect.X(), -rect.Y(), 1)
+	for _, obj := range c.scene.GetSortedObjects() {
+		if obj == nil || !obj.Active || obj.IsDestroyed() || !obj.UI {
+			continue
+		}
+		obj.Draw(r)
+	}
+	r.SetCamera(0, 0, 0)
 }
 
 // drawSelection outlines the picked object's bounds in white, drawn in screen space

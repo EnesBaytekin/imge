@@ -331,7 +331,16 @@ func (c *ObjectEditorComponent) Update(ctx *core.Context) {
 			if !c.dragMoved && delta.Length() >= dragThreshold {
 				c.dragMoved = true
 			}
-			setComponentOffset(c.dragComp, c.dragStartOff.Add(delta))
+			pos := c.dragStartOff.Add(delta)
+			// Snap the component's offset to the grid by default (hold Shift to move
+			// unsnapped), matching the viewport's object drag.
+			if !ctx.Input.IsKeyPressed(core.KeyShift) {
+				pos = math.NewVector2(
+					stdmath.Round(pos.X/defaultGridStep)*defaultGridStep,
+					stdmath.Round(pos.Y/defaultGridStep)*defaultGridStep,
+				)
+			}
+			setComponentOffset(c.dragComp, pos)
 		}
 	}
 
@@ -408,7 +417,9 @@ func (c *ObjectEditorComponent) Draw(r core.Renderer) {
 		c.world.DrawWorld(r, true)
 	}
 	r.SetCamera(0, 0, 0)
-	c.drawBounds(r, worldRect)
+	// Only the selected component is highlighted — the object itself has no selection
+	// outline (a .obj's footprint is its components, and a bounds-less component may
+	// legitimately draw nothing).
 	c.drawComponentSelection(r, worldRect)
 
 	r.SetClipRect(rect)
@@ -464,26 +475,6 @@ func (c *ObjectEditorComponent) drawAxes(r core.Renderer, worldRect math.Rect) {
 		p1 := c.cam.WorldToScreen(math.NewVector2(0, bottom)).Add(worldRect.Position)
 		r.DrawLine(p0, p1, c.AxesColor, axesLineThickness)
 	}
-}
-
-// drawBounds outlines the object's debug bounds (or a small origin box) in screen
-// space so the object's footprint stays visible even if it renders nothing itself.
-func (c *ObjectEditorComponent) drawBounds(r core.Renderer, worldRect math.Rect) {
-	if c.obj == nil {
-		return
-	}
-	bounds, ok := objectBounds(c.obj)
-	var tl, br math.Vector2
-	if !ok {
-		pos := c.cam.WorldToScreen(c.obj.Transform.Position).Add(worldRect.Position)
-		const half = 5.0
-		tl = math.NewVector2(pos.X-half, pos.Y-half)
-		br = math.NewVector2(pos.X+half, pos.Y+half)
-	} else {
-		tl = c.cam.WorldToScreen(bounds.Position).Add(worldRect.Position)
-		br = c.cam.WorldToScreen(bounds.Position.Add(bounds.Size)).Add(worldRect.Position)
-	}
-	drawClippedOutline(r, worldRect, tl, br, selectionColor, selOutlineThickness)
 }
 
 // drawComponentSelection outlines the currently selected component's debug bounds in
