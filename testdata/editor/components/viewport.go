@@ -83,6 +83,10 @@ type ViewportComponent struct {
 	logicalW float64
 	logicalH float64
 
+	// pixelStep is the target game's world-units-per-pixel resolution (1 / PPU), used by
+	// drag snapping so Alt-drag lands on a representable pixel. Defaults to 1 (PPU = 1).
+	pixelStep float64
+
 	panning   bool
 	lastMouse math.Vector2
 
@@ -346,7 +350,7 @@ func (c *ViewportComponent) beginDrag(local math.Vector2) {
 
 // updateDrag translates the grabbed object by the cursor's world-space delta. The move
 // is inert until the cursor passes dragThreshold (so a click doesn't nudge the object),
-// and snaps to the grid step by default (hold Shift to move unsnapped).
+// and snaps by modifier: no key = whole units, Shift = grid step, Alt = pixel (1/PPU).
 func (c *ViewportComponent) updateDrag(ctx *core.Context, local math.Vector2) {
 	if !c.dragActive {
 		if local.Subtract(c.dragPressScreen).Length() < dragThreshold {
@@ -355,17 +359,19 @@ func (c *ViewportComponent) updateDrag(ctx *core.Context, local math.Vector2) {
 		c.dragActive = true
 	}
 	pos := c.dragStart.Add(c.cam.ScreenToWorld(local).Subtract(c.dragGrab))
-	if !ctx.Input.IsKeyPressed(core.KeyShift) {
-		stepX := c.GridStepX
-		if stepX <= 0 {
-			stepX = defaultGridStep
-		}
-		stepY := c.GridStepY
-		if stepY <= 0 {
-			stepY = defaultGridStep
-		}
-		pos = math.NewVector2(stdmath.Round(pos.X/stepX)*stepX, stdmath.Round(pos.Y/stepY)*stepY)
+	stepX := c.GridStepX
+	if stepX <= 0 {
+		stepX = defaultGridStep
 	}
+	stepY := c.GridStepY
+	if stepY <= 0 {
+		stepY = defaultGridStep
+	}
+	pos = snapDragPosition(
+		pos, stepX, stepY, c.PixelStep(),
+		ctx.Input.IsKeyPressed(core.KeyShift),
+		ctx.Input.IsKeyPressed(core.KeyAlt),
+	)
 	c.dragObj.SetPosition(pos.X, pos.Y)
 	c.dragMoved = true
 }
@@ -531,8 +537,9 @@ func (c *ViewportComponent) Save() error {
 	return nil
 }
 
-// RefreshLogicalSize re-reads the target project's game.imge window size so the
-// logical-screen outline stays in sync after the game settings modal changes it.
+// RefreshLogicalSize re-reads the target project's game.imge window size (and pixel
+// resolution) so the logical-screen outline and drag snapping stay in sync after the game
+// settings modal changes them.
 func (c *ViewportComponent) RefreshLogicalSize() {
 	if c.projectDir == "" {
 		return
@@ -540,7 +547,17 @@ func (c *ViewportComponent) RefreshLogicalSize() {
 	if cfg, err := imgejson.LoadGameConfig(filepath.Join(c.projectDir, "game.imge")); err == nil {
 		c.logicalW = float64(cfg.Window.Width)
 		c.logicalH = float64(cfg.Window.Height)
+		c.pixelStep = pixelStepFromPPU(cfg.Window.PixelPerUnit)
 	}
+}
+
+// PixelStep returns the target game's world-units-per-pixel resolution (1 / PPU), or 1
+// when it hasn't been resolved yet. Alt-drag snapping uses this so it never returns zero.
+func (c *ViewportComponent) PixelStep() float64 {
+	if c.pixelStep > 0 {
+		return c.pixelStep
+	}
+	return 1
 }
 
 // saveEditorPrefs writes the editor-only viewport settings — grid spacing/colors, the
@@ -1186,6 +1203,7 @@ func (c *ViewportComponent) loadProjectScene() bool {
 	if cfg, err := imgejson.LoadGameConfig(filepath.Join(project, "game.imge")); err == nil {
 		c.logicalW = float64(cfg.Window.Width)
 		c.logicalH = float64(cfg.Window.Height)
+		c.pixelStep = pixelStepFromPPU(cfg.Window.PixelPerUnit)
 	} else {
 		log.Printf("viewport: no logical size (game.imge): %v", err)
 	}

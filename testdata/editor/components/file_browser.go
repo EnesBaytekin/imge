@@ -38,6 +38,7 @@ type FileBrowserComponent struct {
 	projectDir string
 	entries    []fileEntry
 	expanded   map[string]bool
+	cursor     string // rel of the keyboard-navigated row (dir or file), "" = none
 	selected   string // rel path of the selected file, "" = none
 	scroll     float64
 	pick       bool // pick mode: click a .obj to load it into the scene (from the scene tree "+")
@@ -228,6 +229,112 @@ func (c *FileBrowserComponent) rowAt(visible []fileEntry, rect math.Rect, mouseY
 	return -1
 }
 
+// moveCursor shifts the tree cursor by delta rows (through the visible entries), keeping
+// it in view and, when it lands on a file, selecting that file so the preview follows.
+func (c *FileBrowserComponent) moveCursor(visible []fileEntry, rect math.Rect, delta int) {
+	if len(visible) == 0 {
+		return
+	}
+	idx := -1
+	for i, e := range visible {
+		if e.rel == c.cursor {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		// No cursor yet: start at the first row (or the last when moving up).
+		if delta < 0 {
+			idx = 0
+		} else {
+			idx = -1
+		}
+	}
+	idx += delta
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= len(visible) {
+		idx = len(visible) - 1
+	}
+	c.setCursor(visible[idx], visible, rect)
+}
+
+// setCursor moves the cursor to a row and, for files, updates the selection. It also
+// scrolls the row into view.
+func (c *FileBrowserComponent) setCursor(e fileEntry, visible []fileEntry, rect math.Rect) {
+	c.cursor = e.rel
+	if !e.isDir {
+		c.selected = e.rel
+	}
+	c.scrollCursorIntoView(visible, rect)
+}
+
+// scrollCursorIntoView scrolls the tree so the cursor row is visible within the pane.
+func (c *FileBrowserComponent) scrollCursorIntoView(visible []fileEntry, rect math.Rect) {
+	idx := -1
+	for i, e := range visible {
+		if e.rel == c.cursor {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return
+	}
+	pane := c.treePane(rect)
+	top := pane.Y() + 2
+	y := top + float64(idx)*c.RowHeight - c.scroll
+	if y < pane.Y() {
+		c.scroll = top + float64(idx)*c.RowHeight - pane.Y()
+	} else if y+c.RowHeight > pane.Y()+pane.Height() {
+		c.scroll = top + float64(idx)*c.RowHeight + c.RowHeight - (pane.Y() + pane.Height())
+	}
+	c.clampScroll(visible, rect)
+}
+
+// activateCursor "opens" the cursor row: a directory toggles its expand/collapse, a file
+// is selected (or, in pick mode, loaded into the scene and the window dismissed).
+func (c *FileBrowserComponent) activateCursor(visible []fileEntry) {
+	idx := -1
+	for i, e := range visible {
+		if e.rel == c.cursor {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return
+	}
+	e := visible[idx]
+	if e.isDir {
+		c.expanded[e.rel] = !c.expanded[e.rel]
+		return
+	}
+	if c.pick {
+		rel := e.rel
+		scene := c.GetScene()
+		if vp := lookupViewport(scene); vp != nil {
+			if obj := vp.AddObjectFromFile(rel); obj != nil {
+				vp.SelectSilent(obj)
+			}
+		}
+		c.dismiss = true
+		return
+	}
+	c.selected = e.rel
+}
+
+// cursorIsDir reports whether the cursor row is a directory (it has no preview).
+func (c *FileBrowserComponent) cursorIsDir() bool {
+	for _, e := range c.entries {
+		if e.rel == c.cursor {
+			return e.isDir
+		}
+	}
+	return false
+}
+
 func (c *FileBrowserComponent) Update(ctx *core.Context) {
 	if ctx == nil || ctx.Input == nil {
 		return
@@ -270,6 +377,18 @@ func (c *FileBrowserComponent) Update(ctx *core.Context) {
 		c.clampScroll(visible, rect)
 	}
 
+	// Keyboard: arrows move the cursor, Enter activates the row. Processed every frame
+	// (before the mouse-press early-out) so the tree navigates without the mouse.
+	if ctx.Input.IsKeyJustPressed(core.KeyUp) {
+		c.moveCursor(visible, rect, -1)
+	}
+	if ctx.Input.IsKeyJustPressed(core.KeyDown) {
+		c.moveCursor(visible, rect, 1)
+	}
+	if ctx.Input.IsKeyJustPressed(core.KeyEnter) {
+		c.activateCursor(visible)
+	}
+
 	if !ctx.Input.IsMouseButtonJustPressed(core.MouseButtonLeft) {
 		return
 	}
@@ -297,6 +416,7 @@ func (c *FileBrowserComponent) Update(ctx *core.Context) {
 	// Tree row click: toggle a directory, select a file (or, in pick mode, load it).
 	if ri := c.rowAt(visible, rect, mouse.Y); ri >= 0 {
 		e := visible[ri]
+		c.cursor = e.rel
 		if e.isDir {
 			c.expanded[e.rel] = !c.expanded[e.rel]
 		} else if c.pick {
@@ -404,7 +524,7 @@ func (c *FileBrowserComponent) Draw(r core.Renderer) {
 		if y+c.RowHeight < treePane.Y() || y > treePane.Y()+treePane.Height() {
 			continue
 		}
-		if e.rel == c.selected {
+		if e.rel == c.cursor {
 			r.DrawRect(math.NewRect(treePane.X(), y, treePane.Width(), c.RowHeight), c.Accent)
 		}
 		indent := treePane.X() + 4 + float64(e.depth)*12
@@ -440,6 +560,12 @@ func (c *FileBrowserComponent) Draw(r core.Renderer) {
 
 func (c *FileBrowserComponent) drawPreview(r core.Renderer, rect math.Rect) {
 	pr := c.previewPane(rect)
+	// A directory row has no preview: show that instead of lingering on the file that was
+	// selected before the cursor moved onto the directory.
+	if c.cursor != "" && c.cursorIsDir() {
+		r.DrawText("directory — no preview", c.FontID, c.FontSize, math.NewVector2(pr.X()+8, pr.Y()+8), c.PreviewText)
+		return
+	}
 	if c.selected == "" {
 		hint := "select a file"
 		if c.pick {
@@ -456,9 +582,14 @@ func (c *FileBrowserComponent) drawPreview(r core.Renderer, rect math.Rect) {
 			r.DrawText("(cannot load image)", c.FontID, c.FontSize, math.NewVector2(pr.X()+8, pr.Y()+8), c.PreviewText)
 			return
 		}
+		r.DrawText("IMAGE", c.FontID, c.FontSize, math.NewVector2(pr.X()+8, pr.Y()+8), c.PreviewText)
+		r.DrawText(strconv.Itoa(int(sw))+" x "+strconv.Itoa(int(sh)), c.FontID, c.FontSize, math.NewVector2(pr.X()+8, pr.Y()+24), c.FileText)
+		// Center the texture in the area below the two header rows.
 		pad := 8.0
+		headerH := 2*c.RowHeight + 2*pad
+		areaTop := pr.Y() + headerH
 		maxW := pr.Width() - 2*pad
-		maxH := pr.Height() - 2*pad
+		maxH := pr.Height() - headerH - pad
 		if maxW <= 0 || maxH <= 0 {
 			return
 		}
@@ -471,8 +602,10 @@ func (c *FileBrowserComponent) drawPreview(r core.Renderer, rect math.Rect) {
 		}
 		w, h := sw*scale, sh*scale
 		x := pr.X() + (pr.Width()-w)/2
-		y := pr.Y() + (pr.Height()-h)/2
+		y := areaTop + (maxH-h)/2
 		r.DrawTexture(c.selected, math.Rect{}, math.NewVector2(x, y), math.NewVector2(scale, scale), 0, math.ColorTransform{})
+		// Thin outline so the image's bounds read clearly against the dark preview.
+		r.DrawRectOutline(math.NewRect(x, y, w, h), c.PreviewText, 1)
 	case "obj":
 		cfg, err := imgejson.LoadObjectConfig(abs)
 		if err != nil {

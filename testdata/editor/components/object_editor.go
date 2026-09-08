@@ -14,14 +14,16 @@ import (
 // navigate (wheel zoom, middle-drag or Space+drag pan) — but never edits the object's
 // transform, since a .obj has no transform (that is a per-instance scene concern).
 //
-// "Save" writes the object back to its .obj file (name/tags/components/depth/layer/
-// ui/draggable), then reloads the active scene if it references that file so instances
-// refresh. It is an editing *focus* (see objectEditorActive), not a modal: it pauses the
-// viewport and scene tree but keeps the inspector and component-args windows live, so the
-// object's components can be edited there while its world view stays open here. The world
-// area also supports component picking and drag-to-move: selecting a component (sprite,
-// collider, …) and dragging it shifts that component's offset, undoable and written
-// through to the .obj. Dismissed by Close or a click on the viewport surface.
+// Every edit (component drag, add/remove, arg changes, name/tags) is written through to
+// the .obj immediately and reflected in every scene instance that references it, and each
+// edit is recorded in the normal undo history — there is no separate Save step, matching
+// how in-scene edits behave. It is an editing *focus* (see objectEditorActive), not a
+// modal: it pauses the viewport and scene tree but keeps the inspector and component-args
+// windows live, so the object's components can be edited there while its world view stays
+// open here. The world area also supports component picking and drag-to-move: selecting a
+// component (sprite, collider, …) and dragging it shifts that component's offset,
+// undoable and written through to the .obj. Dismissed by the top-right "x" or a click on
+// the viewport surface.
 type ObjectEditorComponent struct {
 	core.BaseUIComponent
 
@@ -43,11 +45,6 @@ type ObjectEditorComponent struct {
 	cam    editorCamera // navigation camera over the object
 	framed bool
 
-	saveBtn  *ButtonComponent
-	closeBtn *ButtonComponent
-
-	status string
-
 	dragging bool
 	dragGrab math.Vector2
 
@@ -64,15 +61,22 @@ type ObjectEditorComponent struct {
 
 	suppress bool // swallow the press that opened the editor (outside-click guard)
 
-	dismiss  bool
-	centered bool
+	hoverClose bool
+	dismiss    bool
+	centered   bool
 }
 
 func (c *ObjectEditorComponent) titleH() float64 { return c.RowHeight + 8 }
 
-// worldRect is the viewport-like area between the title bar and the bottom button row.
+// closeRect is the top-right "x" button that dismisses the editor (like the file browser).
+func (c *ObjectEditorComponent) closeRect(rect math.Rect) math.Rect {
+	const s = 12.0
+	return math.NewRect(rect.X()+rect.Width()-s-4, rect.Y()+(c.titleH()-s)/2, s, s)
+}
+
+// worldRect is the viewport-like area below the title bar.
 func (c *ObjectEditorComponent) worldRect(rect math.Rect) math.Rect {
-	return math.NewRect(rect.X(), rect.Y()+c.titleH(), rect.Width(), rect.Height()-c.titleH()-28)
+	return math.NewRect(rect.X(), rect.Y()+c.titleH(), rect.Width(), rect.Height()-c.titleH())
 }
 
 func (c *ObjectEditorComponent) Initialize() {
@@ -165,19 +169,12 @@ func spawnObjectEditor(scene *core.Scene, rel string) {
 	}
 
 	editor.Initialize()
-	editor.buildWidgets()
 	// The object editor is an editing *focus*, not a blocking modal: it pauses the
 	// viewport/scene tree (editorNavBlocked) but leaves the inspector and component-args
 	// windows interactive so the object can be edited component-by-component alongside it.
 	activeObjectEditor = editor
 	editor.suppress = true // swallow the press that opened it (outside-click guard)
 	raiseToFront(scene, win)
-}
-
-func (c *ObjectEditorComponent) buildWidgets() {
-	owner := c.GetOwner()
-	c.saveBtn = makePanelButton(owner, "save", "Save", math.NewVector2(8, c.Height-24), 120, 20, c.FontID, c.FontSize, c.Accent)
-	c.closeBtn = makePanelButton(owner, "close", "Close", math.NewVector2(132, c.Height-24), 120, 20, c.FontID, c.FontSize, c.BorderColor)
 }
 
 // frame centers the camera on the object's origin (0,0) — the object's own position,
@@ -206,34 +203,40 @@ func (c *ObjectEditorComponent) gridStep() (float64, float64) {
 	return stepX, stepY
 }
 
-func (c *ObjectEditorComponent) doSave() {
-	if err := c.obj.SaveToFile(c.path); err != nil {
-		c.status = "save error"
-		console.Print("object editor: " + err.Error())
-		return
+// pixelStep returns the target project's world-units-per-pixel resolution (1/PPU) from
+// the live viewport, falling back to 1 (PPU=1) when no viewport is available.
+func (c *ObjectEditorComponent) pixelStep() float64 {
+	vp := lookupViewport(c.GetScene())
+	if vp == nil {
+		return 1
 	}
-	c.status = "saved"
-	console.Print("saved " + c.path)
-	// Refresh the active scene if it references this .obj so instances pick up the
-	// new definition immediately. ReloadScene (not SetScene) reloads the *current*
-	// scene — SetScene is a no-op when the name is unchanged.
-	if vp := lookupViewport(c.GetScene()); vp != nil && sceneReferencesFile(vp.TargetScene(), c.rel) {
-		vp.ReloadScene()
-	}
+	return vp.PixelStep()
 }
 
-// sceneReferencesFile reports whether any object in scene was instantiated from the
-// .obj at rel.
-func sceneReferencesFile(scene *core.Scene, rel string) bool {
+// refreshSceneInstances re-applies this .obj's saved definition to every object in the
+// viewport's target scene that references it. The object editor edits its object inside a
+// throwaway world, so propagateObjectFile — which only reaches siblings of the edited
+// object's own scene — can't update the real scene's instances; persistObjectFile calls
+// this after every write-through edit so object-editor changes apply to all instances
+// immediately, exactly like an in-scene edit on one of them.
+func (c *ObjectEditorComponent) refreshSceneInstances() {
+	scene := c.GetScene()
 	if scene == nil {
-		return false
+		return
 	}
-	for _, obj := range scene.GetSortedObjects() {
-		if obj.File == rel {
-			return true
+	vp := lookupViewport(scene)
+	if vp == nil || vp.TargetScene() == nil {
+		return
+	}
+	tpl, err := core.LoadObjectFromFile(c.rel)
+	if err != nil {
+		return
+	}
+	for _, obj := range vp.TargetScene().GetSortedObjects() {
+		if obj != nil && obj.File == c.rel {
+			applyObjectTemplate(obj, tpl)
 		}
 	}
-	return false
 }
 
 func (c *ObjectEditorComponent) Update(ctx *core.Context) {
@@ -290,19 +293,18 @@ func (c *ObjectEditorComponent) Update(ctx *core.Context) {
 		c.lastMouse = local
 	}
 
-	if c.saveBtn != nil && c.saveBtn.ConsumeClick() {
-		c.doSave()
-		return
-	}
-	if c.closeBtn != nil && c.closeBtn.ConsumeClick() {
+	c.hoverClose = c.closeRect(rect).ContainsPoint(mouse)
+
+	justPressed := ctx.Input.IsMouseButtonJustPressed(core.MouseButtonLeft)
+
+	// Top-right "x" dismisses the editor.
+	if justPressed && c.hoverClose {
 		c.dismiss = true
 		return
 	}
 
-	justPressed := ctx.Input.IsMouseButtonJustPressed(core.MouseButtonLeft)
-
 	// Title-bar press starts a drag (tested before picking/outside-click so moving the
-	// window never reads as a component pick or a dismissal).
+	// window never reads as a component pick or a dismissal; the "x" is handled above).
 	if justPressed {
 		if math.NewRect(rect.X(), rect.Y(), rect.Width(), c.titleH()).ContainsPoint(mouse) {
 			c.dragging = true
@@ -356,15 +358,14 @@ func (c *ObjectEditorComponent) Update(ctx *core.Context) {
 				c.dragMoved = true
 			}
 			pos := c.dragStartOff.Add(delta)
-			// Snap the component's offset to the grid by default (hold Shift to move
-			// unsnapped), matching the viewport's object drag.
-			if !ctx.Input.IsKeyPressed(core.KeyShift) {
-				stepX, stepY := c.gridStep()
-				pos = math.NewVector2(
-					stdmath.Round(pos.X/stepX)*stepX,
-					stdmath.Round(pos.Y/stepY)*stepY,
-				)
-			}
+			// Snap the component's offset by modifier (whole units / grid / pixel),
+			// matching the viewport's object drag via the shared snap helper.
+			stepX, stepY := c.gridStep()
+			pos = snapDragPosition(
+				pos, stepX, stepY, c.pixelStep(),
+				ctx.Input.IsKeyPressed(core.KeyShift),
+				ctx.Input.IsKeyPressed(core.KeyAlt),
+			)
 			setComponentOffset(c.dragComp, pos)
 		}
 	}
@@ -425,13 +426,16 @@ func (c *ObjectEditorComponent) Draw(r core.Renderer) {
 
 	_, th := r.MeasureText("Ag", c.FontID, c.FontSize)
 
-	// Title bar.
+	// Title bar + close "x".
 	r.DrawRect(math.NewRect(rect.X(), rect.Y(), rect.Width(), c.titleH()), c.Accent)
 	title := "OBJECT: " + c.obj.Name
-	if c.status != "" {
-		title = title + " — " + c.status
-	}
 	r.DrawText(title, c.FontID, c.FontSize, math.NewVector2(rect.X()+6, rect.Y()+(c.titleH()-th)/2), c.TitleText)
+	cr := c.closeRect(rect)
+	if c.hoverClose {
+		r.DrawRect(cr, c.Background.Lerp(math.White, 0.12))
+	}
+	xw, xh := r.MeasureText("x", c.FontID, c.FontSize)
+	r.DrawText("x", c.FontID, c.FontSize, math.NewVector2(cr.X()+(cr.Width()-xw)/2, cr.Y()+(cr.Height()-xh)/2), c.TitleText)
 
 	// World area: grid + axes in screen space, then the object under the camera.
 	r.SetClipRect(worldRect)

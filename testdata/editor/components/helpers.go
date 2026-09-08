@@ -7,6 +7,7 @@ package components
 
 import (
 	"fmt"
+	stdmath "math"
 	"reflect"
 	"strconv"
 	"strings"
@@ -1059,6 +1060,13 @@ func persistObjectFile(obj *core.Object) {
 	// Re-apply the just-saved shared definition to every sibling instance so an
 	// in-scene edit on one file-referenced object updates all of them immediately.
 	propagateObjectFile(obj)
+	// The isolated object editor edits its object inside a throwaway world, so
+	// propagateObjectFile (which only reaches siblings of obj's own scene) can't see the
+	// real scene's instances. Refresh them directly so object-editor edits apply to every
+	// instance in the scene immediately, exactly like an in-scene edit.
+	if objectEditorActive() && activeObjectEditor.obj == obj {
+		activeObjectEditor.refreshSceneInstances()
+	}
 }
 
 // propagateObjectFile re-applies a .obj template's shared definition (components and
@@ -1085,8 +1093,9 @@ func propagateObjectFile(src *core.Object) {
 // applyObjectTemplate replaces an object's components and tags with a template's,
 // preserving the object's name and per-instance overrides. Any open component-args
 // window for the object is closed first, since the components it edits are about to be
-// replaced. The template's components are moved over (their owner re-pointed to dst) and
-// initialized manually, mirroring addComponentTo/restoreComponent.
+// replaced. The template's components are cloned (fresh instances built from its args)
+// rather than moved, so the template stays intact and can be re-applied to multiple
+// instances — moving them would leave every instance after the first with no components.
 func applyObjectTemplate(dst *core.Object, tpl *core.Object) {
 	if dst == nil || tpl == nil {
 		return
@@ -1097,10 +1106,14 @@ func applyObjectTemplate(dst *core.Object, tpl *core.Object) {
 		dst.RemoveComponent(name)
 	}
 	for _, comp := range tpl.ComponentsInDrawOrder() {
-		if err := dst.AddComponent(comp); err != nil {
+		clone := buildComponent(comp.GetKind(), comp.GetName(), core.ComponentArgs(comp))
+		if clone == nil {
 			continue
 		}
-		comp.Initialize()
+		if err := dst.AddComponent(clone); err != nil {
+			continue
+		}
+		clone.Initialize()
 	}
 
 	for tag := range dst.Tags {
@@ -1235,6 +1248,39 @@ func setComponentOffset(comp core.Component, v math.Vector2) bool {
 	}
 	fv.Set(reflect.ValueOf(v))
 	return true
+}
+
+// snapDragPosition resolves a raw drag position to its snapped value under the held
+// modifier keys. It is shared by the scene viewport (object drag) and the object editor
+// (component drag) so the three modifiers mean the same thing everywhere:
+//   - no modifier: whole world units (the default "pixel" feel — 1-unit steps),
+//   - Shift:       the grid step,
+//   - Alt:         the project's pixel resolution (1/PPU), for fine sub-unit movement
+//     that still lands on a representable pixel instead of an arbitrary float.
+func snapDragPosition(pos math.Vector2, gridStepX, gridStepY, pixelStep float64, shift, alt bool) math.Vector2 {
+	if alt {
+		return math.NewVector2(
+			stdmath.Round(pos.X/pixelStep)*pixelStep,
+			stdmath.Round(pos.Y/pixelStep)*pixelStep,
+		)
+	}
+	if shift {
+		return math.NewVector2(
+			stdmath.Round(pos.X/gridStepX)*gridStepX,
+			stdmath.Round(pos.Y/gridStepY)*gridStepY,
+		)
+	}
+	return math.NewVector2(stdmath.Round(pos.X), stdmath.Round(pos.Y))
+}
+
+// pixelStepFromPPU converts a game.imge pixel_per_unit value into the world-units-per-pixel
+// step used by Alt-drag snapping (1 / PPU). PPU <= 0 (unset/invalid) yields 1, matching the
+// engine's own PPU default.
+func pixelStepFromPPU(ppu int) float64 {
+	if ppu <= 0 {
+		ppu = 1
+	}
+	return 1 / float64(ppu)
 }
 
 // recordComponentOffsetChange records an undoable offset move on a component, and writes
