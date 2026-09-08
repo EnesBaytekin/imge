@@ -219,8 +219,8 @@ func (c *ViewportComponent) Update(ctx *core.Context) {
 	if ctx == nil || ctx.Input == nil {
 		return
 	}
-	// A modal or an open menu bar is up: this panel is inert.
-	if modalOpen() || menusOpen() {
+	// A modal, the object editor's focus, or an open menu bar is up: this panel is inert.
+	if editorNavBlocked() {
 		return
 	}
 	rect := c.Rect()
@@ -414,6 +414,7 @@ func (c *ViewportComponent) SetProject(dir string) {
 	history.clear() // undo entries reference the previous project's live components
 	closeAllArgsWindows()
 	closeActiveModal() // a modal references the previous project's live components
+	closeActiveObjectEditor()
 	c.loadTarget()
 }
 
@@ -455,6 +456,7 @@ func (c *ViewportComponent) SetScene(name string) {
 	history.clear() // undo entries reference the outgoing scene's live components
 	closeAllArgsWindows()
 	closeActiveModal()
+	closeActiveObjectEditor()
 	c.Scene = name
 	c.loadProjectScene()
 }
@@ -476,6 +478,33 @@ func (c *ViewportComponent) ClearScene() {
 	c.framed = false
 	history.clear()
 	closeAllArgsWindows()
+	closeActiveObjectEditor()
+}
+
+// ReloadScene re-reads the current target scene from disk, discarding in-memory edit
+// state (selection, drag, undo history, open component-args windows). It is used after an
+// external change to the scene's data — specifically the object editor saving a .obj that
+// the scene references — so file-referenced instances refresh. The current scene is saved
+// first (flushing pending edits) so nothing is lost, and the object editor is intentionally
+// left open: it is a focus, not a modal, and must survive the reload its Save triggers.
+func (c *ViewportComponent) ReloadScene() {
+	if c.scene == nil || c.sceneFile == "" {
+		return
+	}
+	if err := c.Save(); err != nil {
+		console.Print("scene reload: " + err.Error())
+	}
+	c.selected = nil
+	c.dragging = false
+	c.dragObj = nil
+	c.dragActive = false
+	c.dragMoved = false
+	c.scene = nil
+	c.sceneFile = ""
+	c.framed = false
+	history.clear() // undo entries reference the outgoing scene's live components
+	closeAllArgsWindows()
+	c.loadProjectScene()
 }
 
 // Save serializes the loaded target scene and writes it back to its .scene file. It
@@ -676,6 +705,36 @@ func (c *ViewportComponent) AddObject() *core.Object {
 	}
 	history.record(
 		"added object",
+		func() { c.removeObject(obj) },
+		func() { c.scene.AddObject(obj) },
+		true,
+	)
+	return obj
+}
+
+// AddObjectFromFile loads the .obj at the project-relative path rel as a file-referenced
+// object (File = rel) and appends it to the target scene, recording an undo entry that
+// removes it. The scene's AddObject defers component initialization, but the editor
+// renders without running Scene.Update, so the template's components are initialized
+// manually (mirrors DuplicateObject). Returns the new object, or nil on failure.
+func (c *ViewportComponent) AddObjectFromFile(rel string) *core.Object {
+	if c.scene == nil || rel == "" {
+		return nil
+	}
+	obj, err := core.LoadObjectFromFile(filepath.Join(c.projectDir, rel))
+	if err != nil {
+		console.Print("load .obj: " + err.Error())
+		return nil
+	}
+	obj.File = rel
+	for _, comp := range obj.ComponentsInDrawOrder() {
+		comp.Initialize()
+	}
+	if err := c.scene.AddObject(obj); err != nil {
+		return nil
+	}
+	history.record(
+		"loaded object from file",
 		func() { c.removeObject(obj) },
 		func() { c.scene.AddObject(obj) },
 		true,

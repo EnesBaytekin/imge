@@ -86,6 +86,61 @@ func deleteSceneFile(path string) error {
 	return os.Remove(path)
 }
 
+// ============================================================================
+// Scene-deletion undo
+// ============================================================================
+
+// deletedScene captures everything needed to undo a scene deletion: the file's
+// bytes (to rewrite it), its identity, and the surrounding state the delete altered
+// (initial_scene, active scene). Unlike object edits — which undo through the
+// in-scene `history` — a scene deletion is a file-level action, and the deletion
+// itself clears history (it unloads/switches the active scene), so it needs its own
+// single-slot undo the toolbar falls back to.
+type deletedScene struct {
+	projectDir string
+	file       string // filename basename (the stable identity SetScene keys on)
+	path       string // full .scene path
+	name       string // JSON display name (for restoring initial_scene)
+	wasActive  bool   // the deleted scene was loaded in the viewport
+	wasInitial bool   // the deleted scene was game.imge's initial_scene
+	content    []byte // the .scene file bytes as they were before deletion
+}
+
+// lastDeletedScene is the pending undo for the most recent scene deletion. It is
+// package-level (like history) so the toolbar's undo shortcut can reach it after
+// the delete has cleared the in-scene edit history. One slot is enough: a new
+// deletion overwrites it, and restoring it consumes it.
+var lastDeletedScene *deletedScene
+
+// captureDeletedScene reads the scene file's bytes and stashes them as the pending
+// undo for a deletion. It returns false when the file can't be read (nothing to
+// restore), leaving lastDeletedScene unchanged.
+func captureDeletedScene(entry sceneEntry, projectDir string, wasActive, wasInitial bool) bool {
+	content, err := os.ReadFile(entry.path)
+	if err != nil {
+		return false
+	}
+	lastDeletedScene = &deletedScene{
+		projectDir: projectDir,
+		file:       entry.file,
+		path:       entry.path,
+		name:       entry.name,
+		wasActive:  wasActive,
+		wasInitial: wasInitial,
+		content:    content,
+	}
+	return true
+}
+
+// restoreDeletedSceneFile rewrites a deleted scene's .scene file from the captured
+// bytes, recreating its directory first in case the last file in it was removed.
+func restoreDeletedSceneFile(d deletedScene) error {
+	if err := os.MkdirAll(filepath.Dir(d.path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(d.path, d.content, 0o644)
+}
+
 // initialSceneName returns the target project's game.imge initial_scene, or "" when
 // it can't be read.
 func initialSceneName(projectDir string) string {

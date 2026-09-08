@@ -376,10 +376,20 @@ func (t *SceneListComponent) deleteScene(entry sceneEntry) {
 	wasActive := vp.CurrentSceneName() == entry.file
 	wasInitial := t.initial == entry.name
 
+	// Capture the file's bytes before removing it so the deletion is undoable.
+	if !captureDeletedScene(entry, dir, wasActive, wasInitial) {
+		console.Print("delete scene: cannot read scene for undo")
+	}
+
 	if err := deleteSceneFile(entry.path); err != nil {
 		console.Print("delete scene: " + err.Error())
 		return
 	}
+	// A scene deletion is a top-level undo boundary: the next Ctrl+Z restores the
+	// deleted scene (restoreLastDeletedScene) instead of undoing an in-scene edit.
+	// Clearing history also drops entries that reference live objects the scene
+	// switch below invalidates anyway.
+	history.clear()
 	// Drop the deleted scene from the viewport first, so the switch below doesn't
 	// auto-save it back over the just-removed file.
 	if wasActive {
@@ -399,6 +409,37 @@ func (t *SceneListComponent) deleteScene(entry sceneEntry) {
 	if wasActive && len(t.entries) > 0 {
 		vp.SetScene(t.entries[0].file)
 	}
+}
+
+// restoreLastDeletedScene undoes the most recent scene deletion: it rewrites the
+// deleted .scene file, restores initial_scene when the deleted scene was the start
+// scene, refreshes the list, and reopens the scene in the viewport when it was the
+// active one. Returns true when there was a deletion to undo.
+func (t *SceneListComponent) restoreLastDeletedScene() bool {
+	if lastDeletedScene == nil {
+		return false
+	}
+	d := *lastDeletedScene
+
+	if err := restoreDeletedSceneFile(d); err != nil {
+		console.Print("restore scene: " + err.Error())
+		return false
+	}
+	// Only consume the slot once the file is safely back on disk.
+	lastDeletedScene = nil
+
+	if d.wasInitial {
+		if err := setInitialScene(d.projectDir, d.name); err != nil {
+			console.Print("restore initial scene: " + err.Error())
+		}
+	}
+	t.refresh()
+	if d.wasActive {
+		if vp := t.viewportComponent(); vp != nil {
+			vp.SetScene(d.file)
+		}
+	}
+	return true
 }
 
 func (t *SceneListComponent) Draw(r core.Renderer) {

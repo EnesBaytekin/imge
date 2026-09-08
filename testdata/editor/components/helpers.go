@@ -358,6 +358,7 @@ type fieldBinding struct {
 	widget     fieldWidget
 	old        string // last committed value
 	wasFocused bool   // TextInput blur tracking
+	afterApply func() // optional side effect after a committed apply (incl. undo/redo)
 }
 
 // makeFieldWidget creates the engine widget for a binding, attaches it to the window
@@ -451,10 +452,23 @@ func commitStringDirty(b *fieldBinding, s string, dirty bool) error {
 	if err := b.apply(s); err != nil {
 		return err
 	}
+	if b.afterApply != nil {
+		b.afterApply()
+	}
 	history.record(
 		"changed "+strings.TrimPrefix(b.key, "_"),
-		func() { _ = b.apply(old) },
-		func() { _ = b.apply(s) },
+		func() {
+			_ = b.apply(old)
+			if b.afterApply != nil {
+				b.afterApply()
+			}
+		},
+		func() {
+			_ = b.apply(s)
+			if b.afterApply != nil {
+				b.afterApply()
+			}
+		},
 		dirty,
 	)
 	b.old = s
@@ -911,6 +925,7 @@ func addComponentTo(target *core.Object, kind string) core.Component {
 		func() { restoreComponent(target, kind, name, nil, -1) },
 		true,
 	)
+	persistObjectFile(target)
 	return comp
 }
 
@@ -933,6 +948,7 @@ func restoreComponent(target *core.Object, kind, name string, args map[string]in
 		_ = target.AddComponentAt(comp, index)
 	}
 	comp.Initialize()
+	persistObjectFile(target)
 }
 
 // removeComponent detaches comp from its owner and records an undo entry that
@@ -956,6 +972,7 @@ func removeComponent(comp core.Component) {
 		func() { removeComponentByName(owner, name) },
 		true,
 	)
+	persistObjectFile(owner)
 }
 
 // removeComponentByName removes the named component from owner and closes any open
@@ -970,6 +987,7 @@ func removeComponentByName(owner *core.Object, name string) {
 		closeArgsWindowFor(comp)
 	}
 	owner.RemoveComponent(name)
+	persistObjectFile(owner)
 }
 
 // duplicateComponent clones comp onto its owner: it copies the component's current
@@ -997,7 +1015,205 @@ func duplicateComponent(target *core.Object, comp core.Component) core.Component
 		func() { restoreComponent(target, kind, newName, args, -1) },
 		true,
 	)
+	persistObjectFile(target)
 	return dup
+}
+
+// persistObjectFile writes a file-referenced object's current definition (name, tags,
+// components, depth/layer/ui/draggable — no transform) back to its .obj template, so an
+// in-scene edit updates the shared file that every instance references. A no-op for
+// inline objects (File == ""). The editor os.Chdir's into the target project, so the
+// project-relative File path resolves against the project root.
+func persistObjectFile(obj *core.Object) {
+	if obj == nil || obj.File == "" {
+		return
+	}
+	if err := obj.SaveToFile(obj.File); err != nil {
+		console.Print("save .obj: " + err.Error())
+	}
+	// Re-apply the just-saved shared definition to every sibling instance so an
+	// in-scene edit on one file-referenced object updates all of them immediately.
+	propagateObjectFile(obj)
+}
+
+// propagateObjectFile re-applies a .obj template's shared definition (components and
+// tags) to every other object in the same scene that references it. It is a no-op when
+// the source has no scene (e.g. the isolated object editor's throwaway world, which has
+// no sibling instances) or no file reference. Each sibling keeps its own name and
+// per-instance overrides (transform, depth, layer, ui, draggable, active).
+func propagateObjectFile(src *core.Object) {
+	if src == nil || src.File == "" || src.Scene == nil {
+		return
+	}
+	tpl, err := core.LoadObjectFromFile(src.File)
+	if err != nil {
+		return
+	}
+	for _, sib := range src.Scene.GetSortedObjects() {
+		if sib == nil || sib == src || sib.File != src.File {
+			continue
+		}
+		applyObjectTemplate(sib, tpl)
+	}
+}
+
+// applyObjectTemplate replaces an object's components and tags with a template's,
+// preserving the object's name and per-instance overrides. Any open component-args
+// window for the object is closed first, since the components it edits are about to be
+// replaced. The template's components are moved over (their owner re-pointed to dst) and
+// initialized manually, mirroring addComponentTo/restoreComponent.
+func applyObjectTemplate(dst *core.Object, tpl *core.Object) {
+	if dst == nil || tpl == nil {
+		return
+	}
+	closeArgsWindowsForObject(dst)
+
+	for _, name := range componentNames(dst) {
+		dst.RemoveComponent(name)
+	}
+	for _, comp := range tpl.ComponentsInDrawOrder() {
+		if err := dst.AddComponent(comp); err != nil {
+			continue
+		}
+		comp.Initialize()
+	}
+
+	for tag := range dst.Tags {
+		dst.RemoveTag(tag)
+	}
+	for tag := range tpl.Tags {
+		dst.AddTag(tag)
+	}
+}
+
+// componentNames returns the object's component names in draw order, as a snapshot safe
+// to iterate while removing components.
+func componentNames(obj *core.Object) []string {
+	comps := obj.ComponentsInDrawOrder()
+	names := make([]string, 0, len(comps))
+	for _, comp := range comps {
+		names = append(names, comp.GetName())
+	}
+	return names
+}
+
+// ============================================================================
+// Object-editor session (the isolated .obj editor as an editing focus).
+// ============================================================================
+
+// activeObjectEditor is the currently-open object editor, or nil. It is a package
+// global so the inspector can redirect its target to the object being edited in the
+// isolated .obj editor while that window is up. Unlike activeModal, it does NOT block the
+// inspector or component-args windows — it only pauses the viewport and scene tree.
+var activeObjectEditor *ObjectEditorComponent
+
+// objectEditorActive reports whether the object editor is open. It self-heals a stale
+// pointer (its owner destroyed without going through closeSelf) so the editor never
+// stays locked onto a dead object.
+func objectEditorActive() bool {
+	if activeObjectEditor == nil {
+		return false
+	}
+	if owner := activeObjectEditor.GetOwner(); owner == nil || owner.IsDestroyed() {
+		activeObjectEditor = nil
+		return false
+	}
+	return true
+}
+
+// closeActiveObjectEditor closes the object editor if one is open. Called when the target
+// project or scene switches, since the editor references the previous project's live
+// object and would otherwise stay open (blocking the viewport and scene tree).
+func closeActiveObjectEditor() {
+	if activeObjectEditor != nil {
+		activeObjectEditor.closeSelf()
+	}
+}
+
+// editorNavBlocked reports whether the viewport and scene tree should be inert: a real
+// modal (add-component, confirm), the object editor's focus, or an open menu bar.
+func editorNavBlocked() bool {
+	return modalOpen() || objectEditorActive() || menusOpen()
+}
+
+// inspectorTarget returns the object the inspector should show: the object editor's
+// object while it is open, otherwise the viewport's current selection.
+func inspectorTarget(scene *core.Scene) *core.Object {
+	if objectEditorActive() && activeObjectEditor.obj != nil {
+		return activeObjectEditor.obj
+	}
+	if vp := lookupViewport(scene); vp != nil {
+		return vp.SelectedObject()
+	}
+	return nil
+}
+
+// ============================================================================
+// Component-offset editing (the object editor's drag-to-move on a component).
+// ============================================================================
+
+// fieldByJSONTag returns the reflect.Value of a component's exported field carrying the
+// given json tag (resolving promoted embedded-base fields via VisibleFields), or an
+// invalid Value when none exists.
+func fieldByJSONTag(comp core.Component, tag string) reflect.Value {
+	if comp == nil {
+		return reflect.Value{}
+	}
+	v := reflect.ValueOf(comp)
+	if v.Kind() == reflect.Ptr {
+		if v.IsNil() {
+			return reflect.Value{}
+		}
+		v = v.Elem()
+	}
+	t := v.Type()
+	for _, f := range reflect.VisibleFields(t) {
+		if f.Anonymous {
+			continue
+		}
+		if name := strings.Split(f.Tag.Get("json"), ",")[0]; name == tag {
+			return v.FieldByIndex(f.Index)
+		}
+	}
+	return reflect.Value{}
+}
+
+// componentOffset returns a component's "offset" math.Vector2 field (json tag "offset"),
+// which @Sprite and @Collider both use to shift their shape relative to the owner. The
+// second result is false when the component has no such field.
+func componentOffset(comp core.Component) (math.Vector2, bool) {
+	fv := fieldByJSONTag(comp, "offset")
+	if !fv.IsValid() || fv.Type() != reflect.TypeOf(math.Vector2{}) {
+		return math.Zero(), false
+	}
+	return fv.Interface().(math.Vector2), true
+}
+
+// setComponentOffset writes a component's "offset" field (see componentOffset). It
+// returns false when the component has no settable offset field.
+func setComponentOffset(comp core.Component, v math.Vector2) bool {
+	fv := fieldByJSONTag(comp, "offset")
+	if !fv.IsValid() || !fv.CanSet() || fv.Type() != reflect.TypeOf(math.Vector2{}) {
+		return false
+	}
+	fv.Set(reflect.ValueOf(v))
+	return true
+}
+
+// recordComponentOffsetChange records an undoable offset move on a component, and writes
+// the owner's .obj through on undo/redo so a drag on a file-referenced object stays
+// consistent with the shared template.
+func recordComponentOffsetChange(comp core.Component, oldOffset, newOffset math.Vector2) {
+	owner := comp.GetOwner()
+	history.record(
+		"moved "+comp.GetName(),
+		func() { setComponentOffset(comp, oldOffset); persistObjectFile(owner) },
+		func() { setComponentOffset(comp, newOffset); persistObjectFile(owner) },
+		true,
+	)
+	// The offset is already applied live during the drag; write the .obj through now
+	// (matching addComponentTo / removeComponent, which persist after recording).
+	persistObjectFile(owner)
 }
 
 // ============================================================================

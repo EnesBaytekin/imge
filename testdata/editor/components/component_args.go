@@ -527,6 +527,14 @@ func (c *ComponentArgsComponent) rebuildRows() {
 			c.bindings = append(c.bindings, b)
 		}
 	}
+
+	// Every commit here (the component's name or any of its args) mutates the .obj-owned
+	// definition, so a file-referenced object writes through to its template on commit and
+	// on undo/redo (commitString invokes afterApply for both).
+	owner := c.target.GetOwner()
+	for i := range c.bindings {
+		c.bindings[i].afterApply = func() { persistObjectFile(owner) }
+	}
 }
 
 // buildNameBinding returns the field binding for the component's name. get/apply read

@@ -198,6 +198,7 @@ func (c *MenuBarComponent) Initialize() {
 			items: []menuEntry{
 				{label: "Open Project...", run: c.openProject},
 				{label: "Save", hint: "Ctrl+S", run: c.save},
+				{label: "Browse Files...", run: c.browseFiles},
 			},
 		},
 		{
@@ -504,6 +505,11 @@ func (c *MenuBarComponent) openProject() {
 	spawnOpenProject(c.GetScene())
 }
 
+// browseFiles opens the floating project file-browser window.
+func (c *MenuBarComponent) browseFiles() {
+	spawnFileBrowser(c.GetScene())
+}
+
 // openGameSettings opens the modal game.imge editor.
 func (c *MenuBarComponent) openGameSettings() {
 	spawnGameSettings(c.GetScene())
@@ -518,6 +524,8 @@ func (c *MenuBarComponent) openEditorSettings() {
 func (c *MenuBarComponent) undo() {
 	if history.undo() {
 		c.status = "undone"
+	} else if sl := lookupSceneList(c.GetScene()); sl != nil && sl.restoreLastDeletedScene() {
+		c.status = "restored scene"
 	} else {
 		c.status = "nothing to undo"
 	}

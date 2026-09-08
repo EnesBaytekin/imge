@@ -698,6 +698,10 @@ func createObjectFromSceneObject(objConfig corejson.SceneObject, fsys fs.FS, len
 		// Create object from template
 		obj = NewObject(objConfigFile.Name)
 
+		// Record the file provenance so the scene can round-trip this object as a
+		// file reference (see toSceneObject) instead of flattening it inline.
+		obj.File = objConfig.File
+
 		// Set depth from template if specified
 		if objConfigFile.Depth != 0 {
 			obj.SetDepth(objConfigFile.Depth)
@@ -859,11 +863,36 @@ func (s *Scene) SaveToFile(path string) error {
 	return nil
 }
 
-// toSceneObject converts an object to an inline SceneObject configuration. The
-// transform is omitted entirely when it is the identity (no position, rotation, or
-// scale), matching how hand-written scenes leave the transform field off for
+// toSceneObject converts an object to a SceneObject configuration. A file-referenced
+// object (obj.File != "") is written as a reference plus its per-instance overrides
+// (transform, depth, layer, ui, draggable) — its shared definition (name, tags,
+// components) lives in the .obj file and is omitted here. The zero-valued overrides
+// are dropped by their omitempty tags, which mirrors createObjectFromSceneObject
+// Case 1's "0/false = inherit template" rule. An inline object is written in full.
+//
+// The transform is omitted entirely when it is the identity (no position, rotation,
+// or scale), matching how hand-written scenes leave the transform field off for
 // untransformed objects.
 func toSceneObject(obj *Object) corejson.SceneObject {
+	if obj.File != "" {
+		so := corejson.SceneObject{
+			File:      obj.File,
+			Depth:     obj.Depth,
+			Layer:     obj.Layer,
+			UI:        obj.UI,
+			Draggable: obj.Draggable,
+		}
+		t := obj.Transform
+		if t.Position != math.Zero() || t.Rotation != 0 || t.Scale != math.One() {
+			so.Transform = &corejson.TransformConfig{
+				Position: t.Position,
+				Rotation: t.Rotation,
+				Scale:    t.Scale,
+			}
+		}
+		return so
+	}
+
 	so := corejson.SceneObject{
 		Name:      obj.Name,
 		Depth:     obj.Depth,

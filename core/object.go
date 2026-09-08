@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -26,6 +27,14 @@ type Object struct {
 
 	// Name is a unique human-readable identifier within the scene (auto-generated if duplicate)
 	Name string
+
+	// File is the project-relative path of the .obj template this object was
+	// instantiated from, when it was referenced (SceneObject.File) rather than
+	// defined inline. Empty means the object is inline (its name, tags and
+	// components are owned by the scene). When non-empty, those properties are
+	// owned by the .obj file and the scene only carries per-instance overrides
+	// (transform, depth, layer, ui, draggable).
+	File string
 
 	// Components stores all components attached to this object.
 	// Key: component name (unique within object), Value: component instance
@@ -689,7 +698,7 @@ func (obj *Object) SaveToFile(path string) error {
 		return fmt.Errorf("failed to marshal object to JSON: %w", err)
 	}
 
-	if err := os.MkdirAll(path, 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return fmt.Errorf("failed to create directory for %s: %w", path, err)
 	}
 

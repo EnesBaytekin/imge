@@ -30,6 +30,7 @@ type SceneTreeComponent struct {
 	TitleText  math.Color `json:"title_text"`  // "OBJECTS" header + "+"
 	ObjectText math.Color `json:"object_text"` // object name
 	TagText    math.Color `json:"tag_text"`    // dim "ui" tag / "x" button
+	FileTag    math.Color `json:"file_tag"`    // "f" file-reference tag
 	Accent     math.Color `json:"accent"`      // title bar + selected-row highlight
 	ErrorColor math.Color `json:"error_color"` // "x" hover
 
@@ -47,6 +48,9 @@ type SceneTreeComponent struct {
 	hoverX         *core.Object // object whose "x" remove button is under the cursor (nil = none)
 	hoverDup       *core.Object // object whose "=" duplicate button is under the cursor (nil = none)
 	hoverPlus      bool         // the "+" add-object button is under the cursor
+	plusOpen       bool         // the "+" dropdown is open
+	hoverPlusEmpty bool         // dropdown row 0 ("Empty object") is under the cursor
+	hoverPlusLoad  bool         // dropdown row 1 ("Load from .obj…") is under the cursor
 	scrollDragging bool         // the scrollbar thumb is being dragged
 	scrollGrab     float64      // mouse Y offset within the thumb when the drag began
 }
@@ -76,6 +80,21 @@ func (t *SceneTreeComponent) bodyHeight(rect math.Rect) float64 {
 func (t *SceneTreeComponent) plusRect(rect math.Rect) math.Rect {
 	const s = 14.0
 	return math.NewRect(rect.X()+rect.Width()-18, rect.Y()+(t.titleH()-s)/2, s, s)
+}
+
+// plusMenuRowH is the height of one "+" dropdown row.
+const plusMenuRowH = 16.0
+
+// plusMenuRect returns the "+" dropdown panel, right-aligned below the title bar.
+func (t *SceneTreeComponent) plusMenuRect(rect math.Rect) math.Rect {
+	const w = 132.0
+	return math.NewRect(rect.X()+rect.Width()-w-4, rect.Y()+t.titleH()+2, w, 2*plusMenuRowH+6)
+}
+
+// plusMenuRow returns the nth dropdown row (0 = "Empty object", 1 = "Load from .obj…").
+func (t *SceneTreeComponent) plusMenuRow(rect math.Rect, n int) math.Rect {
+	m := t.plusMenuRect(rect)
+	return math.NewRect(m.X()+2, m.Y()+2+float64(n)*(plusMenuRowH+2), m.Width()-4, plusMenuRowH)
 }
 
 // xRect returns the "x" remove-button strip at the right edge of a row, just left of the
@@ -117,6 +136,9 @@ func (t *SceneTreeComponent) Initialize() {
 	}
 	if t.ErrorColor == (math.Color{}) {
 		t.ErrorColor = math.NewColor(0xff, 0x5a, 0x5a, 0xff)
+	}
+	if t.FileTag == (math.Color{}) {
+		t.FileTag = math.NewColor(0x4f, 0xd1, 0xc5, 0xff) // teal: file-referenced
 	}
 	if t.ScrollTrack == (math.Color{}) {
 		t.ScrollTrack = math.NewColor(0x2a, 0x30, 0x42, 0xff)
@@ -204,8 +226,8 @@ func (t *SceneTreeComponent) Update(ctx *core.Context) {
 	if ctx == nil || ctx.Input == nil {
 		return
 	}
-	// A modal or an open menu bar is up: this panel is inert.
-	if modalOpen() || menusOpen() {
+	// A modal, the object editor's focus, or an open menu bar is up: this panel is inert.
+	if editorNavBlocked() {
 		return
 	}
 	mouse := ctx.Input.GetMousePosition()
@@ -262,19 +284,47 @@ func (t *SceneTreeComponent) Update(ctx *core.Context) {
 		}
 	}
 	t.hoverPlus = t.plusRect(rect).ContainsPoint(mouse)
+	t.hoverPlusEmpty = false
+	t.hoverPlusLoad = false
+	if t.plusOpen {
+		if t.plusMenuRow(rect, 0).ContainsPoint(mouse) {
+			t.hoverPlusEmpty = true
+		} else if t.plusMenuRow(rect, 1).ContainsPoint(mouse) {
+			t.hoverPlusLoad = true
+		}
+	}
 
 	if !ctx.Input.IsMouseButtonJustPressed(core.MouseButtonLeft) {
 		return
 	}
 
-	// "+" button: directly add an empty object and select it, so its name can be edited
-	// in the inspector.
-	if t.hoverPlus {
-		if vp := t.viewportComponent(); vp != nil {
-			if obj := vp.AddObject(); obj != nil {
-				vp.SelectSilent(obj)
-			}
+	// "+" dropdown is open: route the click to its rows, and close on a click elsewhere.
+	if t.plusOpen {
+		if t.hoverPlus {
+			t.plusOpen = false // clicking "+" again closes
+			return
 		}
+		if t.hoverPlusEmpty {
+			t.plusOpen = false
+			if vp := t.viewportComponent(); vp != nil {
+				if obj := vp.AddObject(); obj != nil {
+					vp.SelectSilent(obj)
+				}
+			}
+			return
+		}
+		if t.hoverPlusLoad {
+			t.plusOpen = false
+			spawnObjPicker(t.GetScene())
+			return
+		}
+		t.plusOpen = false // click outside the menu closes it
+		return
+	}
+
+	// "+" button: open the add-object dropdown ("Empty object" / "Load from .obj…").
+	if t.hoverPlus {
+		t.plusOpen = true
 		return
 	}
 	// "x" strip: confirm removal of that object. The object is captured now (before it
@@ -413,8 +463,14 @@ func (t *SceneTreeComponent) Draw(r core.Renderer) {
 			ty = y
 		}
 		r.DrawText(row.obj.Name, t.FontID, t.FontSize, math.NewVector2(x, ty), t.ObjectText)
+		tagX := x + w + 6
 		if row.obj.UI {
-			r.DrawText("ui", t.FontID, t.FontSize, math.NewVector2(x+w+6, ty), t.TagText)
+			r.DrawText("ui", t.FontID, t.FontSize, math.NewVector2(tagX, ty), t.TagText)
+			uw, _ := r.MeasureText("ui", t.FontID, t.FontSize)
+			tagX += uw + 6
+		}
+		if row.obj.File != "" {
+			r.DrawText("f", t.FontID, t.FontSize, math.NewVector2(tagX, ty), t.FileTag)
 		}
 
 		// "=" duplicate button in the strip left of the "x" remove button.
@@ -443,6 +499,22 @@ func (t *SceneTreeComponent) Draw(r core.Renderer) {
 	track := t.scrollTrack(rect)
 	if thumb, ok := scrollThumb(track, t.contentHeight(rows), t.scroll, t.maxScroll(rows)); ok {
 		drawScrollbar(r, track, thumb, t.ScrollTrack, t.ScrollThumb)
+	}
+
+	// "+" dropdown, drawn on top of the rows.
+	if t.plusOpen {
+		m := t.plusMenuRect(rect)
+		r.DrawRect(m, t.Background.Lerp(math.White, 0.06))
+		r.DrawRectOutline(m, t.Accent, 1)
+		labels := []string{"Empty object", "Load from .obj…"}
+		for n, label := range labels {
+			row := t.plusMenuRow(rect, n)
+			if (n == 0 && t.hoverPlusEmpty) || (n == 1 && t.hoverPlusLoad) {
+				r.DrawRect(row, t.Accent)
+			}
+			_, rh := r.MeasureText(label, t.FontID, t.FontSize)
+			r.DrawText(label, t.FontID, t.FontSize, math.NewVector2(row.X()+4, row.Y()+(row.Height()-rh)/2), t.TitleText)
+		}
 	}
 
 	r.ClearClip()
