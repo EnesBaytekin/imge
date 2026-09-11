@@ -96,17 +96,28 @@ var mouseMap = map[core.MouseButton]ebiten.MouseButton{
 
 // IsKeyPressed reports whether the key is currently held.
 func (i *Input) IsKeyPressed(key core.KeyCode) bool {
-	return ebiten.IsKeyPressed(keyMap[key])
+	if ebiten.IsKeyPressed(keyMap[key]) {
+		return true
+	}
+	// The numpad Enter is a separate physical key but should confirm exactly like the
+	// main Enter, so treat the two as equivalent.
+	return key == core.KeyEnter && ebiten.IsKeyPressed(ebiten.KeyNumpadEnter)
 }
 
 // IsKeyJustPressed reports whether the key was pressed this frame.
 func (i *Input) IsKeyJustPressed(key core.KeyCode) bool {
-	return inpututil.IsKeyJustPressed(keyMap[key])
+	if inpututil.IsKeyJustPressed(keyMap[key]) {
+		return true
+	}
+	return key == core.KeyEnter && inpututil.IsKeyJustPressed(ebiten.KeyNumpadEnter)
 }
 
 // IsKeyJustReleased reports whether the key was released this frame.
 func (i *Input) IsKeyJustReleased(key core.KeyCode) bool {
-	return inpututil.IsKeyJustReleased(keyMap[key])
+	if inpututil.IsKeyJustReleased(keyMap[key]) {
+		return true
+	}
+	return key == core.KeyEnter && inpututil.IsKeyJustReleased(ebiten.KeyNumpadEnter)
 }
 
 // IsMouseButtonPressed reports whether the mouse button is currently held.

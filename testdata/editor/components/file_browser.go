@@ -41,7 +41,9 @@ type FileBrowserComponent struct {
 	cursor     string // rel of the keyboard-navigated row (dir or file), "" = none
 	selected   string // rel path of the selected file, "" = none
 	scroll     float64
-	pick       bool // pick mode: click a .obj to load it into the scene (from the scene tree "+")
+	pick       bool              // pick mode: click a file to select it and dismiss
+	pickFilter func(string) bool // selectable-file predicate (nil = no filtering in pick mode)
+	onPick     func(string)      // invoked with the chosen rel path before dismissing
 
 	dragging bool
 	dragGrab math.Vector2
@@ -119,16 +121,30 @@ func (c *FileBrowserComponent) Initialize() {
 // spawnFileBrowser opens the file-browser window (File → "Browse Files…") for the current
 // target project. It is a no-op when there is no project or a modal is already open.
 func spawnFileBrowser(scene *core.Scene) {
-	spawnFileBrowserMode(scene, false)
+	spawnFileBrowserMode(scene, false, nil, nil)
 }
 
 // spawnObjPicker opens the file browser in pick mode: filtered to .obj files, clicking
 // one loads it into the target scene as a file reference. Used by the scene tree's "+".
 func spawnObjPicker(scene *core.Scene) {
-	spawnFileBrowserMode(scene, true)
+	spawnFilePicker(scene, func(rel string) bool { return fileTypeOf(rel) == "obj" }, func(rel string) {
+		if vp := lookupViewport(scene); vp != nil {
+			if obj := vp.AddObjectFromFile(rel); obj != nil {
+				vp.SelectSilent(obj)
+			}
+		}
+	})
 }
 
-func spawnFileBrowserMode(scene *core.Scene, pick bool) {
+// spawnFilePicker opens the file browser in pick mode filtered to files that pass
+// `filter`, invoking onPick with the chosen project-relative path. It is the generic
+// "select a file from the project tree" used by the sprite texture field and the
+// object picker.
+func spawnFilePicker(scene *core.Scene, filter func(string) bool, onPick func(string)) {
+	spawnFileBrowserMode(scene, true, filter, onPick)
+}
+
+func spawnFileBrowserMode(scene *core.Scene, pick bool, filter func(string) bool, onPick func(string)) {
 	if scene == nil || modalOpen() {
 		return
 	}
@@ -140,7 +156,7 @@ func spawnFileBrowserMode(scene *core.Scene, pick bool) {
 
 	name := "file_browser"
 	if pick {
-		name = "obj_picker"
+		name = "file_picker"
 	}
 	obj := core.NewObject(name)
 	obj.UI = true
@@ -153,6 +169,8 @@ func spawnFileBrowserMode(scene *core.Scene, pick bool) {
 	browser.Height = 360
 	browser.projectDir = dir
 	browser.pick = pick
+	browser.pickFilter = filter
+	browser.onPick = onPick
 	browser.entries = listProjectFiles(dir)
 	browser.expanded = make(map[string]bool)
 	for _, e := range browser.entries {
@@ -183,8 +201,8 @@ func (c *FileBrowserComponent) visibleEntries() []fileEntry {
 			}
 			open[e.rel] = open[e.parent] && c.expanded[e.rel]
 		} else if open[e.parent] {
-			if c.pick && fileTypeOf(e.rel) != "obj" {
-				continue // pick mode lists only .obj files
+			if c.pick && c.pickFilter != nil && !c.pickFilter(e.rel) {
+				continue // pick mode lists only files the filter accepts
 			}
 			out = append(out, e)
 		}
@@ -312,17 +330,20 @@ func (c *FileBrowserComponent) activateCursor(visible []fileEntry) {
 		return
 	}
 	if c.pick {
-		rel := e.rel
-		scene := c.GetScene()
-		if vp := lookupViewport(scene); vp != nil {
-			if obj := vp.AddObjectFromFile(rel); obj != nil {
-				vp.SelectSilent(obj)
-			}
-		}
-		c.dismiss = true
+		c.pickFile(e.rel)
 		return
 	}
 	c.selected = e.rel
+}
+
+// pickFile completes a pick-mode selection: it hands the chosen project-relative path to
+// the pick callback (if any) and dismisses the window. The keyboard path (activateCursor)
+// and the mouse path (tree-row click) both land here.
+func (c *FileBrowserComponent) pickFile(rel string) {
+	if c.onPick != nil {
+		c.onPick(rel)
+	}
+	c.dismiss = true
 }
 
 // cursorIsDir reports whether the cursor row is a directory (it has no preview).
@@ -420,14 +441,7 @@ func (c *FileBrowserComponent) Update(ctx *core.Context) {
 		if e.isDir {
 			c.expanded[e.rel] = !c.expanded[e.rel]
 		} else if c.pick {
-			rel := e.rel
-			scene := c.GetScene()
-			if vp := lookupViewport(scene); vp != nil {
-				if obj := vp.AddObjectFromFile(rel); obj != nil {
-					vp.SelectSilent(obj)
-				}
-			}
-			c.dismiss = true
+			c.pickFile(e.rel)
 		} else {
 			c.selected = e.rel
 		}
@@ -503,7 +517,7 @@ func (c *FileBrowserComponent) Draw(r core.Renderer) {
 	r.DrawRect(math.NewRect(rect.X(), rect.Y(), rect.Width(), c.titleH()), c.Accent)
 	title := "FILES"
 	if c.pick {
-		title = "LOAD .OBJ"
+		title = "SELECT FILE"
 	}
 	r.DrawText(title, c.FontID, c.FontSize, math.NewVector2(rect.X()+6, rect.Y()+(c.titleH()-th)/2), c.TitleText)
 	cr := c.closeRect(rect)
@@ -569,7 +583,7 @@ func (c *FileBrowserComponent) drawPreview(r core.Renderer, rect math.Rect) {
 	if c.selected == "" {
 		hint := "select a file"
 		if c.pick {
-			hint = "click a .obj to add it to the scene"
+			hint = "click a file to select it"
 		}
 		r.DrawText(hint, c.FontID, c.FontSize, math.NewVector2(pr.X()+8, pr.Y()+8), c.PreviewText)
 		return

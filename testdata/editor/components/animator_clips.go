@@ -505,16 +505,29 @@ func (c *AnimatorClipsComponent) Update(ctx *core.Context) {
 	if ctx == nil || ctx.Input == nil {
 		return
 	}
+
+	// ESC closes the window when it is the active modal and no widget holds keyboard
+	// focus (a focused FPS box consumes ESC itself, mirroring ComponentArgsComponent).
+	// Closing goes through the dismiss flag so Draw performs the teardown.
+	if ctx.Input.IsKeyJustPressed(core.KeyEscape) && activeModal == c {
+		if mgr := lookupUIManager(c.GetScene()); mgr == nil || !mgr.HasFocus() {
+			c.dismiss = true
+			return
+		}
+	}
+
 	c.centerOnce(ctx)
 
 	mouse := ctx.Input.GetMousePosition()
 
 	// Drag-to-move: while the title bar is held, follow the cursor (even outside the
 	// window). Moving the owner carries the row widgets with it, since their offsets
-	// are relative to the owner's transform.
+	// are relative to the owner's transform — but their body clip rects are absolute
+	// screen-space values, so re-layout after the move to keep them over the body.
 	if c.dragging {
 		if ctx.Input.IsMouseButtonPressed(core.MouseButtonLeft) {
 			c.GetOwner().SetPosition(mouse.X-c.dragGrab.X, mouse.Y-c.dragGrab.Y)
+			c.layoutRows()
 		} else {
 			c.dragging = false
 		}
@@ -585,6 +598,9 @@ func (c *AnimatorClipsComponent) centerOnce(ctx *core.Context) {
 		return
 	}
 	c.GetOwner().SetPosition((float64(vw)-c.Width)/2, (float64(vh)-c.Height)/2)
+	// The rows were laid out (and their absolute body clip rects computed) at the
+	// spawn-time position; re-layout so the clip rects track the centered position.
+	c.layoutRows()
 }
 
 func (c *AnimatorClipsComponent) Draw(r core.Renderer) {

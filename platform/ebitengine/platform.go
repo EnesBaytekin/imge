@@ -112,6 +112,7 @@ func (p *Platform) Init(cfg core.WindowConfig) error {
 
 	p.renderer.setPixelScale(float64(pixelScale))
 	p.renderer.setSmoothShapes(cfg.SmoothShapes)
+	p.renderer.setSmoothRotation(cfg.SmoothRotation)
 	p.input.setPixelScale(float64(pixelScale))
 
 	return p.window.Create(cfg)

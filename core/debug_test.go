@@ -38,6 +38,7 @@ func (nopRenderer) DrawRectOutline(math.Rect, math.Color, float64)              
 func (nopRenderer) DrawCircle(math.Vector2, float64, math.Color)                 {}
 func (nopRenderer) DrawCircleOutline(math.Vector2, float64, math.Color, float64) {}
 func (nopRenderer) DrawLine(math.Vector2, math.Vector2, math.Color, float64)     {}
+func (nopRenderer) DrawRectOutlineScreen(math.Rect, math.Color, float64)         {}
 func (nopRenderer) DrawTexture(string, math.Rect, math.Vector2, math.Vector2, float64, math.ColorTransform) {
 }
 func (nopRenderer) GetTextureSize(string) (float64, float64) { return 0, 0 }
@@ -50,11 +51,14 @@ func (nopRenderer) MeasureTextWrapped(string, string, float64, float64, WrapMode
 	return 0, 0
 }
 func (nopRenderer) SetCamera(float64, float64, float64) {}
-func (nopRenderer) Present()                             {}
-func (nopRenderer) SetViewport(int, int)                 {}
-func (nopRenderer) GetViewportSize() (int, int)          { return 0, 0 }
-func (nopRenderer) SetClipRect(math.Rect)                {}
-func (nopRenderer) ClearClip()                           {}
+func (nopRenderer) SetObjectTransform(math.Vector2, float64, math.Vector2) {
+}
+func (nopRenderer) ClearObjectTransform()       {}
+func (nopRenderer) Present()                    {}
+func (nopRenderer) SetViewport(int, int)        {}
+func (nopRenderer) GetViewportSize() (int, int) { return 0, 0 }
+func (nopRenderer) SetClipRect(math.Rect)       {}
+func (nopRenderer) ClearClip()                  {}
 
 func newDebugScene() (*Scene, *debugTestComponent) {
 	scene := NewScene("test")

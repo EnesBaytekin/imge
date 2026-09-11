@@ -46,7 +46,7 @@ func (p *PanelComponent) Draw(r core.Renderer) {
 	if !p.IsVisible() {
 		return
 	}
-	rect := p.Rect()
+	rect := p.drawRect()
 	if p.Texture != "" {
 		core.DrawNineSlice(r, p.Texture, p.Border, rect)
 	} else {
@@ -57,8 +57,35 @@ func (p *PanelComponent) Draw(r core.Renderer) {
 	}
 }
 
+// drawRect returns the panel's rectangle in the current draw space: the local-space
+// rect (Offset × Width×Height) for a world object, which the object transform then
+// places in world space, or the screen-space rect (owner.Position + Offset) for a UI
+// object.
+func (p *PanelComponent) drawRect() math.Rect {
+	owner := p.GetOwner()
+	if owner != nil && !owner.UI {
+		return math.NewRect(p.Offset.X, p.Offset.Y, p.Width, p.Height)
+	}
+	return p.Rect()
+}
+
+// LocalBounds returns the panel's local-space rectangle — the rect the owner transform
+// then scales and rotates about the object origin. Transforming its four corners through
+// the owner transform yields the panel's actual on-screen quad, which the editor uses to
+// draw a rotated selection outline that hugs the panel instead of its axis-aligned
+// enclosing box. For a UI object it returns the screen-space rect (same as Rect).
+func (p *PanelComponent) LocalBounds() math.Rect {
+	return p.drawRect()
+}
+
 // DebugBounds reports the panel's rectangle for editor hit-testing — the same rect
-// Draw fills. A panel is the visual body of most world objects, so this makes those
-// objects pickable in the editor even when they have no @Collider. UI panels also
-// report a bounds, but scene picking skips UI objects.
-func (p *PanelComponent) DebugBounds() math.Rect { return p.Rect() }
+// Draw fills, mapped to world space. A panel is the visual body of most world objects,
+// so this makes those objects pickable in the editor even when they have no @Collider.
+// UI panels also report a bounds, but scene picking skips UI objects.
+func (p *PanelComponent) DebugBounds() math.Rect {
+	owner := p.GetOwner()
+	if owner != nil && !owner.UI {
+		return owner.Transform.RectBounds(p.LocalBounds())
+	}
+	return p.Rect()
+}

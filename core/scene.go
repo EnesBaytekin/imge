@@ -516,8 +516,14 @@ func (s *Scene) drawDebugOverlay(renderer Renderer) {
 }
 
 // drawObjectDebug calls DrawDebug on the object's DebugDrawer components, in draw
-// order, marking the selected one.
+// order, marking the selected one. Like Draw, it applies the object transform for
+// non-UI objects so a debug overlay (e.g. a collider hitbox) rotates and scales with
+// the object and is drawn in local space.
 func (s *Scene) drawObjectDebug(obj *Object, renderer Renderer) {
+	if !obj.UI {
+		renderer.SetObjectTransform(obj.Transform.Position, obj.Transform.Rotation, obj.Transform.Scale)
+		defer renderer.ClearObjectTransform()
+	}
 	for _, comp := range obj.drawComponents() {
 		if dd, ok := comp.(DebugDrawer); ok {
 			dd.DrawDebug(renderer, DebugInfo{Selected: comp == s.debugSelected})

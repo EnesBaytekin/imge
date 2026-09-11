@@ -130,10 +130,11 @@ const (
 	// Line thicknesses in screen pixels. The grid, axes, and selection overlays are
 	// drawn in screen space (camera off), so a value here is the exact on-screen
 	// width at every zoom level.
-	gridLineThickness   = 1.0
-	axesLineThickness   = 2.0
-	selOutlineThickness = 2.0
-	viewRectThickness   = 2.0
+	gridLineThickness         = 1.0
+	axesLineThickness         = 2.0
+	selOutlineThickness       = 2.0
+	viewRectThickness         = 2.0
+	unzoomedViewRectThickness = 1.0
 )
 
 var (
@@ -146,6 +147,8 @@ var (
 	emptyMarkerColor = math.NewColor(0x9f, 0xa8, 0xbf, 0xff) // origin "+" for bounds-less objects
 
 	viewRectColor = math.NewColor(0x4f, 0xd1, 0xc5, 0xff) // teal outline of the game's logical screen area
+
+	viewRectUnzoomedColor = math.NewColor(0xff, 0xff, 0xff, 0xff) // white outline of the unzoomed (zoom=1) screen area
 )
 
 // editorCamera is the viewport's navigation camera. (x, y) is the world point at
@@ -293,10 +296,15 @@ func (c *ViewportComponent) selectAt(local math.Vector2) {
 	if c.scene == nil {
 		return
 	}
-	comp := c.scene.Pick(c.cam.ScreenToWorld(local))
+	world := c.cam.ScreenToWorld(local)
+	comp := c.scene.Pick(world)
 	var obj *core.Object
 	if comp != nil {
 		obj = comp.GetOwner()
+	} else if ui := c.pickUIObject(world); ui != nil {
+		// scene.Pick skips UI objects (they are screen-space in the game); the editor
+		// draws them in world space, so they get their own hit-test.
+		obj = ui
 	} else {
 		// scene.Pick only sees DebugBoundsProvider bounds; a bounds-less object (no
 		// sprite/collider) has none, so fall back to its small origin hitbox.
@@ -306,6 +314,28 @@ func (c *ViewportComponent) selectAt(local math.Vector2) {
 	if obj != nil {
 		log.Printf("viewport: selected object %q", obj.Name)
 	}
+}
+
+// pickUIObject returns the topmost UI object whose debug bounds contain the world point,
+// or nil. Scene.Pick skips UI objects (they are screen-space in the game), but the editor
+// draws them in world space, so viewport click-selection needs this separate hit-test.
+func (c *ViewportComponent) pickUIObject(world math.Vector2) *core.Object {
+	objs := c.scene.GetSortedObjects()
+	for i := len(objs) - 1; i >= 0; i-- {
+		obj := objs[i]
+		if obj == nil || !obj.Active || obj.IsDestroyed() || !obj.UI {
+			continue
+		}
+		for _, comp := range obj.ComponentsInDrawOrder() {
+			if vp, ok := comp.(core.VisibilityProvider); ok && !vp.IsVisible() {
+				continue
+			}
+			if bp, ok := comp.(core.DebugBoundsProvider); ok && bp.DebugBounds().ContainsPoint(world) {
+				return obj
+			}
+		}
+	}
+	return nil
 }
 
 // pickEmptyObject returns the topmost bounds-less world object whose origin is within
@@ -919,6 +949,55 @@ func objectBounds(obj *core.Object) (math.Rect, bool) {
 	return b, found
 }
 
+// objectLocalBounds mirrors objectBounds (same pass-1 sprites / pass-2 providers rule)
+// but returns the union in the object's LOCAL (pre-transform) space instead of world
+// space. The selection outline transforms its four corners through the object transform
+// to draw a rotated+scaled quad that hugs the object, so it needs the local rect — the
+// world AABB alone cannot be de-rotated back to it under non-uniform scale.
+func objectLocalBounds(obj *core.Object) (math.Rect, bool) {
+	var b math.Rect
+	found := false
+
+	// Pass 1: visible sprites (the object's visible footprint), exactly as objectBounds.
+	for _, comp := range obj.ComponentsInDrawOrder() {
+		spr, isSprite := comp.(*Sprite)
+		if !isSprite || !spr.IsVisible() {
+			continue
+		}
+		r := spr.LocalBounds()
+		if !found {
+			b = r
+			found = true
+		} else {
+			b = b.Union(r)
+		}
+	}
+
+	// Pass 2: no visible sprite — union the non-sprite bounds providers that expose a
+	// local bounds (panel, collider). Same set that objectBounds uses via DebugBounds.
+	if !found {
+		for _, comp := range obj.ComponentsInDrawOrder() {
+			if _, isSprite := comp.(*Sprite); isSprite {
+				continue
+			}
+			if lp, ok := comp.(interface{ LocalBounds() math.Rect }); ok {
+				r := lp.LocalBounds()
+				if !found {
+					b = r
+					found = true
+				} else {
+					b = b.Union(r)
+				}
+			}
+		}
+	}
+
+	if found && (b.Width() <= 0 || b.Height() <= 0) {
+		return b, false // degenerate: fall back to the origin "+" marker
+	}
+	return b, found
+}
+
 // Draw renders the viewport: clipped to its rect, it fills the target background,
 // draws the grid and axes, then the target scene's world under the editor camera.
 func (c *ViewportComponent) Draw(r core.Renderer) {
@@ -943,18 +1022,20 @@ func (c *ViewportComponent) Draw(r core.Renderer) {
 	c.drawAxes(r, rect)
 
 	// World space: position the camera so world (cam.x, cam.y) lands at the
-	// viewport's top-left (rect.Position) on screen.
+	// viewport's top-left (rect.Position) on screen. Both the scene's world objects
+	// (DrawWorld) and its UI objects are drawn under this camera, so in the editor a
+	// UI object moves with pan/zoom like any other scene object — the viewport acts as
+	// the game's "screen", and a UI object's screen coordinates (relative to the game
+	// window's top-left, i.e. the world origin) land at the matching world spot.
 	r.SetCamera(c.cam.x-rect.X()/c.cam.zoom, c.cam.y-rect.Y()/c.cam.zoom, c.cam.zoom)
 	if c.scene != nil {
 		c.scene.DrawWorld(r, c.DrawDebug)
+		c.drawUIObjects(r)
 	}
 	r.SetCamera(0, 0, 0)
 
-	// UI objects: drawn with no camera (screen space), positioned relative to the
-	// viewport's top-left origin — the same convention the game uses.
-	c.drawUIObjects(r, rect)
-
-	// Selection: a screen-space outline drawn on top of the world.
+	// Selection and markers: drawn in screen space on top of the world so they stay
+	// crisp at a constant width at any zoom.
 	c.drawEmptyMarkers(r, rect)
 	c.drawViewBounds(r, rect)
 	c.drawSelection(r, rect)
@@ -1044,30 +1125,32 @@ func (c *ViewportComponent) drawEmptyMarkers(r core.Renderer, rect math.Rect) {
 	}
 }
 
-// drawUIObjects draws the target scene's UI objects in raw screen space, positioned
-// relative to the viewport's top-left origin. The game draws UI objects with no camera
-// (their position is already in screen coordinates), so a UI object at (0,0) lands at
-// the viewport's top-left. The camera is offset by -rect.Position so each object draws
-// at rect.Position + its own position, which the clip rect then maps back to the
-// viewport's local space.
-func (c *ViewportComponent) drawUIObjects(r core.Renderer, rect math.Rect) {
+// drawUIObjects draws the target scene's UI objects under the editor's world camera, so
+// a UI object positioned in screen coordinates (relative to the game window's top-left,
+// i.e. the world origin) moves with pan/zoom exactly like a world object. In the editor
+// the viewport acts as the game's "screen": a UI object at (0,0) sits at the world
+// origin, which maps to the viewport's top-left. Only the editor draws UI this way — a
+// built game draws UI screen-fixed with no camera (see Scene.Draw). The caller must have
+// the world camera active and clears it afterward.
+func (c *ViewportComponent) drawUIObjects(r core.Renderer) {
 	if c.scene == nil {
 		return
 	}
-	r.SetCamera(-rect.X(), -rect.Y(), 1)
 	for _, obj := range c.scene.GetSortedObjects() {
 		if obj == nil || !obj.Active || obj.IsDestroyed() || !obj.UI {
 			continue
 		}
 		obj.Draw(r)
 	}
-	r.SetCamera(0, 0, 0)
 }
 
-// drawSelection outlines the picked object's bounds in white, drawn in screen space
-// on top of the world so the outline stays crisp at a constant width at any zoom (it
-// never fills the interior, so the object stays fully visible). An object whose
-// components report no debug bounds is marked with a small box at its origin instead.
+// drawSelection outlines the picked object in white, drawn in screen space on top of the
+// world so the outline stays crisp at a constant width at any zoom (it never fills the
+// interior, so the object stays fully visible). For a world object the outline is the
+// object's actual rotated+scaled quad — its local bounds mapped through the object
+// transform — so it hugs the object instead of its axis-aligned enclosing box. A UI
+// object has no transform to de-rotate, so it keeps its plain axis-aligned bounds. An
+// object whose components report no bounds is marked with a small box at its origin.
 //
 // The four edges are clipped to the viewport: a large world object zoomed in maps to
 // a screen-space box far wider than the viewport, and the chunky renderer rasterizes
@@ -1077,33 +1160,149 @@ func (c *ViewportComponent) drawSelection(r core.Renderer, rect math.Rect) {
 	if c.selected == nil {
 		return
 	}
-	bounds, ok := objectBounds(c.selected)
-	var tl, br math.Vector2
-	if !ok {
-		pos := c.cam.WorldToScreen(c.selected.Transform.Position).Add(rect.Position)
-		const half = 5.0
-		tl = math.NewVector2(pos.X-half, pos.Y-half)
-		br = math.NewVector2(pos.X+half, pos.Y+half)
-	} else {
-		tl = c.cam.WorldToScreen(bounds.Position).Add(rect.Position)
-		br = c.cam.WorldToScreen(bounds.Position.Add(bounds.Size)).Add(rect.Position)
+
+	// World objects: map the object's local bounds through its transform (scale → rotate
+	// about the origin → translate), then into screen space, and draw that quad. This is
+	// the object's true footprint, rotated and scaled just like the object itself.
+	if !c.selected.UI {
+		local, ok := objectLocalBounds(c.selected)
+		if !ok {
+			c.drawSelectionOrigin(r, rect)
+			return
+		}
+		x0, y0 := local.X(), local.Y()
+		x1, y1 := local.X()+local.Width(), local.Y()+local.Height()
+		corners := [4]math.Vector2{
+			{X: x0, Y: y0},
+			{X: x1, Y: y0},
+			{X: x1, Y: y1},
+			{X: x0, Y: y1},
+		}
+		transform := c.selected.Transform
+		var pts [4]math.Vector2
+		for i := range corners {
+			pts[i] = c.cam.WorldToScreen(transform.LocalToWorld(corners[i])).Add(rect.Position)
+		}
+		for i := 0; i < 4; i++ {
+			c.drawClippedLine(r, rect, pts[i], pts[(i+1)%4], selectionColor, selOutlineThickness)
+		}
+		return
 	}
-	c.drawOutlineEdges(r, rect, tl, br, selectionColor, selOutlineThickness)
+
+	// UI object: no object transform to de-rotate, so draw its axis-aligned world bounds
+	// straight from their corners.
+	bounds, ok := objectBounds(c.selected)
+	if !ok {
+		c.drawSelectionOrigin(r, rect)
+		return
+	}
+	x0, y0 := bounds.X(), bounds.Y()
+	x1, y1 := bounds.X()+bounds.Width(), bounds.Y()+bounds.Height()
+	corners := [4]math.Vector2{
+		{X: x0, Y: y0},
+		{X: x1, Y: y0},
+		{X: x1, Y: y1},
+		{X: x0, Y: y1},
+	}
+	var pts [4]math.Vector2
+	for i := range corners {
+		pts[i] = c.cam.WorldToScreen(corners[i]).Add(rect.Position)
+	}
+	for i := 0; i < 4; i++ {
+		c.drawClippedLine(r, rect, pts[i], pts[(i+1)%4], selectionColor, selOutlineThickness)
+	}
 }
 
-// drawViewBounds outlines the target game's logical screen area — the rectangle from
-// the world origin to (logicalWidth, logicalHeight), read from the target project's
-// game.imge. Drawn in screen space (constant line width) so that, while panning and
-// zooming the scene, the user can see exactly where the game's window will land. When
-// the logical size is unknown (no project, or game.imge can't be read), nothing is
-// drawn.
+// drawSelectionOrigin marks an object whose components report no bounds with a small box
+// at its origin. UI and world objects are both drawn in world space in the editor, so the
+// origin maps the same way.
+func (c *ViewportComponent) drawSelectionOrigin(r core.Renderer, rect math.Rect) {
+	pos := c.cam.WorldToScreen(c.selected.Transform.Position).Add(rect.Position)
+	const half = 5.0
+	c.drawOutlineEdges(r, rect, math.NewVector2(pos.X-half, pos.Y-half), math.NewVector2(pos.X+half, pos.Y+half), selectionColor, selOutlineThickness)
+}
+
+// drawClippedLine draws a line segment clipped to the clip rect, using Liang-Barsky
+// clipping so a rotated (non-axis-aligned) selection edge never rasterizes wider than
+// the viewport — the chunky renderer would otherwise build an atlas image sized to the
+// full unclipped segment and panic for a large zoomed-in object.
+func (c *ViewportComponent) drawClippedLine(r core.Renderer, clip math.Rect, a, b math.Vector2, color math.Color, thickness float64) {
+	dx := b.X - a.X
+	dy := b.Y - a.Y
+	x0, y0 := clip.Left(), clip.Top()
+	x1, y1 := clip.Right(), clip.Bottom()
+	p := [4]float64{-dx, dx, -dy, dy}
+	q := [4]float64{a.X - x0, x1 - a.X, a.Y - y0, y1 - a.Y}
+	u1, u2 := 0.0, 1.0
+	for i := 0; i < 4; i++ {
+		if p[i] == 0 {
+			if q[i] < 0 {
+				return // parallel to this boundary and outside
+			}
+			continue
+		}
+		t := q[i] / p[i]
+		if p[i] < 0 {
+			if t > u2 {
+				return
+			}
+			if t > u1 {
+				u1 = t
+			}
+		} else {
+			if t < u1 {
+				return
+			}
+			if t < u2 {
+				u2 = t
+			}
+		}
+	}
+	r.DrawLine(
+		math.NewVector2(a.X+u1*dx, a.Y+u1*dy),
+		math.NewVector2(a.X+u2*dx, a.Y+u2*dy),
+		color, thickness,
+	)
+}
+
+// drawViewBounds outlines the target game's visible screen area — the world rectangle
+// the game's window will show once the scene camera is applied. The scene camera
+// (core.Camera) places the window's top-left at (X, Y) in world space and its zoom
+// divides the logical window size (game.imge width/height) to yield the visible world
+// extent. With no scene camera the game draws world = screen, i.e. an identity camera
+// at the origin. Drawn in screen space (constant line width) so that, while panning
+// and zooming the scene, the user can see exactly where the game's window will land.
+// When the logical size is unknown (no project, or game.imge can't be read), nothing
+// is drawn.
+//
+// When the camera is zoomed (zoom != 1), a second rectangle is drawn at the same camera
+// position showing the window at zoom 1 (a thin white outline). Seeing both at once lets
+// the user compare the magnified view against the true 1:1 footprint of the game screen.
 func (c *ViewportComponent) drawViewBounds(r core.Renderer, rect math.Rect) {
 	if c.logicalW <= 0 || c.logicalH <= 0 {
 		return
 	}
-	tl := c.cam.WorldToScreen(math.Zero()).Add(rect.Position)
-	br := c.cam.WorldToScreen(math.NewVector2(c.logicalW, c.logicalH)).Add(rect.Position)
+	camX, camY, camZoom := 0.0, 0.0, 1.0
+	if c.scene != nil && c.scene.Camera != nil {
+		camX, camY, camZoom = c.scene.Camera.X, c.scene.Camera.Y, c.scene.Camera.Zoom
+		if camZoom <= 0 {
+			camZoom = 1
+		}
+	}
+
+	// Zoomed view: the world area the game window shows at the scene camera's zoom.
+	tl := c.cam.WorldToScreen(math.NewVector2(camX, camY)).Add(rect.Position)
+	br := c.cam.WorldToScreen(math.NewVector2(camX+c.logicalW/camZoom, camY+c.logicalH/camZoom)).Add(rect.Position)
 	c.drawOutlineEdges(r, rect, tl, br, viewRectColor, viewRectThickness)
+
+	// Unzoomed reference: when the camera is zoomed, also show the same window at zoom 1.
+	// It shares the top-left corner with the zoomed rect; only its width/height differ
+	// (logical / 1). Drawn thin and white to read as a reference, distinct from the teal
+	// zoomed rect.
+	if camZoom != 1 {
+		brBase := c.cam.WorldToScreen(math.NewVector2(camX+c.logicalW, camY+c.logicalH)).Add(rect.Position)
+		c.drawOutlineEdges(r, rect, tl, brBase, viewRectUnzoomedColor, unzoomedViewRectThickness)
+	}
 }
 
 // drawOutlineEdges draws a rectangle outline from tl (top-left) to br (bottom-right)

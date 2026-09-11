@@ -19,7 +19,7 @@
     {
       "name": "toolbar",
       "ui": true,
-      "layer": 2,
+      "layer": 5,
       "transform": { "position": { "x": 0, "y": 0 } },
       "components": [
         { "kind": "MenuBarComponent", "name": "toolbar", "args": { "width": 960, "height": 22 } }

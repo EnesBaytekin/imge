@@ -28,7 +28,7 @@ type EditorLayoutComponent struct {
 
 func (c *EditorLayoutComponent) Initialize() {
 	if c.ToolbarH <= 0 {
-		c.ToolbarH = 22
+		c.ToolbarH = 14
 	}
 	if c.SidebarW <= 0 {
 		c.SidebarW = 180

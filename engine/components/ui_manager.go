@@ -514,7 +514,7 @@ func (m *UIManagerComponent) focusablesInTabOrder() []uiFocusable {
 		top, bottom := r.Y(), r.Y()+r.Height()
 		if len(rows) > 0 {
 			last := len(rows) - 1
-			if top <= rows[last].maxY && bottom >= rows[last].minY {
+			if top < rows[last].maxY && bottom >= rows[last].minY {
 				rows[last].items = append(rows[last].items, f)
 				if top < rows[last].minY {
 					rows[last].minY = top

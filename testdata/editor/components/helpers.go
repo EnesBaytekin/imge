@@ -328,6 +328,8 @@ const (
 	kindCheck
 	kindColor
 	kindCombobox
+	kindSlider
+	kindFile
 )
 
 // fieldWidget is the common surface of the engine widgets a field value uses: enough
@@ -355,7 +357,13 @@ type fieldBinding struct {
 	apply      func(string) error
 	getBool    func() bool
 	getColor   func() math.Color
-	getOptions func() []string // combobox items (nil unless kindCombobox)
+	getOptions func() []string   // combobox items (nil unless kindCombobox)
+	getFloat   func() float64    // slider value getter (kindSlider)
+	sliderMin  func() float64    // slider lower bound (kindSlider)
+	sliderMax  func() float64    // slider upper bound (kindSlider)
+	sliderStep float64           // slider snap increment (kindSlider)
+	fileFilter func(string) bool // selectable-file predicate (kindFile picker)
+	onBrowse   func()            // invoked when a kindFile button is clicked
 	widget     fieldWidget
 	old        string // last committed value
 	wasFocused bool   // TextInput blur tracking
@@ -401,6 +409,33 @@ func makeFieldWidget(b *fieldBinding, owner *core.Object, pos math.Vector2, valu
 		cb.Height = h
 		cb.DrawLayer = 1
 		comp = cb
+	case kindSlider:
+		sl := &SliderComponent{}
+		sl.Min = b.sliderMin()
+		sl.Max = b.sliderMax()
+		if b.sliderStep > 0 {
+			sl.Step = b.sliderStep
+		} else {
+			sl.Step = 1
+		}
+		sl.Value = b.getFloat()
+		if h > 0 {
+			sl.ThumbSize = h - 2
+		}
+		sl.Width = valueW
+		sl.Height = h
+		sl.DrawLayer = 1
+		comp = sl
+	case kindFile:
+		btn := &ButtonComponent{}
+		btn.FontID = fontID
+		btn.Size = size
+		btn.TextColor = valueText
+		btn.Color = fieldBackground
+		btn.Width = valueW
+		btn.Height = h
+		btn.DrawLayer = 1
+		comp = btn
 	default: // kindText
 		ti := &TextInputComponent{}
 		ti.FontID = fontID
@@ -431,6 +466,10 @@ func makeFieldWidget(b *fieldBinding, owner *core.Object, pos math.Vector2, valu
 		comp.(*ColorPickerComponent).SetColor(b.getColor())
 	case kindCombobox:
 		comp.(*ComboBoxComponent).SetValue(b.get())
+	case kindSlider:
+		comp.(*SliderComponent).SetValue(b.getFloat())
+	case kindFile:
+		comp.(*ButtonComponent).Text = fileButtonLabel(b)
 	}
 	return comp
 }
@@ -493,6 +532,14 @@ func pollCommits(bindings []fieldBinding, ctx *core.Context, valueText, errorCol
 		case kindCombobox:
 			cb := b.widget.(*ComboBoxComponent)
 			_ = commitString(b, cb.GetValue())
+		case kindSlider:
+			sl := b.widget.(*SliderComponent)
+			_ = commitString(b, formatFloat(sl.GetValue()))
+		case kindFile:
+			btn := b.widget.(*ButtonComponent)
+			if btn.ConsumeClick() && b.onBrowse != nil {
+				b.onBrowse()
+			}
 		default:
 			ti := b.widget.(*TextInputComponent)
 			focused := ti.IsFocused()
@@ -535,6 +582,16 @@ func refreshWidgets(bindings []fieldBinding) {
 			cb := b.widget.(*ComboBoxComponent)
 			cb.Items = b.getOptions()
 			cb.SetValue(b.get())
+		case kindSlider:
+			sl := b.widget.(*SliderComponent)
+			sl.Min = b.sliderMin()
+			sl.Max = b.sliderMax()
+			if b.sliderStep > 0 {
+				sl.Step = b.sliderStep
+			}
+			sl.SetValue(b.getFloat())
+		case kindFile:
+			b.widget.(*ButtonComponent).Text = fileButtonLabel(b)
 		}
 	}
 }
@@ -557,6 +614,15 @@ var (
 	fieldBackground = math.NewColor(0x10, 0x13, 0x1c, 0xff)
 	fieldOutline    = math.NewColor(0x3a, 0x42, 0x57, 0xff)
 )
+
+// fileButtonLabel returns the text shown on a kindFile button: the current path, or a
+// "browse" placeholder when it is empty so the field reads as clickable.
+func fileButtonLabel(b *fieldBinding) string {
+	if t := b.get(); t != "" {
+		return t
+	}
+	return "browse…"
+}
 
 // partWidth is the width of one part widget within a row's value column.
 func partWidth(fullW float64, parts int) float64 {
@@ -1165,6 +1231,29 @@ func objectEditorActive() bool {
 func closeActiveObjectEditor() {
 	if activeObjectEditor != nil {
 		activeObjectEditor.closeSelf()
+	}
+}
+
+// blurObjectEditor marks the open object editor as no longer the focused floating window.
+// Called when another floating window (a component-args window) takes pointer focus, so
+// ESC then closes that window instead of the object editor.
+func blurObjectEditor() {
+	if activeObjectEditor != nil {
+		activeObjectEditor.focused = false
+	}
+}
+
+// focusObjectEditor marks the open object editor as the focused floating window again
+// (e.g. after a component-args window closed), recording the current frame so the
+// editor's ESC check ignores that same frame — the ESC press that closed the args window
+// must not also close the editor. A no-op when no object editor is open.
+func focusObjectEditor(scene *core.Scene) {
+	if !objectEditorActive() {
+		return
+	}
+	activeObjectEditor.focused = true
+	if scene != nil {
+		activeObjectEditor.focusFrame = scene.FrameNumber()
 	}
 }
 

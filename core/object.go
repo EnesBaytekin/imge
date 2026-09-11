@@ -437,6 +437,16 @@ func (obj *Object) Draw(renderer Renderer) {
 		return
 	}
 
+	// World (non-UI) objects draw their components in local space under the object
+	// transform (scale -> rotate about the object origin -> translate to the object
+	// position), so rotation and scale apply uniformly to everything on the object —
+	// sprites, panels, colliders, and any custom component. UI objects draw in raw
+	// screen space (no transform), so their components keep working in screen space.
+	if !obj.UI {
+		renderer.SetObjectTransform(obj.Transform.Position, obj.Transform.Rotation, obj.Transform.Scale)
+		defer renderer.ClearObjectTransform()
+	}
+
 	for _, component := range obj.drawComponents() {
 		if cp, ok := component.(ClipRectProvider); ok {
 			if clip := cp.ClipRect(); clip != nil {

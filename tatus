@@ -1,0 +1,122 @@
+* [33m2efadd6[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m chore: enhance editor ux
+* [33m5841b8f[m fix: enhance editor settings
+* [33m022526d[m[33m ([m[1;33mtag: [m[1;33mv0.4.5[m[33m)[m chore: enhance editor ux
+* [33meeb8341[m fix: enhance editor camera and object positioning
+* [33m9e2ee13[m feat: add object editor
+* [33m8a605f2[m[33m ([m[1;33mtag: [m[1;33mv0.4.4[m[33m)[m fix: optimize caching and memory leak
+* [33m7e3539e[m feat: add scene management windows
+* [33m656eb19[m fix: close window when component deleted
+* [33m5af2c2e[m refactor: edit builtin controller components
+* [33mad9f9b2[m[33m ([m[1;33mtag: [m[1;33mv0.4.3[m[33m)[m fix: enhance mover component
+* [33md0a7c6d[m feat: add requires info to component window
+* [33m23ba0f0[m[33m ([m[1;33mtag: [m[1;33mv0.4.2[m[33m)[m fix: enhance editor draw bound logic
+* [33m867abbd[m[33m ([m[1;33mtag: [m[1;33mv0.4.1[m[33m)[m feat: store editor only data and fix bugs
+* [33m8eaaa9a[m feat: add search property to combobox
+* [33m7484b2e[m feat: add ability to create and delete objects and components
+* [33m094bd06[m[33m ([m[1;33mtag: [m[1;33mv0.4.0[m[33m)[m feat: implement basic imge editor
+* [33m777a8b8[m[33m ([m[1;33mtag: [m[1;33mv0.3.29[m[33m)[m fix: fix --debug flag
+* [33m6b4eb60[m feat: implement listbox
+* [33mf8a9577[m[33m ([m[1;33mtag: [m[1;33mv0.3.28[m[33m)[m fix: fix ui component popup order
+* [33ma84b08c[m[33m ([m[1;33mtag: [m[1;33mv0.3.27[m[33m)[m feat: implement checkbox
+* [33m0bd7019[m[33m ([m[1;33mtag: [m[1;33mv0.3.26[m[33m)[m feat: implement color picker
+* [33mc44b6a6[m[33m ([m[1;33mtag: [m[1;33mv0.3.25[m[33m)[m fix: enhance combobox font size and selwctions
+* [33mf591f51[m feat: implement combobox
+* [33m9a684c2[m[33m ([m[1;33mtag: [m[1;33mv0.3.24[m[33m)[m feat: add slicer element
+* [33m67ef44f[m[33m ([m[1;33mtag: [m[1;33mv0.3.23[m[33m)[m fix: fix touch release position
+* [33m9c78c01[m[33m ([m[1;33mtag: [m[1;33mv0.3.22[m[33m)[m feat: implement styles.imge file
+* [33mda08e45[m feat: add ui manager
+* [33m9a763fe[m[33m ([m[1;33mtag: [m[1;33mv0.3.21[m[33m)[m fix: make panel do not draw texture and rect at the same time
+* [33m066d4bc[m feat: add more control over textbox and button
+* [33mdf595e8[m feat: implement basic ui elements
+* [33mfa931d0[m[33m ([m[1;33mtag: [m[1;33mv0.3.20[m[33m)[m fix: do not delete spaces while drawing text
+* [33m26f9885[m feat: add '...' to the end of clipped text
+* [33m22edc01[m[33m ([m[1;33mtag: [m[1;33mv0.3.19[m[33m)[m feat: add draw wrapped text methods
+* [33m893bd5d[m[33m ([m[1;33mtag: [m[1;33mv0.3.18[m[33m)[m feat: implement draw text and create imge-font
+* [33m1b34b72[m reafctor: create json templates from structs
+* [33m0778e91[m[33m ([m[1;33mtag: [m[1;33mv0.3.17[m[33m)[m refactor: simplify imge init
+* [33m7ca4cd8[m[33m ([m[1;33mtag: [m[1;33mv0.3.16[m[33m)[m docs: add rendering docs
+* [33m4e4dbb5[m fix: draw shapes better when ppu is 1
+* [33m1e0d02a[m feat: add smooth shapes property to game game.imge
+* [33m2c09eb8[m[33m ([m[1;33mtag: [m[1;33mv0.3.15[m[33m)[m feat: add pixel per unit
+* [33m480ac4d[m[33m ([m[1;33mtag: [m[1;33mv0.3.14[m[33m)[m feat: add color transforms
+* [33m0b47145[m[33m ([m[1;33mtag: [m[1;33mv0.3.13[m[33m)[m refactor: split collider and add trigger component
+* [33ma703829[m[33m ([m[1;33mtag: [m[1;33mv0.3.12[m[33m)[m chore: add json comments
+* [33m7a191da[m[33m ([m[1;33mtag: [m[1;33mv0.3.11[m[33m)[m feat: add 'imge new ...' command
+* [33m6eaf1fe[m[33m ([m[1;33mtag: [m[1;33mv0.3.10[m[33m)[m chore: update version number
+* [33m7be5115[m refactor: delete unused methods
+* [33m0226ce2[m[33m ([m[1;33mtag: [m[1;33mv0.3.9[m[33m)[m fix: remove resizable property
+* [33mb98dde7[m[33m ([m[1;33mtag: [m[1;33mv0.3.8[m[33m)[m fix: give an error when a file cannot found during build time
+* [33m97359a6[m[33m ([m[1;33mtag: [m[1;33mv0.3.7[m[33m)[m feat: add fullscreen and resizeable properties
+* [33m085e6a4[m refactor: enhance project structure and add docs
+* [33m11f3cc6[m[33m ([m[1;33mtag: [m[1;33mv0.3.6[m[33m)[m feat: add camera and state machine
+* [33mb126732[m feat: add loading icon while game is loading on web
+* [33m32243d1[m[33m ([m[1;33mtag: [m[1;33mv0.3.5[m[33m)[m feat: seperate init and init sample commands
+* [33mb7a4179[m[33m ([m[1;33mtag: [m[1;33mv0.3.4[m[33m)[m feat: add new basic built-in components
+* [33m004fbd6[m[33m ([m[1;33mtag: [m[1;33mv0.3.3[m[33m)[m fix: fix layout size in web view
+* [33m1747ca9[m[33m ([m[1;33mtag: [m[1;33mv0.3.2[m[33m)[m fix: fix x11 dependency error
+* [33me16d60d[m refactor: enhance component system
+* [33m7b72dba[m docs: edit readme
+* [33me22932e[m[33m ([m[1;33mtag: [m[1;33mv0.3.1[m[33m)[m refactor: enhance imge cli
+* [33mdf93010[m[33m ([m[1;33mtag: [m[1;33mv0.3.0[m[33m)[m refactor: enhance component system
+* [33m7e6c644[m feat: add image and sound support for web
+* [33m6edac67[m refactor: implement web build with ebitengine
+* [33mf5dbad0[m refactor: implement ebitengine instead of build container
+* [33m2163ee7[m[33m ([m[1;33mtag: [m[1;33mv0.2.16[m[33m)[m chore: increase imge version
+* [33m5040e9e[m chore: make change in dockerfile
+* [33me52517a[m feat: add docker build workflow
+* [33m072d548[m feat: add go cache as volume
+* [33ma9ad3aa[m feat: add docker build container
+* [33md729a71[m docs: edit readme
+* [33me7d7ed6[m[33m ([m[1;33mtag: [m[1;33mv0.2.14[m[33m)[m docs: update version
+* [33m3b2b873[m[33m ([m[1;33mtag: [m[1;33mv0.2.13[m[33m)[m feat: make imge run option works
+* [33m500734e[m docs: add readme file
+* [33m5011121[m docs: add .vscode to gitignore
+* [33m03cd4a7[m[33m ([m[1;33mtag: [m[1;33mv0.2.12[m[33m)[m refactor: add version file
+* [33maeae2a1[m[33m ([m[1;33mtag: [m[1;33mv0.2.11[m[33m)[m fix: fix bugs
+* [33m885183c[m[33m ([m[1;33mtag: [m[1;33mv0.2.10[m[33m)[m feat: add get component by tag method
+* [33m4e3d053[m[33m ([m[1;33mtag: [m[1;33mv0.2.9[m[33m)[m fix: edit movement component
+* [33m5cae1aa[m[33m ([m[1;33mtag: [m[1;33mv0.2.8[m[33m)[m chore: update version
+* [33m05e50f7[m fix: edit movement component
+* [33m370a9cf[m[33m ([m[1;33mtag: [m[1;33mv0.2.7[m[33m)[m refactor: create components with new system
+* [33m39b0d44[m refactor: implement event based ping pong component system
+* [33m40e1daa[m[33m ([m[1;33mtag: [m[1;33mv0.2.6[m[33m)[m refactor: use component context in update functions
+* [33m0c05787[m[33m ([m[1;33mtag: [m[1;33mv0.2.5[m[33m)[m chore: add logs
+* [33mc629c88[m[33m ([m[1;33mtag: [m[1;33mv0.2.4[m[33m)[m refactor: implement init platform method
+* [33m636f7bc[m[33m ([m[1;33mtag: [m[1;33mv0.2.3[m[33m)[m fix: fix bug
+* [33m2211d1f[m[33m ([m[1;33mtag: [m[1;33mv0.2.2[m[33m)[m fix: fix bugs
+* [33m18c4d86[m[33m ([m[1;33mtag: [m[1;33mv0.2.1[m[33m)[m fix: fix sdl platform bugs
+* [33m408bb94[m[33m ([m[1;33mtag: [m[1;33mv0.2.0[m[33m)[m fix: edit imports
+* [33me564d75[m feat: add sdl factory
+* [33m362b4d0[m feat: implement sdl platform interfaces
+* [33mc52ebca[m docs: rename released imge file
+* [33m094ad83[m fix: fix build bugs
+* [33m4e33b18[m[33m ([m[1;33mtag: [m[1;33mv0.1.1[m[33m)[m chore: add dummy go file to root
+* [33m299accf[m feat: add imge cli build workflow
+* [33mfd56644[m feat: add option to clear build cache
+* [33me09f492[m docs: edit gitignore
+* [33m913d939[m refactor: seperate final output files
+* [33mea18ffc[m fix: run imge build successfully for mock platform
+* [33m9b8e0f2[m refactor: edit import statements
+* [33mb033e9c[m[33m ([m[1;33mtag: [m[1;33mv0.1.0[m[33m)[m refactor: make internal modules public
+* [33ma1c118a[m docs: add gitignore file
+* [33md657015[m chore: edit build system
+* [33mbb0c155[m refactor: edit build system
+* [33m221f839[m feat: implement build system
+* [33m80e0ef6[m feat: implement imge cli tool
+* [33mb545ffb[m feat: create sample game
+* [33mbcfd317[m refactor: use methods in platform interfaces
+* [33m8d1790e[m feat: add generic entrypoint
+* [33m63ea9ab[m feat: implement mock platform
+* [33m2f15e0d[m feat: add object json conversions
+* [33mff02558[m refactor: json loading logic
+* [33m66f1276[m feat: add json formatting
+* [33m743cb47[m fix: add clear color in game loop
+* [33mc7bb37b[m feat: implement object scene system
+[31m|[m * [33mbbbcf93[m[33m ([m[1;32mfeat/scene-system[m[33m)[m feat: implement scene system
+[31m|[m[31m/[m  
+* [33m1c8cf25[m feat: implement platform interface
+* [33m8b8fb4d[m feat: implement transform
+* [33m3751fa1[m feat: implement color
+* [33m317f75f[m feat: implement rect
+* [33mddf7ac2[m feat: implement vector2
+* [33m12a123d[m Initial commit

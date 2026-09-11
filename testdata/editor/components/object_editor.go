@@ -61,6 +61,13 @@ type ObjectEditorComponent struct {
 
 	suppress bool // swallow the press that opened the editor (outside-click guard)
 
+	focused bool // this window owns the ESC shortcut (last floating window clicked)
+
+	// focusFrame is the scene frame on which this window last regained focus (e.g. a
+	// component-args window closed). It suppresses the ESC check on that same frame so a
+	// single ESC press closes only the window that had focus, never this one too.
+	focusFrame uint64
+
 	hoverClose bool
 	dismiss    bool
 	centered   bool
@@ -174,6 +181,8 @@ func spawnObjectEditor(scene *core.Scene, rel string) {
 	// windows interactive so the object can be edited component-by-component alongside it.
 	activeObjectEditor = editor
 	editor.suppress = true // swallow the press that opened it (outside-click guard)
+	editor.focused = true  // freshly opened: ESC closes this window, not a stale args window
+	focusedArgs = nil
 	raiseToFront(scene, win)
 }
 
@@ -249,6 +258,25 @@ func (c *ObjectEditorComponent) Update(ctx *core.Context) {
 	if modalOpen() || menusOpen() {
 		return
 	}
+
+	// ESC closes this window when it is the focused floating window and no widget holds
+	// keyboard focus (mirroring ComponentArgsComponent). Closing goes through the dismiss
+	// flag so the object survives the rest of Update; Draw performs the teardown.
+	if ctx.Input.IsKeyJustPressed(core.KeyEscape) && c.focused {
+		// Skip the frame this window just regained focus (a component-args window closed
+		// under this same ESC press), so a single press closes only the window that had focus.
+		justRefocused := false
+		if scene := c.GetScene(); scene != nil {
+			justRefocused = c.focusFrame == scene.FrameNumber()
+		}
+		if !justRefocused {
+			if mgr := lookupUIManager(c.GetScene()); mgr == nil || !mgr.HasFocus() {
+				c.dismiss = true
+				return
+			}
+		}
+	}
+
 	c.centerOnce(ctx)
 
 	mouse := ctx.Input.GetMousePosition()
@@ -297,15 +325,23 @@ func (c *ObjectEditorComponent) Update(ctx *core.Context) {
 
 	justPressed := ctx.Input.IsMouseButtonJustPressed(core.MouseButtonLeft)
 
-	// Top-right "x" dismisses the editor.
-	if justPressed && c.hoverClose {
+	// A click anywhere on this window makes it the focused floating window (so ESC closes
+	// it rather than a previously-clicked component-args window), unless another window
+	// above it owns the pointer.
+	if justPressed && !blocked && rect.ContainsPoint(mouse) {
+		c.focused = true
+		focusedArgs = nil
+	}
+
+	// Top-right "x" dismisses the editor (unless a window above it owns the pointer).
+	if justPressed && !blocked && c.hoverClose {
 		c.dismiss = true
 		return
 	}
 
 	// Title-bar press starts a drag (tested before picking/outside-click so moving the
 	// window never reads as a component pick or a dismissal; the "x" is handled above).
-	if justPressed {
+	if justPressed && !blocked {
 		if math.NewRect(rect.X(), rect.Y(), rect.Width(), c.titleH()).ContainsPoint(mouse) {
 			c.dragging = true
 			c.dragGrab = mouse.Subtract(rect.Position)

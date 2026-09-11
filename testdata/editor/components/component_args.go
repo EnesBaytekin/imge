@@ -3,6 +3,7 @@ package components
 import (
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/EnesBaytekin/imge/core"
@@ -14,6 +15,11 @@ import (
 // and destroyed dynamically; the panels yield to any open window via the @UIManager's
 // blocking occlusion (see pointerOwnedElsewhere).
 var argWindows []*ComponentArgsComponent
+
+// focusedArgs is the component-args window the user most recently interacted with. ESC
+// closes it (unless a widget inside holds keyboard focus, which takes priority). It is
+// nil when no window is focused.
+var focusedArgs *ComponentArgsComponent
 
 // argsBasePosition is where the first spawned window sits; each additional window
 // cascades down-right from it (they are draggable, so the user repositions freely).
@@ -61,6 +67,16 @@ type ComponentArgsComponent struct {
 	closeHover bool // the close ("X") button is under the cursor
 
 	bindings []fieldBinding // value widgets for editable args (rebuilt on Open/Close)
+
+	// spriteTextured records whether the Sprite layout currently shows its texture-only
+	// rows (frame size / frame #), so a texture commit that crosses empty↔set rebuilds the
+	// rows (those fields are meaningless without a texture).
+	spriteTextured bool
+
+	// spriteManaged records whether an Animator currently drives this Sprite (visible/flip/
+	// frame are then locked). Detecting an Animator being added/removed — or a clip naming
+	// this sprite — mid-session rebuilds the rows so the checkboxes lock/unlock at once.
+	spriteManaged bool
 }
 
 // titleH returns the title-bar height, shared by Draw and Update so their hit tests
@@ -76,6 +92,35 @@ func (c *ComponentArgsComponent) requiresH() float64 {
 		return 0
 	}
 	return c.RowHeight + 4
+}
+
+// isSprite reports whether the window is editing a Sprite, which gets a custom grouped
+// layout (common fields + offset + appearance always visible, then a texture section whose
+// frame fields appear only once a texture is set).
+func (c *ComponentArgsComponent) isSprite() bool {
+	_, ok := c.target.(*Sprite)
+	return ok
+}
+
+// spriteRowBase is the number of always-present rows in the Sprite layout: name,
+// draw_layer, group, separator, offset, visible, flip, color, size, separator, texture.
+const spriteRowBase = 11
+
+// spriteFrameRows is the number of texture-only rows appended after spriteRowBase
+// (frame size and frame #), present only when the sprite has a texture.
+const spriteFrameRows = 2
+
+// rowCount returns the number of visible rows (the name row + field rows + separators).
+// The Sprite layout appends its texture-only rows only when a texture is set; other
+// components use their reflected field count.
+func (c *ComponentArgsComponent) rowCount() int {
+	if c.isSprite() {
+		if spr, _ := c.target.(*Sprite); spr != nil && spr.Texture != "" {
+			return spriteRowBase + spriteFrameRows
+		}
+		return spriteRowBase
+	}
+	return len(enumerateArgs(c.target)) + 1
 }
 
 // IsOpen reports whether the window is showing a component.
@@ -111,17 +156,29 @@ func (c *ComponentArgsComponent) Open(comp core.Component) {
 }
 
 // spawnArgsWindow opens a new component-args window for the given component. If a window
-// for that exact component is already open, it returns that one instead of duplicating
-// (a different component always gets its own window, so several can be open at once). The
-// window is a fresh scene object, cascaded from the last open one.
+// for that logical component (same owner + kind + name) is already open, it returns that
+// one instead of duplicating — re-targeting it when the component instance has changed
+// (e.g. the object editor re-loaded the same .obj and built a fresh component) and raising
+// it to the front. A different component always gets its own window, so several can be
+// open at once. The window is a fresh scene object, cascaded from the last open one.
 func spawnArgsWindow(scene *core.Scene, comp core.Component) *ComponentArgsComponent {
 	if comp == nil || scene == nil {
 		return nil
 	}
+	// Focusing a component-args window moves ESC focus off the object editor, so ESC
+	// closes this window first (the editor regains focus when the window closes).
+	blurObjectEditor()
+	id := argsWindowIdentity(comp)
 	for _, w := range argWindows {
-		if w != nil && w.IsOpen() && w.target == comp {
-			return w // already open for this component
+		if w == nil || !w.IsOpen() || argsWindowIdentity(w.target) != id {
+			continue
 		}
+		if w.target != comp {
+			w.Open(comp) // fresh instance for the same logical component: re-target it
+		}
+		focusedArgs = w
+		raiseToFront(scene, w.GetOwner())
+		return w
 	}
 
 	obj := core.NewObject("component_args")
@@ -147,7 +204,28 @@ func spawnArgsWindow(scene *core.Scene, comp core.Component) *ComponentArgsCompo
 	args.Open(comp)
 	argWindows = append(argWindows, args)
 	raiseToFront(scene, obj) // a newly opened window appears on top
+	focusedArgs = args
 	return args
+}
+
+// argsWindowIdentity returns a stable key identifying "the same component" for window
+// dedupe: the owner (its .obj file when file-referenced, else its pointer), plus the
+// component kind and name. Reopening an object editor for the same .obj rebuilds the
+// component instance, so a pure pointer comparison would open a duplicate; this key
+// collapses those to one window.
+func argsWindowIdentity(comp core.Component) string {
+	if comp == nil {
+		return ""
+	}
+	ownerID := "<no-owner>"
+	if owner := comp.GetOwner(); owner != nil {
+		if owner.File != "" {
+			ownerID = "file:" + owner.File
+		} else {
+			ownerID = fmt.Sprintf("ptr:%p", owner)
+		}
+	}
+	return ownerID + "|" + comp.GetKind() + "|" + comp.GetName()
 }
 
 // destroyArgsWindow closes and removes an open window, freeing its scene object.
@@ -162,9 +240,17 @@ func destroyArgsWindow(w *ComponentArgsComponent) {
 		}
 	}
 	w.target = nil
+	if focusedArgs == w {
+		focusedArgs = nil
+	}
+	scene := w.GetScene()
 	if owner := w.GetOwner(); owner != nil {
 		owner.Destroy()
 	}
+	// Closing a component window returns ESC focus to the object editor (if it is open),
+	// so the next ESC dismisses the editor rather than nothing. focusObjectEditor records
+	// the frame so this same ESC press can't also close the editor.
+	focusObjectEditor(scene)
 }
 
 // closeAllArgsWindows destroys every open window. Called when the target project switches,
@@ -256,13 +342,34 @@ func (c *ComponentArgsComponent) Update(ctx *core.Context) {
 	if modalOpen() || menusOpen() {
 		return
 	}
-	fields := enumerateArgs(c.target)
+
+	// ESC closes this window when it is the focused one and no widget holds keyboard
+	// focus (a focused ColorPicker/ComboBox consumes ESC itself to cancel its panel).
+	if ctx.Input.IsKeyJustPressed(core.KeyEscape) && focusedArgs == c {
+		if mgr := lookupUIManager(c.GetScene()); mgr == nil || !mgr.HasFocus() {
+			destroyArgsWindow(c)
+			return
+		}
+	}
+
 	mouse := ctx.Input.GetMousePosition()
 	rect := c.Rect()
 
 	// Commit any widget change and live-sync the model first, before any hover-gated
 	// logic, so commits fire even after the pointer leaves the window.
 	c.pollAndRefresh(ctx)
+
+	// A texture commit that crossed empty↔set changes the Sprite layout's row set: the
+	// frame-size / frame-# fields only exist once a texture is set, so rebuild the rows.
+	if c.isSprite() {
+		if spr, _ := c.target.(*Sprite); spr != nil && (spr.Texture != "") != c.spriteTextured {
+			c.rebuildRows() // rebuildRows also refreshes c.spriteTextured
+		} else if spr, _ := c.target.(*Sprite); spr != nil && spriteManagedByAnimator(spr) != c.spriteManaged {
+			// An Animator gained/lost this sprite (added as a clip, or a clip removed):
+			// rebuild so the visible/flip/frame fields lock or unlock immediately.
+			c.rebuildRows()
+		}
+	}
 
 	// Drag-to-move: while the title bar is held, follow the cursor (even outside the
 	// window). Moving the owner carries the value widgets with it, since their offsets
@@ -282,7 +389,7 @@ func (c *ComponentArgsComponent) Update(ctx *core.Context) {
 	// A scrollbar drag keeps following the cursor even outside the window.
 	if c.scrollDragging {
 		if ctx.Input.IsMouseButtonPressed(core.MouseButtonLeft) {
-			c.scroll = scrollFromThumb(c.scrollTrack(rect), float64(len(fields)+1)*c.RowHeight, c.maxScroll(fields), mouse.Y, c.scrollGrab)
+			c.scroll = scrollFromThumb(c.scrollTrack(rect), float64(c.rowCount())*c.RowHeight, c.maxScroll(), mouse.Y, c.scrollGrab)
 			c.layoutRows()
 		} else {
 			c.scrollDragging = false
@@ -305,12 +412,14 @@ func (c *ComponentArgsComponent) Update(ctx *core.Context) {
 	if s := ctx.Input.GetMouseScroll(); s.Y != 0 {
 		if mgr := lookupUIManager(c.GetScene()); mgr == nil || !mgr.HasFocus() {
 			c.scroll -= s.Y * c.RowHeight * 2
-			c.clampScroll(fields)
+			c.clampScroll()
 			c.layoutRows()
 		}
 	}
 
 	if ctx.Input.IsMouseButtonJustPressed(core.MouseButtonLeft) {
+		focusedArgs = c    // any click in the window makes it the focused one
+		blurObjectEditor() // so ESC now closes this window, not the object editor
 		// Close button: a small square in the title bar's top-right corner.
 		closeRect := math.NewRect(rect.X()+rect.Width()-18, rect.Y()+2, 14, 14)
 		if closeRect.ContainsPoint(mouse) {
@@ -328,13 +437,13 @@ func (c *ComponentArgsComponent) Update(ctx *core.Context) {
 			spawnAnimatorClips(c.GetScene(), c.target.(*Animator))
 			return
 		}
-		c.handleScrollbarPress(mouse, fields, rect)
+		c.handleScrollbarPress(mouse, rect)
 	}
 }
 
 // clampScroll keeps the scroll offset within [0, maxScroll].
-func (c *ComponentArgsComponent) clampScroll(fields []argField) {
-	if max := c.maxScroll(fields); c.scroll > max {
+func (c *ComponentArgsComponent) clampScroll() {
+	if max := c.maxScroll(); c.scroll > max {
 		c.scroll = max
 	}
 	if c.scroll < 0 {
@@ -350,10 +459,10 @@ func (c *ComponentArgsComponent) scrollTrack(rect math.Rect) math.Rect {
 
 // handleScrollbarPress consumes a click on the scrollbar: grabbing the thumb starts a
 // drag, and clicking the track jumps the thumb (centered) to the cursor.
-func (c *ComponentArgsComponent) handleScrollbarPress(mouse math.Vector2, fields []argField, rect math.Rect) {
+func (c *ComponentArgsComponent) handleScrollbarPress(mouse math.Vector2, rect math.Rect) {
 	track := c.scrollTrack(rect)
-	contentH := float64(len(fields)+1) * c.RowHeight
-	max := c.maxScroll(fields)
+	contentH := float64(c.rowCount()) * c.RowHeight
+	max := c.maxScroll()
 	thumb, ok := scrollThumb(track, contentH, c.scroll, max)
 	if !ok {
 		return
@@ -370,11 +479,10 @@ func (c *ComponentArgsComponent) handleScrollbarPress(mouse math.Vector2, fields
 }
 
 // maxScroll returns the scroll offset at which the last argument row is just visible.
-// The row count includes the leading name row, so it is len(fields)+1.
-func (c *ComponentArgsComponent) maxScroll(fields []argField) float64 {
-	rows := len(fields) + 1
+// The row count comes from rowCount(), which accounts for the Sprite's fixed layout.
+func (c *ComponentArgsComponent) maxScroll() float64 {
 	body := c.Rect().Height() - c.titleH() - c.requiresH()
-	if m := float64(rows)*c.RowHeight - body; m > 0 {
+	if m := float64(c.rowCount())*c.RowHeight - body; m > 0 {
 		return m
 	}
 	return 0
@@ -411,14 +519,37 @@ func (c *ComponentArgsComponent) Draw(r core.Renderer) {
 	// are cut off rather than blinking out whole — a realistic scroll feel. Editable
 	// rows are drawn by their widgets (layer 1, above this chrome); the host draws the
 	// name label and any read-only value.
-	fields := enumerateArgs(c.target)
 	bodyTop := rect.Y() + c.titleH()
 	body := math.NewRect(rect.X(), bodyTop, rect.Width(), rect.Height()-c.titleH()-c.requiresH())
 	r.SetClipRect(body)
 	valX := rect.X() + rect.Width()/2
 
-	// Name row (row 0): the label is drawn here; the value is an editable widget built
-	// in rebuildRows.
+	if c.isSprite() {
+		c.drawSpriteRows(r, rect, bodyTop, valX, th)
+	} else {
+		c.drawGenericRows(r, rect, bodyTop, valX, th)
+	}
+
+	// Scrollbar, drawn on top when the argument list overflows the body.
+	r.SetClipRect(rect)
+	track := c.scrollTrack(rect)
+	if thumb, ok := scrollThumb(track, float64(c.rowCount())*c.RowHeight, c.scroll, c.maxScroll()); ok {
+		drawScrollbar(r, track, thumb, c.ScrollTrack, c.ScrollThumb)
+	}
+
+	// "requires" footer: the component's declared dependencies, below the scroll area.
+	c.drawRequiresFooter(r, rect, th)
+
+	r.ClearClip()
+}
+
+// drawGenericRows draws the non-Sprite argument rows: the name label plus one label per
+// reflected field, with read-only values rendered by the host (editable values are drawn
+// by their widgets on layer 1).
+func (c *ComponentArgsComponent) drawGenericRows(r core.Renderer, rect math.Rect, bodyTop, valX, th float64) {
+	fields := enumerateArgs(c.target)
+
+	// Name row (row 0).
 	if y := bodyTop - c.scroll; y+c.RowHeight > bodyTop && y < rect.Y()+rect.Height() {
 		ty := y + (c.RowHeight-th)/2
 		if ty < y {
@@ -429,8 +560,6 @@ func (c *ComponentArgsComponent) Draw(r core.Renderer) {
 
 	for i, f := range fields {
 		y := bodyTop + float64(i+1)*c.RowHeight - c.scroll
-		// Skip only rows fully scrolled out of the body; a partly-visible row is drawn
-		// and clipped to `body`.
 		if y+c.RowHeight <= bodyTop || y >= rect.Y()+rect.Height() {
 			continue
 		}
@@ -438,7 +567,6 @@ func (c *ComponentArgsComponent) Draw(r core.Renderer) {
 		if ty < y {
 			ty = y
 		}
-
 		r.DrawText(f.name, c.FontID, c.FontSize, math.NewVector2(rect.X()+6, ty), c.KeyText)
 
 		if !f.editable {
@@ -453,18 +581,104 @@ func (c *ComponentArgsComponent) Draw(r core.Renderer) {
 			r.DrawText(val, c.FontID, c.FontSize, math.NewVector2(valX, ty), color)
 		}
 	}
+}
 
-	// Scrollbar, drawn on top when the argument list overflows the body.
-	r.SetClipRect(rect)
-	track := c.scrollTrack(rect)
-	if thumb, ok := scrollThumb(track, float64(len(fields)+1)*c.RowHeight, c.scroll, c.maxScroll(fields)); ok {
-		drawScrollbar(r, track, thumb, c.ScrollTrack, c.ScrollThumb)
+// drawSpriteRows draws the Sprite's grouped layout chrome: field labels, separator lines
+// between related groups, and dimmed read-only values for the animator-managed fields
+// (visible/flip/frame) when a sprite is driven by an Animator. Editable values are drawn
+// by their widgets on layer 1.
+func (c *ComponentArgsComponent) drawSpriteRows(r core.Renderer, rect math.Rect, bodyTop, valX, th float64) {
+	spr, _ := c.target.(*Sprite)
+	managed := spriteManagedByAnimator(spr)
+
+	drawLabel := func(row int, label string) {
+		y := bodyTop + float64(row)*c.RowHeight - c.scroll
+		if y+c.RowHeight <= bodyTop || y >= rect.Y()+rect.Height() {
+			return
+		}
+		ty := y + (c.RowHeight-th)/2
+		if ty < y {
+			ty = y
+		}
+		r.DrawText(label, c.FontID, c.FontSize, math.NewVector2(rect.X()+6, ty), c.KeyText)
 	}
 
-	// "requires" footer: the component's declared dependencies, below the scroll area.
-	c.drawRequiresFooter(r, rect, th)
+	// drawValue renders a locked (animator-managed) value, dimmed so it reads as inert.
+	drawValue := func(row int, value string) {
+		y := bodyTop + float64(row)*c.RowHeight - c.scroll
+		if y+c.RowHeight <= bodyTop || y >= rect.Y()+rect.Height() {
+			return
+		}
+		ty := y + (c.RowHeight-th)/2
+		if ty < y {
+			ty = y
+		}
+		r.DrawText(value, c.FontID, c.FontSize, math.NewVector2(valX, ty), c.ValueText.Lerp(c.Background, 0.55))
+	}
 
-	r.ClearClip()
+	// drawCheck renders a locked (animator-managed) boolean as a dimmed read-only
+	// checkbox: just the box plus a check mark when set, no label. It mirrors the
+	// editable checkbox's value-column placement (partWidth/partX) so locked and
+	// editable rows line up.
+	drawCheck := func(row, col, parts int, checked bool) {
+		y := bodyTop + float64(row)*c.RowHeight - c.scroll
+		if y+c.RowHeight <= bodyTop || y >= rect.Y()+rect.Height() {
+			return
+		}
+		valueW := rect.Width()/2 - 8
+		pw := partWidth(valueW, parts)
+		x := partX(valX, col, pw)
+		box := math.NewRect(x, y, c.RowHeight, c.RowHeight)
+		dim := c.ValueText.Lerp(c.Background, 0.55)
+		r.DrawRect(box, c.Background)
+		r.DrawRectOutline(box, dim, 1)
+		if checked {
+			t := c.RowHeight * 0.12
+			if t < 1 {
+				t = 1
+			}
+			p1 := math.NewVector2(box.Left()+box.Width()*0.22, box.Top()+box.Height()*0.55)
+			p2 := math.NewVector2(box.Left()+box.Width()*0.42, box.Top()+box.Height()*0.78)
+			p3 := math.NewVector2(box.Left()+box.Width()*0.80, box.Top()+box.Height()*0.26)
+			r.DrawLine(p1, p2, dim, t)
+			r.DrawLine(p2, p3, dim, t)
+		}
+	}
+
+	drawSeparator := func(row int) {
+		sepY := bodyTop + float64(row)*c.RowHeight - c.scroll + c.RowHeight/2
+		r.DrawLine(math.NewVector2(rect.X()+4, sepY), math.NewVector2(rect.X()+rect.Width()-10, sepY), c.BorderColor, 1)
+	}
+
+	drawLabel(0, "name")
+	drawLabel(1, "draw_layer")
+	drawLabel(2, "group")
+	drawSeparator(3)
+	drawLabel(4, "offset")
+
+	drawLabel(5, "visible")
+	drawLabel(6, "flip")
+	if managed {
+		// Locked (animator-managed) booleans render as dimmed read-only checkboxes —
+		// just the box and check mark, no label — so they read as inert but still show
+		// the live value.
+		drawCheck(5, 0, 1, spr.IsVisible())
+		drawCheck(6, 0, 2, spr.FlipX)
+		drawCheck(6, 1, 2, spr.FlipY)
+	}
+
+	drawLabel(7, "color")
+	drawLabel(8, "size")
+	drawSeparator(9)
+	drawLabel(10, "texture")
+
+	if spr != nil && spr.Texture != "" {
+		drawLabel(11, "frame size")
+		drawLabel(12, "frame #")
+		if managed {
+			drawValue(12, formatFloat(float64(spr.Frame)))
+		}
+	}
 }
 
 // drawRequiresFooter draws the "requires" footer at the bottom of the window: the
@@ -494,38 +708,18 @@ func (c *ComponentArgsComponent) drawRequiresFooter(r core.Renderer, rect math.R
 // ============================================================================
 
 // rebuildRows detaches the old argument widgets and builds fresh ones from the target
-// component's current reflection schema. Called only on Open (a structural change);
-// never per-frame, or a focused widget would lose focus every frame.
+// component's current reflection schema. Called only on Open or a Sprite tab switch (a
+// structural change); never per-frame, or a focused widget would lose focus every frame.
 func (c *ComponentArgsComponent) rebuildRows() {
 	c.removeWidgets()
 	c.bindings = nil
 	if c.target == nil {
 		return
 	}
-	fields := enumerateArgs(c.target)
-	rect := c.Rect()
-	valX := rect.X() + rect.Width()/2
-	valueW := rect.Width()/2 - 8 // leave room for the scrollbar
-
-	// The name row (row 0) is not a reflected JSON arg — it edits the component's own
-	// name, so it is built as a dedicated binding ahead of the reflected fields.
-	nb := c.buildNameBinding()
-	nb.widget = makeFieldWidget(&nb, c.GetOwner(), math.NewVector2(valX, rect.Y()+c.titleH()-c.scroll), valueW, c.RowHeight, c.FontID, c.FontSize, c.ValueText)
-	c.bindings = append(c.bindings, nb)
-
-	for i := range fields {
-		f := &fields[i]
-		if !f.editable {
-			continue
-		}
-		for _, b := range c.bindingsFor(*f) {
-			b.row = i + 1 // row 0 is the name row
-			pw := partWidth(valueW, b.parts)
-			x := partX(valX, b.col, pw)
-			y := rect.Y() + c.titleH() + float64(i+1)*c.RowHeight - c.scroll
-			b.widget = makeFieldWidget(&b, c.GetOwner(), math.NewVector2(x, y), pw, c.RowHeight, c.FontID, c.FontSize, c.ValueText)
-			c.bindings = append(c.bindings, b)
-		}
+	if c.isSprite() {
+		c.buildSpriteBindings()
+	} else {
+		c.buildGenericBindings()
 	}
 
 	// Every commit here (the component's name or any of its args) mutates the .obj-owned
@@ -535,6 +729,244 @@ func (c *ComponentArgsComponent) rebuildRows() {
 	for i := range c.bindings {
 		c.bindings[i].afterApply = func() { persistObjectFile(owner) }
 	}
+
+	// Record the Sprite's textured state so a later texture commit can detect empty↔set
+	// and rebuild the rows (frame-size / frame-# only exist when textured).
+	if c.isSprite() {
+		c.spriteTextured = c.target.(*Sprite).Texture != ""
+		// Record whether the sprite is animator-managed so a change in management (an
+		// Animator added, or a clip naming this sprite) rebuilds the rows and locks the
+		// visible/flip/frame fields at once.
+		c.spriteManaged = spriteManagedByAnimator(c.target.(*Sprite))
+	}
+}
+
+// placeBinding positions b's widget at its row/col slot and appends it to c.bindings.
+func (c *ComponentArgsComponent) placeBinding(b fieldBinding) {
+	rect := c.Rect()
+	valX := rect.X() + rect.Width()/2
+	valueW := rect.Width()/2 - 8 // leave room for the scrollbar
+	pw := partWidth(valueW, b.parts)
+	x := partX(valX, b.col, pw)
+	y := rect.Y() + c.titleH() + float64(b.row)*c.RowHeight - c.scroll
+	b.widget = makeFieldWidget(&b, c.GetOwner(), math.NewVector2(x, y), pw, c.RowHeight, c.FontID, c.FontSize, c.ValueText)
+	c.bindings = append(c.bindings, b)
+}
+
+// buildGenericBindings builds the name binding plus one binding per reflected editable
+// field, in declaration order (the non-Sprite path).
+func (c *ComponentArgsComponent) buildGenericBindings() {
+	// The name row (row 0) is not a reflected JSON arg — it edits the component's own
+	// name, so it is built as a dedicated binding ahead of the reflected fields.
+	c.placeBinding(c.buildNameBinding())
+
+	fields := enumerateArgs(c.target)
+	for i := range fields {
+		f := &fields[i]
+		if !f.editable {
+			continue
+		}
+		for _, b := range c.bindingsFor(*f) {
+			b.row = i + 1 // row 0 is the name row
+			c.placeBinding(b)
+		}
+	}
+}
+
+// spriteField returns the reflected arg field of the Sprite target with the given json
+// name (draw_layer/group/texture/offset/...).
+func (c *ComponentArgsComponent) spriteField(name string) (argField, bool) {
+	for _, f := range enumerateArgs(c.target) {
+		if f.name == name {
+			return f, true
+		}
+	}
+	return argField{}, false
+}
+
+// placePair builds the field `name` as a two-part side-by-side binding at `row` with the
+// given part column (0 = left, 1 = right).
+func (c *ComponentArgsComponent) placePair(name string, col, row int) {
+	f, ok := c.spriteField(name)
+	if !ok {
+		return
+	}
+	for _, b := range c.bindingsFor(f) {
+		b.row = row
+		b.col = col
+		b.parts = 2
+		c.placeBinding(b)
+	}
+}
+
+// buildSpriteBindings builds the Sprite's custom grouped layout:
+//
+//	0 name, 1 draw_layer, 2 group, 3 separator, 4 offset, 5 visible, 6 flip, 7 color,
+//	8 size, 9 separator, 10 texture, then (texture only) 11 frame size, 12 frame #.
+//
+// visible/flip/frame are omitted (locked) when an Animator drives this sprite, so their
+// rows show as dimmed read-only values instead of widgets.
+func (c *ComponentArgsComponent) buildSpriteBindings() {
+	spr, _ := c.target.(*Sprite)
+	managed := spriteManagedByAnimator(spr)
+
+	c.placeBinding(c.buildNameBinding()) // row 0
+
+	if f, ok := c.spriteField("draw_layer"); ok {
+		for _, b := range c.bindingsFor(f) {
+			b.row = 1
+			c.placeBinding(b)
+		}
+	}
+	if f, ok := c.spriteField("group"); ok {
+		for _, b := range c.bindingsFor(f) {
+			b.row = 2
+			c.placeBinding(b)
+		}
+	}
+	// offset (Vector2, two side-by-side boxes) is always editable.
+	if f, ok := c.spriteField("offset"); ok {
+		for _, b := range c.bindingsFor(f) {
+			b.row = 4
+			c.placeBinding(b)
+		}
+	}
+
+	// visible (checkbox) and flip are editable unless the animator owns them.
+	if !managed {
+		c.placeBinding(c.visibleBinding()) // row 5
+		c.placePair("flip_x", 0, 6)
+		c.placePair("flip_y", 1, 6)
+	}
+
+	// color (tint) and size are never animator-owned.
+	c.placeBinding(c.tintBinding()) // row 7
+	c.placePair("width", 0, 8)
+	c.placePair("height", 1, 8)
+
+	// texture (row 10), then the texture-only frame rows.
+	if f, ok := c.spriteField("texture"); ok {
+		for _, b := range c.bindingsFor(f) {
+			b.row = 10
+			c.placeBinding(b)
+		}
+	}
+	if spr != nil && spr.Texture != "" {
+		c.placePair("frame_width", 0, 11)
+		c.placePair("frame_height", 1, 11)
+		if !managed {
+			c.placeBinding(c.frameSliderBinding()) // row 12
+		}
+	}
+}
+
+// frameSliderBinding builds the Sprite's `frame` argument as an integer slider bounded
+// 0..FrameCount()-1 (the max follows the texture size once it loads).
+func (c *ComponentArgsComponent) frameSliderBinding() fieldBinding {
+	spr := c.target.(*Sprite)
+	b := fieldBinding{
+		key:   "frame",
+		row:   12,
+		parts: 1,
+		kind:  kindSlider,
+		get:   func() string { return formatFloat(float64(spr.Frame)) },
+		apply: func(s string) error {
+			v, err := parseFloat(s)
+			if err != nil {
+				return err
+			}
+			spr.Frame = int(v)
+			return nil
+		},
+		getFloat:   func() float64 { return float64(spr.Frame) },
+		sliderMin:  func() float64 { return 0 },
+		sliderMax:  func() float64 { return float64(spr.FrameCount() - 1) },
+		sliderStep: 1,
+	}
+	b.old = b.get()
+	return b
+}
+
+// tintBinding builds the Sprite's `color` argument as a color picker bound to the color
+// transform's Tint (the multiply color). An unset Tint reads as white (identity).
+func (c *ComponentArgsComponent) tintBinding() fieldBinding {
+	spr := c.target.(*Sprite)
+	tint := func() math.Color {
+		if spr.Color.Tint == (math.Color{}) {
+			return math.White
+		}
+		return spr.Color.Tint
+	}
+	b := fieldBinding{
+		key:   "color",
+		row:   7,
+		parts: 1,
+		kind:  kindColor,
+		get:   func() string { return formatColorHex(tint()) },
+		apply: func(s string) error {
+			col, err := math.ParseHex(s)
+			if err != nil {
+				return err
+			}
+			spr.Color.Tint = col
+			return nil
+		},
+		getColor: tint,
+	}
+	b.old = b.get()
+	return b
+}
+
+// visibleBinding builds the Sprite's `visible` argument as a checkbox. `visible` is a
+// *bool (nil = default true), so it is not reflection-editable; it is bound here through
+// IsVisible/SetVisible instead. Only built when the sprite is not animator-managed.
+func (c *ComponentArgsComponent) visibleBinding() fieldBinding {
+	spr := c.target.(*Sprite)
+	b := fieldBinding{
+		key:   "visible",
+		row:   5,
+		parts: 1,
+		kind:  kindCheck,
+		get:   func() string { return strconv.FormatBool(spr.IsVisible()) },
+		apply: func(s string) error {
+			v, err := parseBool(s)
+			if err != nil {
+				return err
+			}
+			spr.SetVisible(v)
+			return nil
+		},
+		getBool: func() bool { return spr.IsVisible() },
+	}
+	b.old = b.get()
+	return b
+}
+
+// browseTexture opens the project file browser to pick the sprite's texture image. On
+// selection the chosen project-relative path commits through the texture binding (so it
+// records undo and resets the sprite's cached texture size via the binding's apply). It
+// is a no-op when no scene is available or a modal is already up.
+func (c *ComponentArgsComponent) browseTexture() {
+	scene := c.GetScene()
+	if scene == nil || modalOpen() {
+		return
+	}
+	idx := -1
+	for i := range c.bindings {
+		if c.bindings[i].key == "texture" {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return
+	}
+	spawnFilePicker(scene, func(rel string) bool { return fileTypeOf(rel) == "image" },
+		func(rel string) {
+			if idx < len(c.bindings) {
+				_ = commitString(&c.bindings[idx], rel)
+			}
+		})
 }
 
 // buildNameBinding returns the field binding for the component's name. get/apply read
@@ -565,6 +997,33 @@ func (c *ComponentArgsComponent) buildNameBinding() fieldBinding {
 	}
 	b.old = b.get()
 	return b
+}
+
+// spriteManagedByAnimator reports whether the sprite is driven by an Animator on the
+// same owner (its component name appears in any animator clip). Such a sprite's visible,
+// frame, and flip fields are owned by the animator and are locked (dimmed, non-editable)
+// in the args window.
+func spriteManagedByAnimator(spr *Sprite) bool {
+	if spr == nil {
+		return false
+	}
+	owner := spr.GetOwner()
+	if owner == nil {
+		return false
+	}
+	name := spr.GetName()
+	for _, comp := range owner.ComponentsInDrawOrder() {
+		anim, ok := comp.(*Animator)
+		if !ok {
+			continue
+		}
+		for _, clip := range anim.Clips {
+			if clip.Sprite == name {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // clipSpriteNames returns the distinct sprite names named by the animator's clips, in
@@ -615,6 +1074,59 @@ func (c *ComponentArgsComponent) bindingsFor(f argField) []fieldBinding {
 		}
 	}
 
+	// The Animator's `flip_x`/`flip_y` booleans must go through SetFlipX/SetFlipY (not a
+	// raw reflect write) so the flip is applied to every managed sprite immediately.
+	if (f.name == "flip_x" || f.name == "flip_y") && fv.Kind() == reflect.Bool {
+		if anim, ok := c.target.(*Animator); ok {
+			apply := func(s string) error {
+				v, err := parseBool(s)
+				if err != nil {
+					return err
+				}
+				if f.name == "flip_x" {
+					anim.SetFlipX(v)
+				} else {
+					anim.SetFlipY(v)
+				}
+				return nil
+			}
+			b := fieldBinding{
+				key:     f.name,
+				parts:   1,
+				kind:    kindCheck,
+				get:     func() string { return formatArg(fv) },
+				apply:   apply,
+				getBool: func() bool { return fv.Bool() },
+			}
+			b.old = b.get()
+			return []fieldBinding{b}
+		}
+	}
+
+	// A Sprite's `texture` is a project-relative file path: it is a file-selector
+	// button (kindFile) that opens the project browser, not a free-text box. Committing
+	// a new path also resets the sprite's cached texture size so the new image loads
+	// immediately (undo/redo re-apply the same setter).
+	if f.name == "texture" {
+		if spr, ok := c.target.(*Sprite); ok {
+			b := fieldBinding{
+				key:   f.name,
+				parts: 1,
+				kind:  kindFile,
+				get:   func() string { return spr.Texture },
+				apply: func(s string) error {
+					spr.SetTexture(s)
+					spr.ResetTexture()
+					return nil
+				},
+				fileFilter: func(rel string) bool { return fileTypeOf(rel) == "image" },
+			}
+			b.onBrowse = func() { c.browseTexture() }
+			b.old = b.get()
+			return []fieldBinding{b}
+		}
+	}
+
 	switch {
 	case t == reflect.TypeOf(math.Color{}):
 		b := fieldBinding{
@@ -657,21 +1169,6 @@ func (c *ComponentArgsComponent) bindingsFor(f argField) []fieldBinding {
 			kind:  kindText,
 			get:   func() string { return formatArg(fv) },
 			apply: func(s string) error { return setArg(fv, s) },
-		}
-		// A sprite's texture path must take effect immediately: clear the sprite's
-		// cached texture size as soon as the path is committed, so the next Draw loads
-		// and shows the new image at once. Undo/redo re-apply the same wrapped setter,
-		// so the reload stays consistent there too.
-		if f.name == "texture" {
-			if spr, ok := c.target.(*Sprite); ok {
-				b.apply = func(s string) error {
-					if err := setArg(fv, s); err != nil {
-						return err
-					}
-					spr.ResetTexture()
-					return nil
-				}
-			}
 		}
 		b.old = b.get()
 		return []fieldBinding{b}

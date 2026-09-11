@@ -41,6 +41,20 @@ type Renderer struct {
 	// at logical resolution and upscaled, matching textures (see chunky()).
 	smoothShapes bool
 
+	// smoothRotation opts texture rotation into framebuffer-resolution (fine)
+	// rasterization. When false (the default) rotated textures render "chunky":
+	// rasterized at logical resolution and upscaled, so rotation is quantized to
+	// logical pixels (pixel-perfect) instead of sampled at sub-unit precision.
+	smoothRotation bool
+
+	// Object transform (local -> world), applied in addition to the camera while a
+	// non-UI object is drawing (see SetObjectTransform). objActive is false in
+	// normal rendering, in which case primitives operate in raw world space.
+	objActive bool
+	objPos    math.Vector2
+	objRot    float64
+	objScale  math.Vector2
+
 	// shapeCache caches logical-resolution rasterizations of vector shapes. A
 	// shape's chunky pixels depend only on its geometry and color — not its
 	// position — so the same buffer is reused every frame (like the texture cache).
@@ -84,6 +98,16 @@ func newRenderer() *Renderer {
 	}
 }
 
+// whiteImage is a 1x1 opaque white image used as the solid source for the
+// triangle-based polygon fills (rotated rects). Vertex colors carry the actual
+// color, so the source is always white. It follows the same package-init pattern
+// as the vector package's own white image, so it is safe to create up front.
+var whiteImage = func() *ebiten.Image {
+	img := ebiten.NewImage(1, 1)
+	img.WritePixels([]byte{0xff, 0xff, 0xff, 0xff})
+	return img
+}()
+
 // begin sets the frame's draw target (called once per frame by the runner).
 func (r *Renderer) begin(target *ebiten.Image) {
 	r.target = target
@@ -107,6 +131,12 @@ func (r *Renderer) setPixelScale(ppu float64) {
 // rasterization. The default is false: shapes render chunky.
 func (r *Renderer) setSmoothShapes(smooth bool) {
 	r.smoothShapes = smooth
+}
+
+// setSmoothRotation opts texture rotation into fine (framebuffer-resolution)
+// rasterization. The default is false: rotated textures render chunky.
+func (r *Renderer) setSmoothRotation(smooth bool) {
+	r.smoothRotation = smooth
 }
 
 // chunky reports whether vector shapes should rasterize at logical resolution
@@ -184,6 +214,201 @@ func (r *Renderer) SetCamera(cx, cy, zoom float64) {
 	r.camZoom = zoom
 }
 
+// SetObjectTransform applies a world-space object transform to subsequent draw
+// calls (see core.Renderer). Object.Draw sets it before drawing a non-UI object's
+// components; ClearObjectTransform removes it.
+func (r *Renderer) SetObjectTransform(pos math.Vector2, rotation float64, scale math.Vector2) {
+	r.objActive = true
+	r.objPos = pos
+	r.objRot = rotation
+	r.objScale = scale
+}
+
+// ClearObjectTransform removes any object transform set by SetObjectTransform.
+func (r *Renderer) ClearObjectTransform() {
+	r.objActive = false
+}
+
+// objectToWorld maps a local-space point to world space under the active object
+// transform (scale -> rotate -> translate), matching math.Transform.LocalToWorld.
+// It returns the point unchanged when no object transform is active.
+func (r *Renderer) objectToWorld(p math.Vector2) math.Vector2 {
+	if !r.objActive {
+		return p
+	}
+	// Fast path for the common unrotated, unit-scale object: a plain translate, no
+	// trig. The object transform is applied to every non-UI object every frame, so
+	// this keeps that path cheap.
+	if r.objScale.X == 1 && r.objScale.Y == 1 && r.objRot == 0 {
+		return math.NewVector2(p.X+r.objPos.X, p.Y+r.objPos.Y)
+	}
+	x := p.X * r.objScale.X
+	y := p.Y * r.objScale.Y
+	cos, sin := stdmath.Cos(r.objRot), stdmath.Sin(r.objRot)
+	return math.NewVector2(
+		r.objPos.X+x*cos-y*sin,
+		r.objPos.Y+x*sin+y*cos,
+	)
+}
+
+// objectHasRotation reports whether the active object transform includes a
+// rotation that would turn axis-aligned local geometry into a rotated shape.
+func (r *Renderer) objectHasRotation() bool {
+	return r.objActive && r.objRot != 0
+}
+
+// objectRectCorners returns the four world-space corners (top-left, top-right,
+// bottom-right, bottom-left) of a local-space rectangle under the active object
+// transform. It is used to draw a rect as a rotated polygon when the object has
+// rotation, since the axis-aligned local rect becomes a rotated quad in world space.
+func (r *Renderer) objectRectCorners(rect math.Rect) [4]math.Vector2 {
+	x, y := rect.X(), rect.Y()
+	w, h := rect.Width(), rect.Height()
+	return [4]math.Vector2{
+		r.objectToWorld(math.NewVector2(x, y)),
+		r.objectToWorld(math.NewVector2(x+w, y)),
+		r.objectToWorld(math.NewVector2(x+w, y+h)),
+		r.objectToWorld(math.NewVector2(x, y+h)),
+	}
+}
+
+// rectToWorld maps a local-space rectangle to its world-space axis-aligned bounding
+// box under the active object transform. It is only correct when the transform has
+// no rotation (a scale+translate keeps the rect axis-aligned); callers branch on
+// objectHasRotation first. Corner AABB handles negative object scale (mirror).
+func (r *Renderer) rectToWorld(rect math.Rect) math.Rect {
+	c := r.objectRectCorners(rect)
+	minX := stdmath.Min(stdmath.Min(c[0].X, c[1].X), stdmath.Min(c[2].X, c[3].X))
+	minY := stdmath.Min(stdmath.Min(c[0].Y, c[1].Y), stdmath.Min(c[2].Y, c[3].Y))
+	maxX := stdmath.Max(stdmath.Max(c[0].X, c[1].X), stdmath.Max(c[2].X, c[3].X))
+	maxY := stdmath.Max(stdmath.Max(c[0].Y, c[1].Y), stdmath.Max(c[2].Y, c[3].Y))
+	return math.NewRect(minX, minY, maxX-minX, maxY-minY)
+}
+
+// objectRadiusScale returns the factor to scale a circle's radius by under the active
+// object transform. A circle stays a circle under rotation, so only scale affects it;
+// non-uniform scale is approximated by the geometric mean of the axis scales (exact
+// for uniform scale, which is the common case).
+func (r *Renderer) objectRadiusScale() float64 {
+	if !r.objActive {
+		return 1
+	}
+	return stdmath.Sqrt(stdmath.Abs(r.objScale.X * r.objScale.Y))
+}
+
+// fillPolygonScreen rasterizes a filled convex polygon given its screen-space
+// vertices, triangulated as a fan from the first vertex. Vertex colors carry the
+// fill color (premultiplied), matching the vector package's FillCircle path.
+func (r *Renderer) fillPolygonScreen(pts []math.Vector2, c math.Color) {
+	if r.target == nil || len(pts) < 3 {
+		return
+	}
+	cr, cg, cb, ca := toRGBA(c).RGBA()
+	crf := float32(cr) / 0xffff
+	cgf := float32(cg) / 0xffff
+	cbf := float32(cb) / 0xffff
+	caf := float32(ca) / 0xffff
+	vs := make([]ebiten.Vertex, 0, len(pts))
+	for _, p := range pts {
+		vs = append(vs, ebiten.Vertex{
+			DstX:   float32(p.X),
+			DstY:   float32(p.Y),
+			SrcX:   0,
+			SrcY:   0,
+			ColorR: crf,
+			ColorG: cgf,
+			ColorB: cbf,
+			ColorA: caf,
+		})
+	}
+	is := make([]uint16, 0, 3*(len(pts)-2))
+	for i := 2; i < len(pts); i++ {
+		is = append(is, 0, uint16(i-1), uint16(i))
+	}
+	op := &ebiten.DrawTrianglesOptions{}
+	op.ColorScaleMode = ebiten.ColorScaleModePremultipliedAlpha
+	r.target.DrawTriangles(vs, is, whiteImage, op)
+}
+
+// drawFilledPolygonWorld draws a filled convex quadrilateral (world-space corners)
+// with the given color, honoring the smooth/chunky shape setting. The smooth path
+// rasterizes directly at framebuffer resolution; the chunky path rasterizes at
+// logical resolution and blits upscaled, so the polygon's pixel pattern stays
+// stable and pixel-perfect.
+func (r *Renderer) drawFilledPolygonWorld(corners [4]math.Vector2, c math.Color) {
+	if r.chunky() {
+		r.drawFilledPolygonChunky(corners, c)
+		return
+	}
+	pts := make([]math.Vector2, 4)
+	for i := range corners {
+		pts[i] = r.screenPos(corners[i])
+	}
+	r.fillPolygonScreen(pts, c)
+}
+
+// drawFilledPolygonChunky rasterizes a filled polygon at logical resolution (its
+// corners quantized to whole units, so its pixel pattern is deterministic regardless
+// of fractional motion) and blits it upscaled — the chunky analog of drawRectChunky
+// for rotated shapes. The cache key encodes the full quantized shape, since a rotated
+// rect's pattern depends on more than just its bounding-box size.
+func (r *Renderer) drawFilledPolygonChunky(corners [4]math.Vector2, c math.Color) {
+	var q [4]math.Vector2
+	for i := range corners {
+		q[i] = math.NewVector2(stdmath.Round(corners[i].X), stdmath.Round(corners[i].Y))
+	}
+	minX, minY := q[0].X, q[0].Y
+	maxX, maxY := q[0].X, q[0].Y
+	for _, p := range q[1:] {
+		minX = stdmath.Min(minX, p.X)
+		minY = stdmath.Min(minY, p.Y)
+		maxX = stdmath.Max(maxX, p.X)
+		maxY = stdmath.Max(maxY, p.Y)
+	}
+	bw := int(maxX - minX)
+	bh := int(maxY - minY)
+	if bw <= 0 || bh <= 0 {
+		return
+	}
+	key := fmt.Sprintf("poly:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%s",
+		bw, bh,
+		int(q[0].X-minX), int(q[0].Y-minY),
+		int(q[1].X-minX), int(q[1].Y-minY),
+		int(q[2].X-minX), int(q[2].Y-minY),
+		int(q[3].X-minX), int(q[3].Y-minY),
+		colorKey(c))
+	img := r.chunkySprite(key, bw, bh, func(dst *ebiten.Image) {
+		pts := []math.Vector2{
+			math.NewVector2(q[0].X-minX, q[0].Y-minY),
+			math.NewVector2(q[1].X-minX, q[1].Y-minY),
+			math.NewVector2(q[2].X-minX, q[2].Y-minY),
+			math.NewVector2(q[3].X-minX, q[3].Y-minY),
+		}
+		cr, cg, cb, ca := toRGBA(c).RGBA()
+		crf := float32(cr) / 0xffff
+		cgf := float32(cg) / 0xffff
+		cbf := float32(cb) / 0xffff
+		caf := float32(ca) / 0xffff
+		vs := make([]ebiten.Vertex, 0, 4)
+		for _, p := range pts {
+			vs = append(vs, ebiten.Vertex{
+				DstX:   float32(p.X),
+				DstY:   float32(p.Y),
+				SrcX:   0,
+				SrcY:   0,
+				ColorR: crf,
+				ColorG: cgf,
+				ColorB: cbf,
+				ColorA: caf,
+			})
+		}
+		op := &ebiten.DrawTrianglesOptions{}
+		op.ColorScaleMode = ebiten.ColorScaleModePremultipliedAlpha
+		dst.DrawTriangles(vs, []uint16{0, 1, 2, 0, 2, 3}, whiteImage, op)
+	})
+	r.blitChunky(img, math.NewVector2(minX, minY), math.NewVector2(0, 0))
+}
+
 // screenPos maps a world point to screen coordinates under the current camera,
 // shifted into the clip offscreen's coordinate space when a clip is active.
 func (r *Renderer) screenPos(p math.Vector2) math.Vector2 {
@@ -249,6 +474,13 @@ func (r *Renderer) DrawRect(rect math.Rect, c math.Color) {
 	if r.target == nil {
 		return
 	}
+	if r.objActive {
+		if r.objectHasRotation() {
+			r.drawFilledPolygonWorld(r.objectRectCorners(rect), c)
+			return
+		}
+		rect = r.rectToWorld(rect)
+	}
 	if r.chunky() {
 		r.drawRectChunky(rect, c)
 		return
@@ -286,6 +518,18 @@ func (r *Renderer) drawRectChunky(rect math.Rect, c math.Color) {
 func (r *Renderer) DrawRectOutline(rect math.Rect, c math.Color, thickness float64) {
 	if r.target == nil {
 		return
+	}
+	if r.objActive {
+		if r.objectHasRotation() {
+			// A rotated rect outline is just its four rotated edges.
+			corners := r.objectRectCorners(rect)
+			r.drawLineWorld(corners[0], corners[1], c, thickness)
+			r.drawLineWorld(corners[1], corners[2], c, thickness)
+			r.drawLineWorld(corners[2], corners[3], c, thickness)
+			r.drawLineWorld(corners[3], corners[0], c, thickness)
+			return
+		}
+		rect = r.rectToWorld(rect)
 	}
 	if r.chunky() {
 		r.drawRectOutlineChunky(rect, c, thickness)
@@ -336,10 +580,37 @@ func (r *Renderer) drawRectOutlineChunky(rect math.Rect, c math.Color, thickness
 	r.blitChunky(img, math.NewVector2(qx, qy), math.NewVector2(rect.Position.X-qx, rect.Position.Y-qy))
 }
 
+// DrawRectOutlineScreen draws a rectangle outline in screen space with a constant
+// on-screen thickness, independent of camera zoom. The rect's four corners are mapped
+// through the active object transform (if any) and then the camera and pixel scale, and
+// the edges are stroked directly at framebuffer resolution. This is the debug-overlay
+// counterpart to DrawRectOutline: a rotated/scaled world rect lands as its true on-screen
+// quad, thin and crisp at any zoom, rather than rasterizing at world resolution and
+// scaling with the camera (which reads blocky). It is used for editor-style overlays such
+// as a collider hitbox.
+func (r *Renderer) DrawRectOutlineScreen(rect math.Rect, c math.Color, thickness float64) {
+	if r.target == nil {
+		return
+	}
+	corners := r.objectRectCorners(rect)
+	p0 := r.screenPos(corners[0])
+	p1 := r.screenPos(corners[1])
+	p2 := r.screenPos(corners[2])
+	p3 := r.screenPos(corners[3])
+	r.drawLineScreen(p0, p1, c, thickness)
+	r.drawLineScreen(p1, p2, c, thickness)
+	r.drawLineScreen(p2, p3, c, thickness)
+	r.drawLineScreen(p3, p0, c, thickness)
+}
+
 // DrawCircle draws a filled circle.
 func (r *Renderer) DrawCircle(center math.Vector2, radius float64, c math.Color) {
 	if r.target == nil {
 		return
+	}
+	if r.objActive {
+		center = r.objectToWorld(center)
+		radius *= r.objectRadiusScale()
 	}
 	if r.chunky() {
 		r.drawCircleChunky(center, radius, c)
@@ -376,6 +647,10 @@ func (r *Renderer) drawCircleChunky(center math.Vector2, radius float64, c math.
 func (r *Renderer) DrawCircleOutline(center math.Vector2, radius float64, c math.Color, thickness float64) {
 	if r.target == nil {
 		return
+	}
+	if r.objActive {
+		center = r.objectToWorld(center)
+		radius *= r.objectRadiusScale()
 	}
 	if r.chunky() {
 		r.drawCircleOutlineChunky(center, radius, c, thickness)
@@ -414,6 +689,17 @@ func (r *Renderer) drawCircleOutlineChunky(center math.Vector2, radius float64, 
 
 // DrawLine draws a line between two points.
 func (r *Renderer) DrawLine(start, end math.Vector2, c math.Color, thickness float64) {
+	if r.objActive {
+		start = r.objectToWorld(start)
+		end = r.objectToWorld(end)
+	}
+	r.drawLineWorld(start, end, c, thickness)
+}
+
+// drawLineWorld draws a line between two world-space points (any object transform
+// has already been applied by DrawLine, or the points are already world-space as in
+// a rotated rect outline).
+func (r *Renderer) drawLineWorld(start, end math.Vector2, c math.Color, thickness float64) {
 	if r.target == nil {
 		return
 	}
@@ -428,6 +714,25 @@ func (r *Renderer) DrawLine(start, end math.Vector2, c math.Color, thickness flo
 		float32(s.X), float32(s.Y),
 		float32(e.X), float32(e.Y),
 		float32(thickness*z), toRGBA(c), false)
+}
+
+// drawLineScreen strokes a line between two screen-space points (already mapped through
+// the camera and pixel scale) at a constant on-screen thickness in logical units. Unlike
+// drawLineWorld, the thickness does NOT scale with camera zoom — the line stays thin and
+// crisp at any zoom, which is what debug overlays (a collider hitbox, a selection outline)
+// want. It bypasses the chunky path and strokes directly at framebuffer resolution.
+func (r *Renderer) drawLineScreen(start, end math.Vector2, c math.Color, thickness float64) {
+	if r.target == nil {
+		return
+	}
+	t := thickness * r.pixelScale
+	if t <= 0 {
+		return
+	}
+	vector.StrokeLine(r.target,
+		float32(start.X), float32(start.Y),
+		float32(end.X), float32(end.Y),
+		float32(t), toRGBA(c), false)
 }
 
 // drawLineChunky rasterizes the line at logical resolution and blits it upscaled.
@@ -487,36 +792,54 @@ func (r *Renderer) DrawTexture(textureID string, src math.Rect, position math.Ve
 		w, h = float64(b.Dx()), float64(b.Dy())
 	}
 
-	// Apply the camera: world position -> screen position, world scale -> screen
-	// scale. Rotation is unchanged (uniform zoom preserves angles).
-	pos := r.screenPos(position)
-	z := r.zoom()
-	sx := scale.X * z
-	sy := scale.Y * z
-
 	cx := w / 2
 	cy := h / 2
 
-	// Negative scale is used for flips. Mirror around the drawn image's center so a
-	// flipped sprite keeps the same bounding box (top-left at `pos`) instead of
-	// flipping around its top-left corner, which would shift it by one full drawn
-	// width/height.
-	px := pos.X
-	py := pos.Y
-	if sx < 0 {
-		px -= sx * w // sx is negative, so this adds the drawn width
+	// The image is drawn in local space: its top-left is at `position`, it is scaled
+	// by `scale`, and — when an object transform is active — the object's scale and
+	// rotation are folded in before the result is placed at the object's position.
+	// The local-space image center is the pivot, so rotation happens about the
+	// image's own origin (its center), independent of the object's position, and a
+	// negative scale mirrors around that center instead of shifting by a full drawn
+	// size.
+	sx := scale.X
+	sy := scale.Y
+	totalRot := rotation
+	if r.objActive {
+		sx *= r.objScale.X
+		sy *= r.objScale.Y
+		totalRot += r.objRot
 	}
-	if sy < 0 {
-		py -= sy * h
+	lsx, lsy := sx, sy // logical (pre-zoom) scale, for the chunky path
+
+	// centerLocal is the image center in local space. Absolute scale keeps a flipped
+	// sprite's top-left at `position`: a negative scale still spans |scale|*w, so the
+	// center is always the corner plus half the drawn size.
+	centerLocal := math.NewVector2(
+		position.X+cx*stdmath.Abs(scale.X),
+		position.Y+cy*stdmath.Abs(scale.Y),
+	)
+	centerWorld := r.objectToWorld(centerLocal)
+	centerScreen := r.screenPos(centerWorld)
+	z := r.zoom()
+	sx *= z
+	sy *= z
+
+	// Chunky rotation: rasterize the rotated image at logical resolution and blit it
+	// upscaled (like the shape pipeline), instead of rotating at framebuffer
+	// resolution. This snaps a rotated texture's pixels to the logical grid.
+	if !r.smoothRotation && totalRot != 0 {
+		r.drawTextureChunky(drawImg, cx, cy, lsx, lsy, totalRot, centerWorld, transform, hue)
+		return
 	}
 
-	// Anchor the (sub-)image at its center, apply scale and rotation, then place
-	// its top-left corner at `pos`.
+	// Anchor the (sub-)image at its center, apply scale and rotation, then place its
+	// center at the (object-transformed) center screen position.
 	var geoM ebiten.GeoM
 	geoM.Translate(-cx, -cy)
 	geoM.Scale(sx, sy)
-	geoM.Rotate(rotation)
-	geoM.Translate(px+cx*sx, py+cy*sy)
+	geoM.Rotate(totalRot)
+	geoM.Translate(centerScreen.X, centerScreen.Y)
 
 	// The common case is no color transform, so keep the plain texture shader path.
 	if transform.IsIdentity() {
@@ -526,6 +849,42 @@ func (r *Renderer) DrawTexture(textureID string, src math.Rect, position math.Ve
 
 	cm := toColorm(transform.Matrix(hue))
 	colorm.DrawImage(r.target, drawImg, cm, &colorm.DrawImageOptions{GeoM: geoM})
+}
+
+// drawTextureChunky rasterizes a rotated texture into a logical-resolution buffer
+// sized to its rotated AABB and blits it upscaled, so its pixels stay snapped to the
+// logical grid (pixel-perfect rotation). The buffer is minted per frame — chunky
+// rotation is opt-in and rare — and its sub-unit center offset is folded into the
+// blit position, matching the shape pipeline's quantization.
+func (r *Renderer) drawTextureChunky(drawImg *ebiten.Image, cx, cy, lsx, lsy, totalRot float64, centerWorld math.Vector2, transform math.ColorTransform, hue float64) {
+	cos := stdmath.Abs(stdmath.Cos(totalRot))
+	sin := stdmath.Abs(stdmath.Sin(totalRot))
+	extX := stdmath.Abs(lsx)*cx*cos + stdmath.Abs(lsy)*cy*sin
+	extY := stdmath.Abs(lsx)*cx*sin + stdmath.Abs(lsy)*cy*cos
+	bw := int(stdmath.Ceil(2 * extX))
+	bh := int(stdmath.Ceil(2 * extY))
+	if bw <= 0 || bh <= 0 {
+		return
+	}
+
+	buf := ebiten.NewImage(bw, bh)
+	var geoM ebiten.GeoM
+	geoM.Translate(-cx, -cy)
+	geoM.Scale(lsx, lsy)
+	geoM.Rotate(totalRot)
+	geoM.Translate(float64(bw)/2, float64(bh)/2)
+	if transform.IsIdentity() {
+		buf.DrawImage(drawImg, &ebiten.DrawImageOptions{GeoM: geoM})
+	} else {
+		cm := toColorm(transform.Matrix(hue))
+		colorm.DrawImage(buf, drawImg, cm, &colorm.DrawImageOptions{GeoM: geoM})
+	}
+
+	minX := centerWorld.X - extX
+	minY := centerWorld.Y - extY
+	worldMin := math.NewVector2(stdmath.Floor(minX), stdmath.Floor(minY))
+	frac := math.NewVector2(minX-stdmath.Floor(minX), minY-stdmath.Floor(minY))
+	r.blitChunky(buf, worldMin, frac)
 }
 
 // GetTextureSize returns the natural pixel size of a texture, loading it if

@@ -25,6 +25,32 @@ type WindowConfig struct {
 	PixelPerUnit int    `json:"pixel_per_unit"`
 	Scale        int    `json:"scale"`
 	SmoothShapes bool   `json:"smooth_shapes"`
+	// SmoothRotation opts texture rotation into framebuffer-resolution (smooth,
+	// sub-unit) rasterization. The default (true) rotates at pixel_per_unit
+	// resolution — the historical behavior. When false, rotation is quantized to
+	// logical pixels ("chunky"), so a rotated sprite stays pixel-perfect like the
+	// rest of the chunky shape pipeline.
+	SmoothRotation bool `json:"smooth_rotation"`
+}
+
+// UnmarshalJSON defaults SmoothRotation to true when the field is absent, so a
+// game.imge written before the flag existed keeps the historical smooth rotation
+// (rather than silently flipping to chunky). When present, its written value wins.
+func (w *WindowConfig) UnmarshalJSON(data []byte) error {
+	type windowAlias WindowConfig
+	aux := struct {
+		*windowAlias
+		SmoothRotation *bool `json:"smooth_rotation"`
+	}{windowAlias: (*windowAlias)(w)}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	if aux.SmoothRotation != nil {
+		w.SmoothRotation = *aux.SmoothRotation
+	} else {
+		w.SmoothRotation = true
+	}
+	return nil
 }
 
 // GameSettings represents game runtime settings.
@@ -45,6 +71,9 @@ func DefaultGameConfig() *GameConfig {
 			Width:        640,
 			Height:       360,
 			PixelPerUnit: 1,
+			// SmoothRotation defaults to true: rotation is smooth (sub-unit) at any
+			// pixel_per_unit, matching the historical texture-rotation behavior.
+			SmoothRotation: true,
 		},
 		Game: GameSettings{
 			TargetFPS:    60,

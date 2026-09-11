@@ -110,10 +110,10 @@ func lookupMenuBar(scene *core.Scene) *MenuBarComponent {
 // constants replace per-label measurement in Update (Draw still measures text to
 // center it, but hit-testing must not depend on the renderer).
 const (
-	menuTabWidth    = 48.0
+	menuTabWidth    = 36.0
 	menuTabPadX     = 8.0
 	menuWidth       = 160.0
-	menuRowHeight   = 18.0
+	menuRowHeight   = 16.0
 	menuItemPadX    = 8.0
 	menuDropdownPad = 4.0 // vertical padding at the top/bottom of the dropdown
 )

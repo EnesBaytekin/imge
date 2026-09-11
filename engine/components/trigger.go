@@ -54,11 +54,10 @@ func (t *Trigger) Update(ctx *core.Context) {
 		return
 	}
 
-	bounds := t.GetBounds()
 	current := make(map[uint64]*core.Object)
 
 	for _, other := range shapeCandidates(owner, t.CollidesWith) {
-		if !overlapsAnyCollider(other, bounds) {
+		if !t.overlapsAnyCollider(other) {
 			continue
 		}
 		current[other.ID] = other
@@ -99,17 +98,24 @@ func (t *Trigger) GetSize() (width, height float64) {
 	return t.Width, t.Height
 }
 
-// CheckOverlap reports whether this trigger overlaps another trigger.
+// CheckOverlap reports whether this trigger overlaps another trigger, testing the two
+// rotated shapes directly (separating axis theorem) rather than their axis-aligned bounds.
 func (t *Trigger) CheckOverlap(other *Trigger) bool {
 	if other == nil {
 		return false
 	}
-	return t.GetBounds().Overlaps(other.GetBounds())
+	return quadOverlap(t.corners(), other.corners())
 }
 
-// ContainsPoint reports whether a point is inside this trigger.
+// ContainsPoint reports whether a point is inside this trigger's world-space shape — the
+// rotated/scaled quad for a transformed owner, not its enclosing AABB.
 func (t *Trigger) ContainsPoint(point math.Vector2) bool {
-	return t.GetBounds().ContainsPoint(point)
+	return shapeContainsPoint(t.GetOwner(), t.Width, t.Height, t.Offset, point)
+}
+
+// corners returns the trigger's four world-space corners.
+func (t *Trigger) corners() [4]math.Vector2 {
+	return shapeCorners(t.GetOwner(), t.Width, t.Height, t.Offset)
 }
 
 // GetOverlaps returns the objects currently overlapping this trigger, ordered by
@@ -123,10 +129,12 @@ func (t *Trigger) GetOverlaps() []*core.Object {
 	return result
 }
 
-// overlapsAnyCollider reports whether any of obj's @Collider shapes overlaps r.
-func overlapsAnyCollider(obj *core.Object, r math.Rect) bool {
+// overlapsAnyCollider reports whether any of obj's @Collider shapes overlaps this trigger,
+// testing the two rotated shapes directly so an angled collider is detected by its true quad.
+func (t *Trigger) overlapsAnyCollider(obj *core.Object) bool {
+	tc := t.corners()
 	for _, collider := range core.GetAllFrom[*Collider](obj) {
-		if r.Overlaps(collider.GetBounds()) {
+		if quadOverlap(tc, collider.corners()) {
 			return true
 		}
 	}

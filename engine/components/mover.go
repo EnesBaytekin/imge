@@ -96,9 +96,8 @@ func (m *Mover) IsGrounded() bool {
 	others := shapeCandidates(owner, unionCollidesWith(own))
 	for _, other := range others {
 		for _, oc := range core.GetAllFrom[*Collider](other) {
-			ob := oc.GetBounds()
 			for _, c := range own {
-				if contactAlong(1, 1, c.GetBounds(), ob, probe) < probe {
+				if contactBetween(1, 1, c, oc, probe) < probe {
 					return true
 				}
 			}
@@ -148,11 +147,17 @@ func (m *Mover) moveAxisPrepared(axis int, delta float64, depth int, own []*Coll
 		dist = -dist
 	}
 
-	// Precompute the body's bounds and push factor once, outside the obstacle loop.
-	ownBounds := make([]math.Rect, len(own))
+	// Precompute the body's shapes and push factor once, outside the obstacle loop.
+	// A shape keeps its world corners (for the rotated/OBB path), its axis-aligned
+	// bounds (for the fast unrotated path), and whether its owner is rotated.
+	ownShapes := make([]colliderShape, len(own))
 	ownPushFactor := 0.0
 	for i, c := range own {
-		ownBounds[i] = c.GetBounds()
+		ownShapes[i] = colliderShape{
+			corners: c.corners(),
+			bounds:  c.GetBounds(),
+			rotated: c.isRotated(),
+		}
 		if c.PushFactor > ownPushFactor {
 			ownPushFactor = c.PushFactor
 		}
@@ -168,9 +173,15 @@ func (m *Mover) moveAxisPrepared(axis int, delta float64, depth int, own []*Coll
 		if len(otherColliders) == 0 {
 			continue
 		}
-		for _, ob := range ownBounds {
+		for _, os := range ownShapes {
 			for _, oc := range otherColliders {
-				if d := contactAlong(axis, dir, ob, oc.GetBounds(), limit); d < limit {
+				var d float64
+				if os.rotated || oc.isRotated() {
+					d = obbContactAlong(axis, dir, os.corners, oc.corners(), limit)
+				} else {
+					d = contactAlong(axis, dir, os.bounds, oc.GetBounds(), limit)
+				}
+				if d < limit {
 					limit = d
 					hitObj = other
 					hitCollider = oc
@@ -294,4 +305,24 @@ func contactAlong(axis int, dir float64, mover, obstacle math.Rect, maxDist floa
 		return d
 	}
 	return maxDist
+}
+
+// colliderShape is a precomputed view of a collider for one movement axis: its world
+// corners (the rotated quad), its axis-aligned bounds (the unrotated fast path), and
+// whether its owner is rotated.
+type colliderShape struct {
+	corners [4]math.Vector2
+	bounds  math.Rect
+	rotated bool
+}
+
+// contactBetween returns how far own may travel along one axis in direction dir before
+// first touching obstacle, capped at maxDist. It uses the exact axis-aligned path when
+// neither shape is rotated, and the OBB path otherwise, so an angled collider resolves
+// against its true rotated shape.
+func contactBetween(axis int, dir float64, own, obstacle *Collider, maxDist float64) float64 {
+	if own.isRotated() || obstacle.isRotated() {
+		return obbContactAlong(axis, dir, own.corners(), obstacle.corners(), maxDist)
+	}
+	return contactAlong(axis, dir, own.GetBounds(), obstacle.GetBounds(), maxDist)
 }

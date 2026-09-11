@@ -258,20 +258,12 @@ func (c *InspectorComponent) props(obj *core.Object, inObjEditor bool) []prop {
 	// template to world-space to render it, so toggling it would make the object vanish.
 	if !inObjEditor {
 		out = append(out,
-			prop{"x", func() string { return formatFloat(obj.GetPosition().X) }, func(s string) error {
-				f, err := parseFloat(s)
+			prop{"position", func() string { p := obj.GetPosition(); return formatFloat(p.X) + ", " + formatFloat(p.Y) }, func(s string) error {
+				x, y, err := parseTwoFloats(s)
 				if err != nil {
 					return err
 				}
-				obj.SetPosition(f, obj.GetPosition().Y)
-				return nil
-			}, kindText, nil},
-			prop{"y", func() string { return formatFloat(obj.GetPosition().Y) }, func(s string) error {
-				f, err := parseFloat(s)
-				if err != nil {
-					return err
-				}
-				obj.SetPosition(obj.GetPosition().X, f)
+				obj.SetPosition(x, y)
 				return nil
 			}, kindText, nil},
 			prop{"rotation", func() string { return formatFloat(math.RadiansToDegrees(obj.GetRotation())) }, func(s string) error {
@@ -335,38 +327,49 @@ func (c *InspectorComponent) buildBindings(obj *core.Object) []fieldBinding {
 		if p.set == nil {
 			continue
 		}
-		// "scale" is a Vector2, edited as two side-by-side boxes (x | y) instead of
-		// a single "x, y" string.
-		if p.label == "scale" {
-			sx := fieldBinding{
-				key: "scale_x", row: i, col: 0, parts: 2, kind: kindText,
-				get: func() string { return formatFloat(obj.GetScale().X) },
+		// "position" and "scale" are Vector2s, edited as two side-by-side boxes
+		// (x | y) instead of a single "x, y" string.
+		if p.label == "position" || p.label == "scale" {
+			var getX, getY func() float64
+			var setX, setY func(float64)
+			if p.label == "position" {
+				getX = func() float64 { return obj.GetPosition().X }
+				getY = func() float64 { return obj.GetPosition().Y }
+				setX = func(v float64) { obj.SetPosition(v, obj.GetPosition().Y) }
+				setY = func(v float64) { obj.SetPosition(obj.GetPosition().X, v) }
+			} else {
+				getX = func() float64 { return obj.GetScale().X }
+				getY = func() float64 { return obj.GetScale().Y }
+				setX = func(v float64) { sc := obj.GetScale(); obj.SetScale(v, sc.Y) }
+				setY = func(v float64) { sc := obj.GetScale(); obj.SetScale(sc.X, v) }
+			}
+			bx := fieldBinding{
+				key: p.label + "_x", row: i, col: 0, parts: 2, kind: kindText,
+				get: func() string { return formatFloat(getX()) },
 				apply: func(s string) error {
 					f, err := parseFloat(s)
 					if err != nil {
 						return err
 					}
-					sc := obj.GetScale()
-					obj.SetScale(f, sc.Y)
+					setX(f)
 					return nil
 				},
 			}
-			sy := fieldBinding{
-				key: "scale_y", row: i, col: 1, parts: 2, kind: kindText,
-				get: func() string { return formatFloat(obj.GetScale().Y) },
+			by := fieldBinding{
+				key: p.label + "_y", row: i, col: 1, parts: 2, kind: kindText,
+				get: func() string { return formatFloat(getY()) },
 				apply: func(s string) error {
 					f, err := parseFloat(s)
 					if err != nil {
 						return err
 					}
-					sc := obj.GetScale()
-					obj.SetScale(sc.X, f)
+					setY(f)
 					return nil
 				},
 			}
-			sx.old = sx.get()
-			sy.old = sy.get()
-			out = append(out, sx, sy)
+			bx.old = bx.get()
+			by.old = by.get()
+			out = append(out, bx, by)
 			continue
 		}
 		b := fieldBinding{
@@ -837,6 +840,8 @@ func (c *InspectorComponent) Draw(r core.Renderer) {
 	// Components section header — one row above the scrollable list, with a "+"
 	// add-component button in its top-right corner.
 	compY := rect.Y() + c.compStart(nProps, nTags)
+	// Separator between the object's own values (props + tags) and its components.
+	r.DrawLine(math.NewVector2(rect.X()+4, compY-c.RowHeight), math.NewVector2(rect.X()+rect.Width()-10, compY-c.RowHeight), c.Section, 1)
 	sty := (compY - c.RowHeight) + (c.RowHeight-th)/2
 	r.DrawText("COMPONENTS", c.FontID, c.FontSize, math.NewVector2(rect.X()+6, sty), c.Section)
 	plus := c.plusRect(rect, nProps, nTags)

@@ -125,6 +125,23 @@ func (t Transform) WorldToLocal(worldPoint Vector2) Vector2 {
 	}
 }
 
+// RectBounds returns the axis-aligned bounding box of a local-space rectangle after
+// this transform is applied (scale -> rotate about the origin -> translate). It is
+// the world-space AABB a component's local rect occupies, used for hit-testing and
+// editor selection of rotated/scaled objects. A zero rotation and unit scale return
+// the rect translated by Position.
+func (t Transform) RectBounds(rect Rect) Rect {
+	c0 := t.LocalToWorld(NewVector2(rect.X(), rect.Y()))
+	c1 := t.LocalToWorld(NewVector2(rect.X()+rect.Width(), rect.Y()))
+	c2 := t.LocalToWorld(NewVector2(rect.X()+rect.Width(), rect.Y()+rect.Height()))
+	c3 := t.LocalToWorld(NewVector2(rect.X(), rect.Y()+rect.Height()))
+	minX := min(c0.X, min(c1.X, min(c2.X, c3.X)))
+	minY := min(c0.Y, min(c1.Y, min(c2.Y, c3.Y)))
+	maxX := max(c0.X, max(c1.X, max(c2.X, c3.X)))
+	maxY := max(c0.Y, max(c1.Y, max(c2.Y, c3.Y)))
+	return NewRect(minX, minY, maxX-minX, maxY-minY)
+}
+
 // GetForward returns the forward direction vector (facing direction based on rotation).
 func (t Transform) GetForward() Vector2 {
 	return Vector2{

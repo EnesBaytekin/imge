@@ -212,35 +212,37 @@ func (g *Generator) generateDesktopMainGo(hasData bool) error {
 	}
 
 	data := struct {
-		ModuleName         string
-		WindowTitle        string
-		WindowWidth        int
-		WindowHeight       int
-		WindowFullscreen   bool
-		WindowResizable    bool
-		WindowPixelPerUnit int
-		WindowScale        int
-		WindowSmoothShapes bool
-		TargetFPS          int
-		InitialScene       string
-		EmbedDirective     string
-		HasData            bool
-		Debug              bool
+		ModuleName           string
+		WindowTitle          string
+		WindowWidth          int
+		WindowHeight         int
+		WindowFullscreen     bool
+		WindowResizable      bool
+		WindowPixelPerUnit   int
+		WindowScale          int
+		WindowSmoothShapes   bool
+		WindowSmoothRotation bool
+		TargetFPS            int
+		InitialScene         string
+		EmbedDirective       string
+		HasData              bool
+		Debug                bool
 	}{
-		ModuleName:         fmt.Sprintf("%s_build", filepath.Base(g.Analysis.ProjectDir)),
-		WindowTitle:        g.Analysis.GameConfig.Window.Title,
-		WindowWidth:        g.Analysis.GameConfig.Window.Width,
-		WindowHeight:       g.Analysis.GameConfig.Window.Height,
-		WindowFullscreen:   g.Analysis.GameConfig.Window.Fullscreen,
-		WindowResizable:    g.Analysis.GameConfig.Window.Resizable,
-		WindowPixelPerUnit: g.Analysis.GameConfig.Window.PixelPerUnit,
-		WindowScale:        g.Analysis.GameConfig.Window.Scale,
-		WindowSmoothShapes: g.Analysis.GameConfig.Window.SmoothShapes,
-		TargetFPS:          g.Analysis.GameConfig.Game.TargetFPS,
-		InitialScene:       g.Analysis.GameConfig.Game.InitialScene,
-		EmbedDirective:     embedDirective,
-		HasData:            hasData,
-		Debug:              g.Debug,
+		ModuleName:           fmt.Sprintf("%s_build", filepath.Base(g.Analysis.ProjectDir)),
+		WindowTitle:          g.Analysis.GameConfig.Window.Title,
+		WindowWidth:          g.Analysis.GameConfig.Window.Width,
+		WindowHeight:         g.Analysis.GameConfig.Window.Height,
+		WindowFullscreen:     g.Analysis.GameConfig.Window.Fullscreen,
+		WindowResizable:      g.Analysis.GameConfig.Window.Resizable,
+		WindowPixelPerUnit:   g.Analysis.GameConfig.Window.PixelPerUnit,
+		WindowScale:          g.Analysis.GameConfig.Window.Scale,
+		WindowSmoothShapes:   g.Analysis.GameConfig.Window.SmoothShapes,
+		WindowSmoothRotation: g.Analysis.GameConfig.Window.SmoothRotation,
+		TargetFPS:            g.Analysis.GameConfig.Game.TargetFPS,
+		InitialScene:         g.Analysis.GameConfig.Game.InitialScene,
+		EmbedDirective:       embedDirective,
+		HasData:              hasData,
+		Debug:                g.Debug,
 	}
 
 	return g.renderTemplate(mainTemplateDesktop, data)
@@ -255,29 +257,31 @@ func (g *Generator) generateWebMainGo(hasData bool) error {
 	}
 
 	data := struct {
-		ModuleName         string
-		WindowTitle        string
-		WindowWidth        int
-		WindowHeight       int
-		WindowFullscreen   bool
-		WindowPixelPerUnit int
-		WindowSmoothShapes bool
-		TargetFPS          int
-		InitialScene       string
-		HasData            bool
-		Debug              bool
+		ModuleName           string
+		WindowTitle          string
+		WindowWidth          int
+		WindowHeight         int
+		WindowFullscreen     bool
+		WindowPixelPerUnit   int
+		WindowSmoothShapes   bool
+		WindowSmoothRotation bool
+		TargetFPS            int
+		InitialScene         string
+		HasData              bool
+		Debug                bool
 	}{
-		ModuleName:         fmt.Sprintf("%s_build", filepath.Base(g.Analysis.ProjectDir)),
-		WindowTitle:        g.Analysis.GameConfig.Window.Title,
-		WindowWidth:        g.Analysis.GameConfig.Window.Width,
-		WindowHeight:       g.Analysis.GameConfig.Window.Height,
-		WindowFullscreen:   g.Analysis.GameConfig.Window.Fullscreen,
-		WindowPixelPerUnit: g.Analysis.GameConfig.Window.PixelPerUnit,
-		WindowSmoothShapes: g.Analysis.GameConfig.Window.SmoothShapes,
-		TargetFPS:          g.Analysis.GameConfig.Game.TargetFPS,
-		InitialScene:       g.Analysis.GameConfig.Game.InitialScene,
-		HasData:            hasData,
-		Debug:              g.Debug,
+		ModuleName:           fmt.Sprintf("%s_build", filepath.Base(g.Analysis.ProjectDir)),
+		WindowTitle:          g.Analysis.GameConfig.Window.Title,
+		WindowWidth:          g.Analysis.GameConfig.Window.Width,
+		WindowHeight:         g.Analysis.GameConfig.Window.Height,
+		WindowFullscreen:     g.Analysis.GameConfig.Window.Fullscreen,
+		WindowPixelPerUnit:   g.Analysis.GameConfig.Window.PixelPerUnit,
+		WindowSmoothShapes:   g.Analysis.GameConfig.Window.SmoothShapes,
+		WindowSmoothRotation: g.Analysis.GameConfig.Window.SmoothRotation,
+		TargetFPS:            g.Analysis.GameConfig.Game.TargetFPS,
+		InitialScene:         g.Analysis.GameConfig.Game.InitialScene,
+		HasData:              hasData,
+		Debug:                g.Debug,
 	}
 
 	return g.renderTemplate(mainTemplateWeb, data)
@@ -355,6 +359,7 @@ func main() {
 			PixelPerUnit: {{.WindowPixelPerUnit}},
 			Scale:      {{.WindowScale}},
 			SmoothShapes: {{.WindowSmoothShapes}},
+			SmoothRotation: {{.WindowSmoothRotation}},
 		},
 		TargetFPS:    {{.TargetFPS}},
 		InitialScene: "{{.InitialScene}}",
@@ -489,6 +494,7 @@ func main() {
 			Fullscreen: {{.WindowFullscreen}},
 			PixelPerUnit: {{.WindowPixelPerUnit}},
 			SmoothShapes: {{.WindowSmoothShapes}},
+			SmoothRotation: {{.WindowSmoothRotation}},
 		},
 		TargetFPS:    {{.TargetFPS}},
 		InitialScene: "{{.InitialScene}}",

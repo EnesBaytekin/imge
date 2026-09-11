@@ -113,7 +113,7 @@ func spawnGameSettings(scene *core.Scene) {
 	win := &GameSettingsComponent{}
 	win.SetName("game_settings")
 	win.Width = 300
-	win.Height = 232
+	win.Height = 248
 	win.cfg = cfg
 	win.path = path
 	obj.AddComponent(win)
@@ -190,6 +190,11 @@ func (c *GameSettingsComponent) buildWidgets() {
 		func() string { return strconv.FormatBool(cfg.Window.SmoothShapes) },
 		boolApply(&cfg.Window.SmoothShapes),
 		func() bool { return cfg.Window.SmoothShapes })
+
+	c.addField("smooth_rotation", "Smooth Rotation", kindCheck,
+		func() string { return strconv.FormatBool(cfg.Window.SmoothRotation) },
+		boolApply(&cfg.Window.SmoothRotation),
+		func() bool { return cfg.Window.SmoothRotation })
 
 	c.addField("target_fps", "Target FPS", kindText,
 		func() string { return strconv.Itoa(cfg.Game.TargetFPS) },

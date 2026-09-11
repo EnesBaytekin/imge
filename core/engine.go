@@ -32,6 +32,9 @@ func DefaultConfig() Config {
 			PixelPerUnit: 1,
 			// SmoothShapes defaults to false: vector shapes render chunky.
 			SmoothShapes: false,
+			// SmoothRotation defaults to true: texture rotation is smooth
+			// (sub-unit), matching the historical behavior.
+			SmoothRotation: true,
 			// Fullscreen defaults to false: the window opens at the largest
 			// integer scale fitting the screen and is locked there, toggling only
 			// between windowed and fullscreen. Resizable defaults to false (fixed

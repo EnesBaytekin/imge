@@ -31,6 +31,17 @@ type Renderer interface {
 	// DrawLine draws a line between two points.
 	DrawLine(start, end math.Vector2, color math.Color, thickness float64)
 
+	// DrawRectOutlineScreen draws a rectangle outline in screen space with a constant
+	// on-screen thickness, independent of camera zoom. The rect is given in the same
+	// space as other draw calls (local space under an active object transform, or
+	// screen space otherwise): its four corners are mapped through the object
+	// transform, then the camera and pixel scale, and the edges are stroked at full
+	// screen resolution. It is the debug-overlay counterpart to DrawRectOutline — a
+	// rotated/scaled world rect lands as its true on-screen quad, thin and crisp at
+	// any zoom, rather than rasterizing at world resolution and scaling with the
+	// camera.
+	DrawRectOutlineScreen(rect math.Rect, color math.Color, thickness float64)
+
 	// DrawTexture draws a texture (or a region of it) at the specified position
 	// with transformations. textureID identifies a previously loaded texture.
 	// src is the source region in the texture; a zero Rect means the entire texture.
@@ -77,6 +88,19 @@ type Renderer interface {
 	// calls. (cx, cy) is the view center in world coordinates and zoom is the scale
 	// factor (1 = 1:1). A zoom <= 0 disables the transform (raw screen space).
 	SetCamera(cx, cy, zoom float64)
+
+	// SetObjectTransform applies a world-space object transform to subsequent draw
+	// calls, in addition to the camera: each drawn primitive's local coordinates are
+	// first scaled, then rotated about the object origin, then translated to the
+	// object position (matching math.Transform.LocalToWorld). Object.Draw sets this
+	// before drawing a non-UI object's components so rotation and scale apply
+	// uniformly to everything on it (sprites, panels, colliders, custom draws) —
+	// components draw in local (object) space, passing positions relative to the
+	// object origin. ClearObjectTransform removes it.
+	SetObjectTransform(pos math.Vector2, rotation float64, scale math.Vector2)
+
+	// ClearObjectTransform removes any object transform set by SetObjectTransform.
+	ClearObjectTransform()
 
 	// Present presents the rendered frame to the screen (swap buffers).
 	Present()
@@ -324,6 +348,12 @@ type WindowConfig struct {
 	// keeps shapes pixel-perfect and stable instead of re-rasterizing at
 	// fractional positions (which wobbles as the shape moves).
 	SmoothShapes bool
+	// SmoothRotation opts texture rotation into framebuffer-resolution (smooth,
+	// sub-unit) rasterization. The default (true) rotates at pixel_per_unit
+	// resolution — the historical behavior. When false, a rotated texture is
+	// rasterized at logical resolution (quantized to whole logical pixels) and
+	// upscaled, so rotation stays chunky/pixel-perfect like the shape pipeline.
+	SmoothRotation bool
 }
 
 // Window handles window management and events.

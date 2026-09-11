@@ -89,8 +89,9 @@ func (s *Sprite) Draw(renderer core.Renderer) {
 	}
 
 	// Scale the source region up to the requested display size (if any), then apply
-	// the owner's scale and flips on top.
-	scale := owner.Transform.Scale
+	// flips on top. The owner's scale is applied separately: by the object transform
+	// for world objects (set by Object.Draw), or explicitly below for UI objects.
+	scale := math.One()
 	if s.Width > 0 && natW > 0 {
 		scale.X *= s.Width / natW
 	}
@@ -104,8 +105,18 @@ func (s *Sprite) Draw(renderer core.Renderer) {
 		scale.Y *= -1
 	}
 
-	pos := owner.Transform.Position.Add(s.Offset)
-	renderer.DrawTexture(s.Texture, src, pos, scale, owner.Transform.Rotation, s.Color)
+	if owner.UI {
+		// UI (screen space): no object transform is active, so apply the owner's
+		// transform explicitly.
+		scale.X *= owner.Transform.Scale.X
+		scale.Y *= owner.Transform.Scale.Y
+		renderer.DrawTexture(s.Texture, src, owner.Transform.Position.Add(s.Offset), scale, owner.Transform.Rotation, s.Color)
+		return
+	}
+
+	// World object: the object transform (scale, rotation, position) is applied by the
+	// renderer, so draw in local space — top-left at Offset, rotation 0.
+	renderer.DrawTexture(s.Texture, src, s.Offset, scale, 0, s.Color)
 }
 
 // frameRect returns the source region for the current frame (zero Rect = whole
@@ -212,16 +223,12 @@ func (s *Sprite) ResetTexture() {
 	s.textureH = 0
 }
 
-// DebugBounds returns the sprite's world-space rectangle for editor hit-testing and
-// selection: the owner's position plus Offset, sized to the sprite's display size
-// (Width/Height when set, else the natural frame/texture size), scaled by the owner's
-// transform. It is axis-aligned — rotation is ignored — matching the Collider's
-// DebugBounds. The natural size is only known after the sprite has drawn once (textures
-// load lazily), so before that, or for an empty texture path, the size falls back to the
-// explicit Width/Height or the frame dimensions, and ultimately a zero-size box.
-func (s *Sprite) DebugBounds() math.Rect {
-	owner := s.GetOwner()
-
+// LocalBounds returns the sprite's local-space rectangle (Offset × display size) — the
+// rect the owner transform then scales and rotates about the object origin. Transforming
+// its four corners through the owner transform yields the sprite's actual on-screen quad,
+// which the editor uses to draw a rotated selection outline that hugs the sprite instead
+// of its axis-aligned enclosing box.
+func (s *Sprite) LocalBounds() math.Rect {
 	w := s.Width
 	if w <= 0 {
 		w = s.naturalWidth()
@@ -230,15 +237,32 @@ func (s *Sprite) DebugBounds() math.Rect {
 	if h <= 0 {
 		h = s.naturalHeight()
 	}
+	return math.NewRect(s.Offset.X, s.Offset.Y, w, h)
+}
 
-	pos := s.Offset
-	if owner != nil {
-		pos = owner.Transform.Position.Add(s.Offset)
-		w *= stdmath.Abs(owner.Transform.Scale.X)
-		h *= stdmath.Abs(owner.Transform.Scale.Y)
+// DebugBounds returns the sprite's world-space rectangle for editor hit-testing and
+// selection: the owner's position plus Offset, sized to the sprite's display size
+// (Width/Height when set, else the natural frame/texture size), scaled by the owner's
+// transform. Rotation is applied about the sprite's center (mirroring Draw), so the
+// returned box is the axis-aligned bound of the rotated sprite. The natural size is only
+// known after the sprite has drawn once (textures load lazily), so before that, or for
+// an empty texture path, the size falls back to the explicit Width/Height or the frame
+// dimensions, and ultimately a zero-size box.
+func (s *Sprite) DebugBounds() math.Rect {
+	owner := s.GetOwner()
+	local := s.LocalBounds()
+	if owner == nil {
+		return local
 	}
-
-	return math.NewRect(pos.X, pos.Y, w, h)
+	if owner.UI {
+		// Screen space (UI): apply the owner transform in screen coordinates, matching
+		// Draw's UI path.
+		return transformBounds(owner.Transform.Position.Add(s.Offset), local.Width(), local.Height(),
+			owner.Transform.Rotation,
+			stdmath.Abs(owner.Transform.Scale.X), stdmath.Abs(owner.Transform.Scale.Y))
+	}
+	// World object: the local rect under the object transform.
+	return owner.Transform.RectBounds(local)
 }
 
 // naturalWidth returns the sprite's un-scaled natural width: the frame-cell width when

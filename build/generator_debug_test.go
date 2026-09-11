@@ -10,20 +10,21 @@ import (
 // mirrors the anonymous structs in generateDesktopMainGo / generateWebMainGo, plus
 // the Debug field that selects the debug-overlay line in loadScenes.
 type mainTemplateData struct {
-	ModuleName         string
-	WindowTitle        string
-	WindowWidth        int
-	WindowHeight       int
-	WindowFullscreen   bool
-	WindowResizable    bool
-	WindowPixelPerUnit int
-	WindowScale        int
-	WindowSmoothShapes bool
-	TargetFPS          int
-	InitialScene       string
-	EmbedDirective     string
-	HasData            bool
-	Debug              bool
+	ModuleName           string
+	WindowTitle          string
+	WindowWidth          int
+	WindowHeight         int
+	WindowFullscreen     bool
+	WindowResizable      bool
+	WindowPixelPerUnit   int
+	WindowScale          int
+	WindowSmoothShapes   bool
+	WindowSmoothRotation bool
+	TargetFPS            int
+	InitialScene         string
+	EmbedDirective       string
+	HasData              bool
+	Debug                bool
 }
 
 // TestMainTemplateDebugFlag verifies both entrypoint templates render without a
