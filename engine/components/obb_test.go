@@ -80,7 +80,10 @@ func TestOBBContactMatchesAABBForAxisAligned(t *testing.T) {
 		or := quadAABB(tc.obst)
 		want := contactAlong(tc.axis, tc.dir, mr, or, tc.maxDist)
 		got := obbContactAlong(tc.axis, tc.dir, tc.mover, tc.obst, tc.maxDist)
-		if stdmath.Abs(got-want) > 1e-9 {
+		// The OBB solver stops overlapEpsilon short of contact to avoid leaving the
+		// mover a hair inside an obstacle, so it may be slightly *under* the exact
+		// axis-aligned result but never further than the tolerance above it.
+		if got > want+1e-9 || got < want-overlapEpsilon-1e-9 {
 			t.Fatalf("case %d: obbContactAlong = %v, contactAlong = %v", i, got, want)
 		}
 	}
@@ -161,5 +164,46 @@ func TestColliderContainsPointRotated(t *testing.T) {
 	// (0,16) is inside the rotated quad.
 	if !c.ContainsPoint(math.NewVector2(-16, 16)) {
 		t.Fatalf("(-16,16) should be inside the 90°-rotated quad")
+	}
+}
+
+// TestDiagonalIntoAngledWallDoesNotWedge reproduces the bug where a mover walking
+// diagonally into a rotated (OBB) wall could end a hair inside it and then be unable to
+// move out. The mover must stop without overlapping and must be able to retreat.
+func TestDiagonalIntoAngledWallDoesNotWedge(t *testing.T) {
+	// Directions approaching the wall from several sides, matching the normalized
+	// diagonal input a PlayerController produces.
+	dirs := []math.Vector2{
+		{X: 1, Y: -1}, {X: 1, Y: 1}, {X: -1, Y: -1}, {X: -1, Y: 1}, {X: 1, Y: 0}, {X: 0, Y: 1},
+	}
+	for _, d := range dirs {
+		d = d.Normalize()
+		scene := core.NewScene("main")
+		wall := testObject("wall", 200, 200, testCollider("body", 64, 64, 0))
+		wall.Transform.Rotation = stdmath.Pi / 4 // 45° diamond
+		mustAdd(scene, wall)
+
+		start := math.NewVector2(200-d.X*150, 200-d.Y*150)
+		player := testObject("player", start.X, start.Y, testCollider("body", 32, 32, 0), testMover("mover"))
+		mustAdd(scene, player)
+
+		m := getMover(player)
+		wc := core.GetFrom[*Collider](wall)
+		pc := core.GetFrom[*Collider](player)
+
+		for i := 0; i < 400; i++ {
+			m.Move(d.X*2, d.Y*2)
+			if quadOverlap(pc.corners(), wc.corners()) {
+				t.Fatalf("dir=%v: mover overlapped wall at step %d", d, i)
+			}
+		}
+
+		// After pressing into the wall, the mover must be able to retreat freely.
+		if res := m.Move(-d.X*100, -d.Y*100); !res.Moved() {
+			t.Fatalf("dir=%v: mover could not retreat after resting against wall", d)
+		}
+		if quadOverlap(pc.corners(), wc.corners()) {
+			t.Fatalf("dir=%v: mover still overlapping after retreat", d)
+		}
 	}
 }

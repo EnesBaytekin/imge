@@ -278,6 +278,15 @@ func shapeContainsPoint(owner *core.Object, width, height float64, offset math.V
 		point.Y >= offset.Y && point.Y <= offset.Y+height
 }
 
+// overlapEpsilon is the tolerance (in world units) the OBB swept solver leaves between
+// the mover and an obstacle. Solving the exact first contact of two quads involves
+// floating-point divisions that can leave the mover a hair *inside* an angled wall (on
+// the order of 1e-12). Without this tolerance that hair reads as a real overlap, which
+// then wedges the mover: the overlap early-out blocks movement in every direction,
+// including escape. Stopping this distance short of contact instead keeps the mover
+// flushed with a sub-pixel gap that is invisible on screen but never registers as overlap.
+const overlapEpsilon = 1e-6
+
 // projectQuad projects a quad's vertices onto an axis, returning the min and max.
 func projectQuad(quad [4]math.Vector2, axis math.Vector2) (min, max float64) {
 	d := quad[0].Dot(axis)
@@ -394,8 +403,11 @@ func obbContactAlong(axis int, dir float64, mover, obstacle [4]math.Vector2, max
 	if tLo >= tHi || tHi <= 0 || tLo >= maxDist {
 		return maxDist
 	}
-	if tLo <= 0 {
+	if tLo <= overlapEpsilon {
 		return 0
 	}
-	return tLo
+	// Stop a hair short of contact: the float error in the interval solve above can
+	// otherwise leave the mover a tiny fraction inside the obstacle, which would then
+	// read as an overlap and wedge it on every later move (including escape).
+	return tLo - overlapEpsilon
 }
