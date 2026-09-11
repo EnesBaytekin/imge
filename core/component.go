@@ -70,6 +70,16 @@ type Dependable interface {
 	Requires() []string
 }
 
+// LateUpdater is an optional interface a component may implement to run after every
+// component on its object has Update()d for the frame. Physics integrators (@Velocity)
+// use it so they consume the velocity written by controllers/forces earlier in the
+// same frame — regardless of the order components were listed in the scene file —
+// eliminating a one-frame lag between input and movement.
+type LateUpdater interface {
+	// LateUpdate runs once per frame, after all components' Update.
+	LateUpdate(ctx *Context)
+}
+
 // DrawLayerProvider is an optional interface a component may implement to declare
 // its draw order within its object. BaseComponent implements it via DrawLayer and
 // GetDrawLayer, so any component embedding BaseComponent gets this for free.

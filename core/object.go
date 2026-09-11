@@ -417,14 +417,23 @@ func (obj *Object) initializeComponents() {
 	}
 }
 
-// Update calls Update on all components in insertion order.
+// Update calls Update on all components in insertion order, then LateUpdate on any
+// component that implements LateUpdater. The second pass lets integrators (@Velocity)
+// run after every writer regardless of JSON order, so input and forces apply within
+// the same frame they are set.
 func (obj *Object) Update(ctx *Context) {
 	if !obj.Active || obj.destroyed {
 		return
 	}
 
-	for _, component := range obj.orderedComponents() {
+	comps := obj.orderedComponents()
+	for _, component := range comps {
 		component.Update(ctx)
+	}
+	for _, component := range comps {
+		if lu, ok := component.(LateUpdater); ok {
+			lu.LateUpdate(ctx)
+		}
 	}
 }
 
@@ -473,9 +482,25 @@ type ClipRectProvider interface {
 // unaffected — this ordering applies only to drawing.
 func (obj *Object) drawComponents() []Component {
 	comps := obj.orderedComponents()
-	sort.SliceStable(comps, func(i, j int) bool {
-		return drawLayer(comps[i]) < drawLayer(comps[j])
-	})
+	// Fast path: most objects have all their components at one draw layer (or
+	// already sorted), so detect that and skip the stable sort — its reflection
+	// path allocates a temporary buffer every frame per object. The result is
+	// identical: sorting an already-sorted slice is a no-op.
+	sorted := true
+	prev := 0
+	for i, c := range comps {
+		l := drawLayer(c)
+		if i > 0 && l < prev {
+			sorted = false
+			break
+		}
+		prev = l
+	}
+	if !sorted {
+		sort.SliceStable(comps, func(i, j int) bool {
+			return drawLayer(comps[i]) < drawLayer(comps[j])
+		})
+	}
 	return comps
 }
 

@@ -128,6 +128,11 @@ func (p *Platform) Run(game *core.Game) error {
 	if game == nil {
 		return fmt.Errorf("ebitengine: nil game")
 	}
+	// Apply the game's configured target frame rate. Without this, target_fps in
+	// game.imge is silently ignored and the loop always runs at Ebitengine's default.
+	if tps := game.TargetFPS(); tps > 0 {
+		ebiten.SetTPS(tps)
+	}
 	return ebiten.RunGame(&runner{platform: p, game: game})
 }
 

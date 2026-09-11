@@ -26,9 +26,11 @@ func (v *Velocity) Initialize() {
 	v.vy = v.VY
 }
 
-// Update integrates the current velocity through the owner's @Mover (or, without
-// one, moves the owner directly).
-func (v *Velocity) Update(ctx *core.Context) {
+// LateUpdate integrates the current velocity through the owner's @Mover (or, without
+// one, moves the owner directly). It runs in the late pass so it consumes the velocity
+// written by @Gravity/@Friction/@PlatformerController (or a custom brain) earlier in
+// the same frame, giving zero-lag input regardless of component order in the scene.
+func (v *Velocity) LateUpdate(ctx *core.Context) {
 	owner := v.GetOwner()
 	if owner == nil {
 		return

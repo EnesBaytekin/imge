@@ -47,13 +47,13 @@ func (m *Mover) Move(dx, dy float64) MoveResult {
 		return MoveResult{}
 	}
 
-	// Compute the body and candidate obstacles once and share them across both
-	// axes, instead of re-scanning the scene per axis.
+	// Compute the body and candidate obstacle colliders once and share them across
+	// both axes, instead of re-scanning the scene (and re-allocating) per axis.
 	own := core.GetAllFrom[*Collider](owner)
-	others := shapeCandidates(owner, unionCollidesWith(own))
+	obstacles := m.obstacleColliders(owner, unionCollidesWith(own))
 	return MoveResult{
-		X: m.moveAxisPrepared(0, dx, 0, own, others),
-		Y: m.moveAxisPrepared(1, dy, 0, own, others),
+		X: m.moveAxisPrepared(0, dx, 0, own, obstacles),
+		Y: m.moveAxisPrepared(1, dy, 0, own, obstacles),
 	}
 }
 
@@ -116,14 +116,31 @@ func (m *Mover) moveAxis(axis int, delta float64, depth int) bool {
 		return false
 	}
 	own := core.GetAllFrom[*Collider](owner)
-	others := shapeCandidates(owner, unionCollidesWith(own))
-	return m.moveAxisPrepared(axis, delta, depth, own, others)
+	obstacles := m.obstacleColliders(owner, unionCollidesWith(own))
+	return m.moveAxisPrepared(axis, delta, depth, own, obstacles)
+}
+
+// obstacleColliders collects every collider the owner may hit into one flat list,
+// so the two movement axes share a single scene scan instead of re-running
+// GetAllFrom per axis. Shapes are still derived per axis inside moveAxisPrepared:
+// a pushed obstacle may have moved between the X and Y passes, so its corners and
+// bounds must be read fresh there.
+func (m *Mover) obstacleColliders(owner *core.Object, collidesWith []string) []*Collider {
+	others := shapeCandidates(owner, collidesWith)
+	if len(others) == 0 {
+		return nil
+	}
+	out := make([]*Collider, 0, len(others))
+	for _, other := range others {
+		out = append(out, core.GetAllFrom[*Collider](other)...)
+	}
+	return out
 }
 
 // moveAxisPrepared performs the swept, single-axis movement using a precomputed
 // body and candidate list. delta is signed; depth caps push recursion. Returns
 // true when the full requested distance was applied.
-func (m *Mover) moveAxisPrepared(axis int, delta float64, depth int, own []*Collider, others []*core.Object) bool {
+func (m *Mover) moveAxisPrepared(axis int, delta float64, depth int, own []*Collider, obstacles []*Collider) bool {
 	owner := m.GetOwner()
 	if delta == 0 {
 		return true
@@ -168,24 +185,18 @@ func (m *Mover) moveAxisPrepared(axis int, delta float64, depth int, own []*Coll
 	var hitObj *core.Object
 	var hitCollider *Collider
 
-	for _, other := range others {
-		otherColliders := core.GetAllFrom[*Collider](other)
-		if len(otherColliders) == 0 {
-			continue
-		}
+	for _, oc := range obstacles {
 		for _, os := range ownShapes {
-			for _, oc := range otherColliders {
-				var d float64
-				if os.rotated || oc.isRotated() {
-					d = obbContactAlong(axis, dir, os.corners, oc.corners(), limit)
-				} else {
-					d = contactAlong(axis, dir, os.bounds, oc.GetBounds(), limit)
-				}
-				if d < limit {
-					limit = d
-					hitObj = other
-					hitCollider = oc
-				}
+			var d float64
+			if os.rotated || oc.isRotated() {
+				d = obbContactAlong(axis, dir, os.corners, oc.corners(), limit)
+			} else {
+				d = contactAlong(axis, dir, os.bounds, oc.GetBounds(), limit)
+			}
+			if d < limit {
+				limit = d
+				hitObj = oc.GetOwner()
+				hitCollider = oc
 			}
 		}
 	}

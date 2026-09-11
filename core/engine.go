@@ -118,6 +118,12 @@ func (g *Game) SetPlatform(platform Platform) {
 	g.platform = platform
 }
 
+// TargetFPS returns the configured target update rate (frames per second), used by
+// the platform to drive its update loop. A value <= 0 means "use the platform default".
+func (g *Game) TargetFPS() int {
+	return g.config.TargetFPS
+}
+
 // ============================================================================
 // Scene Management
 // ============================================================================

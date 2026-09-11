@@ -84,6 +84,12 @@ func (t Transform) LocalToWorld(localPoint Vector2) Vector2 {
 		Y: localPoint.Y * t.Scale.Y,
 	}
 
+	// Zero rotation is the overwhelmingly common case; skip the trig so hot paths
+	// (collision, rendering, editor picking) don't pay for cos/sin they don't use.
+	if t.Rotation == 0 {
+		return scaled.Add(t.Position)
+	}
+
 	// Apply rotation
 	cos := math.Cos(t.Rotation)
 	sin := math.Sin(t.Rotation)
@@ -100,6 +106,22 @@ func (t Transform) LocalToWorld(localPoint Vector2) Vector2 {
 func (t Transform) WorldToLocal(worldPoint Vector2) Vector2 {
 	// Subtract translation
 	translated := worldPoint.Subtract(t.Position)
+
+	// Zero rotation: only the inverse scale remains (see LocalToWorld).
+	if t.Rotation == 0 {
+		invScaleX := 1.0
+		invScaleY := 1.0
+		if t.Scale.X != 0 {
+			invScaleX = 1.0 / t.Scale.X
+		}
+		if t.Scale.Y != 0 {
+			invScaleY = 1.0 / t.Scale.Y
+		}
+		return Vector2{
+			X: translated.X * invScaleX,
+			Y: translated.Y * invScaleY,
+		}
+	}
 
 	// Apply inverse rotation
 	cos := math.Cos(-t.Rotation)
