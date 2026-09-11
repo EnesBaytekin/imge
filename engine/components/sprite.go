@@ -265,6 +265,14 @@ func (s *Sprite) DebugBounds() math.Rect {
 	return owner.Transform.RectBounds(local)
 }
 
+// ContainsPoint reports whether a world-space point lies inside the sprite's drawn quad —
+// the rotated/scaled display rect — rather than its axis-aligned bounds, for precise editor
+// click-selection (see core.PointPicker).
+func (s *Sprite) ContainsPoint(point math.Vector2) bool {
+	local := s.LocalBounds()
+	return shapeContainsPoint(s.GetOwner(), local.Width(), local.Height(), s.Offset, point)
+}
+
 // naturalWidth returns the sprite's un-scaled natural width: the frame-cell width when
 // frame slicing is used, else the loaded texture width (0 until the texture is loaded).
 func (s *Sprite) naturalWidth() float64 {

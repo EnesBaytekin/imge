@@ -442,14 +442,27 @@ func (s *Scene) Pick(point math.Vector2) Component {
 
 // pickComponent returns the topmost DebugBoundsProvider component on obj whose bounds
 // contain point, or nil. A provider that is currently invisible (reports false via
-// VisibilityProvider) is skipped, so hidden sprites don't capture clicks.
+// VisibilityProvider) is skipped, so hidden sprites don't capture clicks. A provider that
+// also implements PointPicker is hit-tested against its precise rotated shape instead of
+// its axis-aligned bounds, so click-selection matches what collision and the debug outline
+// actually show.
 func pickComponent(obj *Object, point math.Vector2) Component {
 	comps := obj.ComponentsInDrawOrder()
 	for i := len(comps) - 1; i >= 0; i-- {
 		if vp, ok := comps[i].(VisibilityProvider); ok && !vp.IsVisible() {
 			continue
 		}
-		if bp, ok := comps[i].(DebugBoundsProvider); ok && bp.DebugBounds().ContainsPoint(point) {
+		bp, isBounds := comps[i].(DebugBoundsProvider)
+		if !isBounds {
+			continue
+		}
+		if pp, ok := comps[i].(PointPicker); ok {
+			if pp.ContainsPoint(point) {
+				return comps[i]
+			}
+			continue
+		}
+		if bp.DebugBounds().ContainsPoint(point) {
 			return comps[i]
 		}
 	}

@@ -330,7 +330,17 @@ func (c *ViewportComponent) pickUIObject(world math.Vector2) *core.Object {
 			if vp, ok := comp.(core.VisibilityProvider); ok && !vp.IsVisible() {
 				continue
 			}
-			if bp, ok := comp.(core.DebugBoundsProvider); ok && bp.DebugBounds().ContainsPoint(world) {
+			bp, isBounds := comp.(core.DebugBoundsProvider)
+			if !isBounds {
+				continue
+			}
+			if pp, ok := comp.(core.PointPicker); ok {
+				if pp.ContainsPoint(world) {
+					return obj
+				}
+				continue
+			}
+			if bp.DebugBounds().ContainsPoint(world) {
 				return obj
 			}
 		}

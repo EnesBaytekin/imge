@@ -89,3 +89,10 @@ func (p *PanelComponent) DebugBounds() math.Rect {
 	}
 	return p.Rect()
 }
+
+// ContainsPoint reports whether a world-space point lies inside the panel's drawn quad —
+// the rotated/scaled rect — rather than its axis-aligned bounds, for precise editor
+// click-selection (see core.PointPicker).
+func (p *PanelComponent) ContainsPoint(point math.Vector2) bool {
+	return shapeContainsPoint(p.GetOwner(), p.Width, p.Height, p.Offset, point)
+}

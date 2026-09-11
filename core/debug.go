@@ -32,6 +32,16 @@ type DebugBoundsProvider interface {
 	DebugBounds() math.Rect
 }
 
+// PointPicker is an optional interface a DebugBoundsProvider may also implement to
+// report precise point containment: whether a world-space point lies inside the
+// component's actual drawn shape (its rotated/scaled quad) rather than its axis-aligned
+// bounds. The editor's picker prefers it when present, so click-selection follows the
+// rotated shape the same way collision does — a click just outside a rotated hitbox (but
+// still inside its enclosing AABB) selects nothing.
+type PointPicker interface {
+	ContainsPoint(point math.Vector2) bool
+}
+
 // VisibilityProvider is an optional interface a DebugBoundsProvider may also
 // implement to report whether it is currently hittable/selectable. The editor's
 // picker skips providers that report false — e.g. a Sprite an @Animator has hidden —

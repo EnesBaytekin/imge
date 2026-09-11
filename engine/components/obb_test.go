@@ -117,6 +117,30 @@ func TestQuadOverlapRotatedVsAABB(t *testing.T) {
 	}
 }
 
+// TestScenePickRespectsRotation verifies the editor's click-selection (Scene.Pick) uses the
+// rotated shape, not the enclosing AABB.
+func TestScenePickRespectsRotation(t *testing.T) {
+	scene := core.NewScene("main")
+	obj := core.NewObject("rotated")
+	c := &Collider{Width: 32, Height: 32}
+	c.SetName("body")
+	if err := obj.AddComponent(c); err != nil {
+		t.Fatal(err)
+	}
+	obj.SetPosition(0, 0)
+	obj.Transform.Rotation = stdmath.Pi / 4 // 45° CCW about the origin
+	mustAdd(scene, obj)
+
+	// Inside the enclosing AABB but outside the rotated diamond: must not select.
+	if got := scene.Pick(math.NewVector2(20, 40)); got != nil {
+		t.Fatalf("point outside the rotated quad should not pick, got %v", got)
+	}
+	// Inside the rotated diamond: must select the collider.
+	if got := scene.Pick(math.NewVector2(0, 20)); got == nil {
+		t.Fatalf("point inside the rotated quad should pick the collider")
+	}
+}
+
 // TestColliderContainsPointRotated verifies the hit-test follows the rotated quad, not the
 // enclosing AABB.
 func TestColliderContainsPointRotated(t *testing.T) {
