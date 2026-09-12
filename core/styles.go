@@ -23,12 +23,12 @@ type styleSheet map[string]map[string]json.RawMessage
 var registeredStyles styleSheet
 
 // LoadStyles parses a styles.imge file's bytes and installs them as the active
-// style sheet. Styles are keyed by component kind (e.g. "@Button", "@Panel", or a
+// style sheet. Styles are keyed by component kind (e.g. "@Button", "@Rect", or a
 // custom component's kind), then by style name:
 //
 //	{
 //	  "@Button": { "primary": { "color": "#2e7d32" } },
-//	  "@Panel":  { "window":  { "color": "#14141e", "outline_color": "#3b3b4d" } }
+//	  "@Rect":  { "window":  { "color": "#14141e", "outline_color": "#3b3b4d" } }
 //	}
 //
 // A later LoadStyles replaces the previous sheet.

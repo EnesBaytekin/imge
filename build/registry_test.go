@@ -216,7 +216,7 @@ type PlayerComponent struct {
 		{"@Container", "ContainerComponent"},
 		{"@Label", "LabelComponent"},
 		{"@List", "ListComponent"},
-		{"@Panel", "PanelComponent"},
+		{"@Rect", "RectComponent"},
 		{"@Slider", "SliderComponent"},
 		{"@TextInput", "TextInputComponent"},
 		{"@UIManager", "UIManagerComponent"},

@@ -2,7 +2,7 @@ package core
 
 import "github.com/EnesBaytekin/imge/core/math"
 
-// BaseUIComponent is the shared base for UI components (@Label, @Panel, @Button,
+// BaseUIComponent is the shared base for UI components (@Label, @Rect, @Button,
 // @TextInput, and any custom UI component). A UI component is a screen-space
 // element positioned relative to its owner object: the element's top-left is
 // owner.Position + Offset, and its extent is Width×Height. The owner object is a
@@ -37,7 +37,7 @@ type BaseUIComponent struct {
 	// Blocking reports whether the element swallows pointer events: when it is the
 	// topmost element under the cursor it is the exclusive target, so nothing drawn
 	// behind it receives hover/click. A nil Blocking defaults to false here; the
-	// built-in interactive components (@Panel/@Button/@TextInput) opt into blocking
+	// built-in interactive components (@Rect/@Button/@TextInput) opt into blocking
 	// in Initialize, and a JSON "blocking": true/false overrides any component.
 	Blocking *bool `json:"blocking"`
 

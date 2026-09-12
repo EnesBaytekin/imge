@@ -9,7 +9,7 @@ import "github.com/EnesBaytekin/imge/core/math"
 //
 // dst is in the current draw space (world or screen), so call it after setting the
 // camera appropriately. This is the shared 9-slice routine used by UI components
-// (@Panel, @Button, @TextInput) and available to any custom component or world
+// (@Rect, @Button, @TextInput) and available to any custom component or world
 // object that wants a sliceable image.
 func DrawNineSlice(r Renderer, textureID string, border math.Border, dst math.Rect) {
 	DrawNineSliceTransform(r, textureID, border, dst, math.ColorTransform{})

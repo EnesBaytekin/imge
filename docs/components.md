@@ -65,7 +65,7 @@ adjust. Every arg has a default except a few marked **(required)**.
 | `@StateMachine` | Named states + event-driven transitions |
 | `@Sound` | One-shot sound effect or looping music |
 | `@TimedDespawn` | Destroys the owner after N seconds |
-| `@Panel` | Filled rectangle: flat color or nine-sliced texture, optional outline |
+| `@Rect` | Filled rectangle: flat color or nine-sliced texture, optional outline |
 | `@Label` | Single-line or width-wrapped text |
 | `@Button` | Clickable element (state textures + centered text) that emits an event on click |
 | `@TextInput` | Single-line editable text field with caret, focus, and placeholder |
@@ -353,10 +353,10 @@ Every UI component embeds `BaseUIComponent`, which adds these common args on top
 | `visible` | true | whether the element draws |
 | `enabled` | true | whether the element receives input (a disabled element still draws) |
 | `focusable` | false | whether it can take keyboard focus (a `@UIManager` tabs between these) |
-| `blocking` | type default | whether it swallows pointer events (occludes what's drawn behind it). `@Panel`/`@Button`/`@TextInput` default to `true`, `@Label` to `false`; set it in JSON to override |
+| `blocking` | type default | whether it swallows pointer events (occludes what's drawn behind it). `@Rect`/`@Button`/`@TextInput` default to `true`, `@Label` to `false`; set it in JSON to override |
 | `group` | "" | free-form label; the editor renders same-`group` elements as a folder |
 
-### `@Panel`
+### `@Rect`
 Draws a filled rectangle. It has two mutually exclusive fills, plus an optional
 outline drawn **over** whichever fill is used:
 
@@ -370,12 +370,12 @@ Works in world space too (e.g. a platform block on a non-UI object).
 
 **Flat color fill:**
 ```json
-{ "kind": "@Panel", "name": "bg", "args": { "color": "#14141e", "width": 200, "height": 100 } }
+{ "kind": "@Rect", "name": "bg", "args": { "color": "#14141e", "width": 200, "height": 100 } }
 ```
 
 **Nine-sliced texture** (corners stay sharp at any size):
 ```json
-{ "kind": "@Panel", "name": "bg", "args": {
+{ "kind": "@Rect", "name": "bg", "args": {
   "texture": "assets/panel.png",
   "border": { "left": 4, "top": 4, "right": 4, "bottom": 4 },
   "width": 200, "height": 100
@@ -384,7 +384,7 @@ Works in world space too (e.g. a platform block on a non-UI object).
 
 **Flat color + outline** (a bordered box):
 ```json
-{ "kind": "@Panel", "name": "bg", "args": {
+{ "kind": "@Rect", "name": "bg", "args": {
   "color": "#14141e",
   "outline_color": "#3b3b4d", "outline_thickness": 1,
   "width": 200, "height": 100
@@ -522,7 +522,7 @@ Each frame it discovers the elements it manages — every component on every
 
 - **Hit-tests the pointer** back to front (topmost first), honoring each element's
   `blocking` flag for occlusion: a blocking element under the cursor is the exclusive
-  target, so a `@Panel` drawn over a button swallows the click.
+  target, so a `@Rect` drawn over a button swallows the click.
 - **Pushes hover/press/click** to the target button (`SetHovered` / `SetPressed` /
   `Activate`), so a button emits its `event` only on a press-and-release inside it.
 - **Owns keyboard focus**: clicking a focusable focuses it, clicking elsewhere blurs,

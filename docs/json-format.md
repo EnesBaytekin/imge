@@ -175,7 +175,7 @@ arg. Styles are keyed by component kind, then style name:
 
 ```json
 {
-  "@Panel":  { "window": { "texture": "assets/panel.png", "border": { "left": 4, "top": 4, "right": 4, "bottom": 4 } } },
+  "@Rect":  { "window": { "texture": "assets/panel.png", "border": { "left": 4, "top": 4, "right": 4, "bottom": 4 } } },
   "@Button": { "accent": { "color": "#3c6b3c" } }
 }
 ```
@@ -184,12 +184,12 @@ A component references a style by name; the style supplies defaults, which the
 component's own args then override (style first, args second):
 
 ```json
-{ "kind": "@Panel",  "name": "bg", "args": { "style": "window", "width": 204, "height": 200 } }
+{ "kind": "@Rect",  "name": "bg", "args": { "style": "window", "width": 204, "height": 200 } }
 { "kind": "@Button", "name": "ok", "args": { "style": "accent", "text": "OK" } }
 ```
 
 - The `style` key is consumed as a reference — it is not a component field.
-- A style applies only to its kind: a `@Button` style never affects a `@Panel`.
+- A style applies only to its kind: a `@Button` style never affects a `@Rect`.
 - An unknown style name is a scene-load error, so a typo fails fast.
 - Change a style in one place and every component that references it changes —
   central theming without repeating textures or colors per component.

@@ -22,7 +22,7 @@ import (
 // Appearance: a flat color fill or a nine-slice texture (Texture/Border) for the
 // body. HoverColor highlights the row under the pointer; SelectedColor marks the
 // current value. OutlineColor/OutlineThickness stroke the whole list. Like @Button
-// and @Panel, defaults can be supplied from styles.imge under the "@List" key.
+// and @Rect, defaults can be supplied from styles.imge under the "@List" key.
 //
 // Export variables (JSON args): items, value, event, font_id, size, text_color,
 // color, hover_color, selected_color, texture, border {left, top, right, bottom},

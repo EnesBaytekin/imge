@@ -35,7 +35,7 @@ import (
 // textures (Texture/Border for the field, DropdownTexture/DropdownBorder for the
 // list) so a styled control stretches. HoverColor highlights the item under the
 // pointer (or keyboard cursor); SelectedColor marks the current value while the
-// list is open. Like @Button and @Panel, defaults can be supplied from styles.imge
+// list is open. Like @Button and @Rect, defaults can be supplied from styles.imge
 // under the "@ComboBox" key (a style body fills any of these json-tagged fields).
 //
 // Export variables (JSON args): items, value, event, placeholder, font_id, size,

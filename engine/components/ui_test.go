@@ -337,22 +337,22 @@ func TestUIComponentsDecodeJSONArgs(t *testing.T) {
 		t.Errorf("@Label offset = %v", label.Offset)
 	}
 
-	var panel PanelComponent
-	decode("@Panel", map[string]any{
+	var panel RectComponent
+	decode("@Rect", map[string]any{
 		"color": "#14141e", "outline_color": "#3b3b4d", "outline_thickness": 1.0,
 		"width": 240.0, "height": 232.0,
 	}, &panel)
 	if panel.Color != math.NewColor(0x14, 0x14, 0x1e, 255) {
-		t.Errorf("@Panel color = %v", panel.Color)
+		t.Errorf("@Rect color = %v", panel.Color)
 	}
 	if panel.OutlineThickness != 1 {
-		t.Errorf("@Panel outline_thickness = %v", panel.OutlineThickness)
+		t.Errorf("@Rect outline_thickness = %v", panel.OutlineThickness)
 	}
 
-	var panelNoBlock PanelComponent
-	decode("@Panel", map[string]any{"blocking": false}, &panelNoBlock)
+	var panelNoBlock RectComponent
+	decode("@Rect", map[string]any{"blocking": false}, &panelNoBlock)
 	if panelNoBlock.Blocking == nil || *panelNoBlock.Blocking {
-		t.Errorf("@Panel blocking:false should decode to a non-nil false")
+		t.Errorf("@Rect blocking:false should decode to a non-nil false")
 	}
 
 	var btn ButtonComponent
@@ -648,7 +648,7 @@ func TestUIManagerBlockingOcclusion(t *testing.T) {
 	front := core.NewObject("front")
 	front.UI = true
 	front.Depth = 1
-	panel := &PanelComponent{}
+	panel := &RectComponent{}
 	panel.Width = 100
 	panel.Height = 40
 	panel.SetName("panel")
@@ -737,7 +737,7 @@ func TestUIManagerDragWindow(t *testing.T) {
 	win.Transform.Position = math.NewVector2(10, 20)
 	_ = scene.AddObject(win)
 
-	panel := &PanelComponent{}
+	panel := &RectComponent{}
 	panel.Width = 200
 	panel.Height = 150
 	panel.SetName("bg")

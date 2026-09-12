@@ -104,7 +104,7 @@ place and every component that references it changes. See
 
 ```json
 {
-  "@Panel":  { "window": { "texture": "assets/panel.png", "border": { "left": 4, "top": 4, "right": 4, "bottom": 4 } } },
+  "@Rect":  { "window": { "texture": "assets/panel.png", "border": { "left": 4, "top": 4, "right": 4, "bottom": 4 } } },
   "@Button": { "accent": { "color": "#3c6b3c" } }
 }
 ```
