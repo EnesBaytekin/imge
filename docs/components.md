@@ -357,16 +357,28 @@ Every UI component embeds `BaseUIComponent`, which adds these common args on top
 | `group` | "" | free-form label; the editor renders same-`group` elements as a folder |
 
 ### `@Rect`
-Draws a filled rectangle. It has two mutually exclusive fills, plus an optional
-outline drawn **over** whichever fill is used:
+Draws a filled rectangle. The fill is chosen by the explicit `mode` arg, with an
+optional outline drawn **over** whichever fill is used:
 
-- **Flat color** — when `texture` is empty, it fills with `color`.
-- **Nine-slice** — when `texture` is set, it nine-slices that texture with `border`
-  (corners keep their natural size, edges and center stretch). `color` is ignored.
-- **Outline** — when `outline_color` is non-transparent and `outline_thickness > 0`,
-  a stroke is drawn over the fill, independent of the fill choice.
+- **`mode: "color"`** (the default) — a flat fill using `color`, plus an outline
+  when `outline_color` is non-transparent and `outline_thickness > 0`.
+- **`mode: "nine_slice"`** — nine-slices `texture` with `border` (corners keep their
+  natural size, edges and center stretch).
 
-Works in world space too (e.g. a platform block on a non-UI object).
+The two modes are exclusive: only the settings shown on the active tab apply. In
+`nine_slice` mode the `color` and `outline_*` settings are ignored; in `color` mode
+`texture` and `border` are ignored.
+
+`mode` is a **non-destructive selector**: `color` and `texture`+`border` are both
+kept on the component regardless of the active mode, so switching modes never wipes
+the other mode's data (the editor's Color / 9-Slice tabs toggle `mode` without
+clearing anything). An empty `mode` is normalized for backward compatibility —
+`"nine_slice"` when a `texture` is set, otherwise `"color"`.
+
+Works in world space too (e.g. a platform block on a non-UI object). In a debug
+build (`imge build --debug`), a nine-sliced rect also draws its 9 slice guide lines
+as a debug overlay, so the corner/edge/center split is visible in the editor and
+updates live as `border`/`width` change.
 
 **Flat color fill:**
 ```json
@@ -376,6 +388,7 @@ Works in world space too (e.g. a platform block on a non-UI object).
 **Nine-sliced texture** (corners stay sharp at any size):
 ```json
 { "kind": "@Rect", "name": "bg", "args": {
+  "mode": "nine_slice",
   "texture": "assets/panel.png",
   "border": { "left": 4, "top": 4, "right": 4, "bottom": 4 },
   "width": 200, "height": 100
@@ -391,9 +404,11 @@ Works in world space too (e.g. a platform block on a non-UI object).
 } }
 ```
 
-- Args: `color` (opaque black; the flat fill when no texture), `texture` (`""` =
-  flat fill), `border {left,top,right,bottom}` (slice inset in texture pixels),
-  `outline_color` (transparent = none), `outline_thickness` (0).
+- Args: `mode` (`"color"` \| `"nine_slice"`; default `"color"`, or `"nine_slice"` when
+  `texture` is set), `color` (opaque black; the flat fill in color mode), `texture`
+  (`""` = no nine-slice), `border {left,top,right,bottom}` (slice inset in texture
+  pixels), `outline_color` (transparent = none; color mode only), `outline_thickness`
+  (0; color mode only).
 
 ### `@Label`
 Draws a single line of text, or wraps to `max_width` when `max_width > 0`. No

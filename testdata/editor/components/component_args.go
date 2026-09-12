@@ -77,6 +77,11 @@ type ComponentArgsComponent struct {
 	// frame are then locked). Detecting an Animator being added/removed — or a clip naming
 	// this sprite — mid-session rebuilds the rows so the checkboxes lock/unlock at once.
 	spriteManaged bool
+
+	// rectNineSlice records whether the Rect layout currently shows the 9-Slice tab, so a
+	// mode change arriving outside a tab click (undo/redo, or a texture set on load) rebuilds
+	// the rows to match.
+	rectNineSlice bool
 }
 
 // titleH returns the title-bar height, shared by Draw and Update so their hit tests
@@ -94,11 +99,40 @@ func (c *ComponentArgsComponent) requiresH() float64 {
 	return c.RowHeight + 4
 }
 
+// desiredArgsHeight returns the window height that fits the current argument rows without
+// scrolling: title bar + requires footer + one row per visible row + a small bottom pad.
+// It is clamped so a short list keeps the original fixed window height (no jarring tiny
+// window) and a long list (many fields, or a requires footer) still scrolls rather than
+// growing off-screen. Width is left alone — only the height is content-driven.
+func (c *ComponentArgsComponent) desiredArgsHeight() float64 {
+	const (
+		minArgsHeight = 180 // the original fixed height; never shrink below it
+		maxArgsHeight = 360 // cap: a long component list still scrolls
+		pad           = 6   // breathing room below the last row
+	)
+	h := c.titleH() + c.requiresH() + float64(c.rowCount())*c.RowHeight + pad
+	if h < minArgsHeight {
+		h = minArgsHeight
+	}
+	if h > maxArgsHeight {
+		h = maxArgsHeight
+	}
+	return h
+}
+
 // isSprite reports whether the window is editing a Sprite, which gets a custom grouped
 // layout (common fields + offset + appearance always visible, then a texture section whose
 // frame fields appear only once a texture is set).
 func (c *ComponentArgsComponent) isSprite() bool {
 	_, ok := c.target.(*Sprite)
+	return ok
+}
+
+// isRect reports whether the window is editing a Rect, which gets a custom grouped
+// layout: common fields (name/draw_layer/group/offset/size/flags), then a Color /
+// 9-Slice tab strip that switches the fill mode without wiping the other mode's data.
+func (c *ComponentArgsComponent) isRect() bool {
+	_, ok := c.target.(*RectComponent)
 	return ok
 }
 
@@ -110,15 +144,35 @@ const spriteRowBase = 11
 // (frame size and frame #), present only when the sprite has a texture.
 const spriteFrameRows = 2
 
+// rectRowBase is the number of always-present rows in the Rect layout: name,
+// draw_layer, group, separator, offset, size, visible, enabled, blocking, separator,
+// and the tab strip. The tab's content rows (color/outline, or texture/border) follow.
+const rectRowBase = 11
+
+// rectColorRows / rectNineSliceRows are the content rows appended after rectRowBase for
+// each tab: the Color tab shows color, outline_color, outline_thickness; the 9-Slice tab
+// shows texture and border.
+const (
+	rectColorRows     = 3
+	rectNineSliceRows = 2
+)
+
 // rowCount returns the number of visible rows (the name row + field rows + separators).
-// The Sprite layout appends its texture-only rows only when a texture is set; other
-// components use their reflected field count.
+// The Sprite layout appends its texture-only rows only when a texture is set; the Rect
+// layout appends its tab-content rows according to the active mode; other components use
+// their reflected field count.
 func (c *ComponentArgsComponent) rowCount() int {
 	if c.isSprite() {
 		if spr, _ := c.target.(*Sprite); spr != nil && spr.Texture != "" {
 			return spriteRowBase + spriteFrameRows
 		}
 		return spriteRowBase
+	}
+	if c.isRect() {
+		if p, _ := c.target.(*RectComponent); p != nil && p.IsNineSlice() {
+			return rectRowBase + rectNineSliceRows
+		}
+		return rectRowBase + rectColorRows
 	}
 	return len(enumerateArgs(c.target)) + 1
 }
@@ -371,6 +425,14 @@ func (c *ComponentArgsComponent) Update(ctx *core.Context) {
 		}
 	}
 
+	// A Rect mode change that did not come through a tab click (undo/redo flips Mode
+	// directly) rebuilds the rows so the Color / 9-Slice tab content matches the mode.
+	if c.isRect() {
+		if p, _ := c.target.(*RectComponent); p != nil && p.IsNineSlice() != c.rectNineSlice {
+			c.rebuildRows()
+		}
+	}
+
 	// Drag-to-move: while the title bar is held, follow the cursor (even outside the
 	// window). Moving the owner carries the value widgets with it, since their offsets
 	// are relative to the owner's transform.
@@ -436,6 +498,18 @@ func (c *ComponentArgsComponent) Update(ctx *core.Context) {
 		if rr, ok := c.clipsRowRect(); ok && rr.ContainsPoint(mouse) {
 			spawnAnimatorClips(c.GetScene(), c.target.(*Animator))
 			return
+		}
+		// The Rect layout's Color / 9-Slice tab strip: clicking a tab switches the fill
+		// mode without wiping the other mode's settings (both persist to JSON).
+		if c.isRect() {
+			if c.rectTabButton(0).ContainsPoint(mouse) {
+				c.setRectMode("color")
+				return
+			}
+			if c.rectTabButton(1).ContainsPoint(mouse) {
+				c.setRectMode("nine_slice")
+				return
+			}
 		}
 		c.handleScrollbarPress(mouse, rect)
 	}
@@ -526,6 +600,8 @@ func (c *ComponentArgsComponent) Draw(r core.Renderer) {
 
 	if c.isSprite() {
 		c.drawSpriteRows(r, rect, bodyTop, valX, th)
+	} else if c.isRect() {
+		c.drawRectRows(r, rect, bodyTop, valX, th)
 	} else {
 		c.drawGenericRows(r, rect, bodyTop, valX, th)
 	}
@@ -681,6 +757,120 @@ func (c *ComponentArgsComponent) drawSpriteRows(r core.Renderer, rect math.Rect,
 	}
 }
 
+// drawRectRows draws the Rect's grouped layout chrome: field labels, separator lines
+// between related groups, and the Color / 9-Slice tab strip. Editable values are drawn
+// by their widgets on layer 1; the tab strip is host-drawn because it is not a field
+// widget — it is the mode selector.
+func (c *ComponentArgsComponent) drawRectRows(r core.Renderer, rect math.Rect, bodyTop, valX, th float64) {
+	p, _ := c.target.(*RectComponent)
+	nineSlice := p != nil && p.IsNineSlice()
+
+	drawLabel := func(row int, label string) {
+		y := bodyTop + float64(row)*c.RowHeight - c.scroll
+		if y+c.RowHeight <= bodyTop || y >= rect.Y()+rect.Height() {
+			return
+		}
+		ty := y + (c.RowHeight-th)/2
+		if ty < y {
+			ty = y
+		}
+		r.DrawText(label, c.FontID, c.FontSize, math.NewVector2(rect.X()+6, ty), c.KeyText)
+	}
+
+	drawSeparator := func(row int) {
+		sepY := bodyTop + float64(row)*c.RowHeight - c.scroll + c.RowHeight/2
+		r.DrawLine(math.NewVector2(rect.X()+4, sepY), math.NewVector2(rect.X()+rect.Width()-10, sepY), c.BorderColor, 1)
+	}
+
+	drawLabel(0, "name")
+	drawLabel(1, "draw_layer")
+	drawLabel(2, "group")
+	drawSeparator(3)
+	drawLabel(4, "offset")
+	drawLabel(5, "size")
+	drawLabel(6, "visible")
+	drawLabel(7, "enabled")
+	drawLabel(8, "blocking")
+	drawSeparator(9)
+
+	// Tab strip (row 10): two buttons sharing the row, the active one filled with the
+	// accent so the current mode reads at a glance.
+	if strip, ok := c.rectTabStrip(); ok {
+		inner := math.NewRect(strip.X()+4, strip.Y(), strip.Width()-8, strip.Height())
+		half := inner.Width() / 2
+		colorBtn := math.NewRect(inner.X(), inner.Y(), half, inner.Height())
+		nineBtn := math.NewRect(inner.X()+half, inner.Y(), half, inner.Height())
+		drawTabButton := func(btn math.Rect, label string, active bool) {
+			bg, txt := c.Background, c.KeyText
+			if active {
+				bg, txt = c.Accent, c.TitleText
+			}
+			r.DrawRect(btn, bg)
+			r.DrawRectOutline(btn, c.BorderColor, 1)
+			tw, _ := r.MeasureText(label, c.FontID, c.FontSize)
+			r.DrawText(label, c.FontID, c.FontSize, math.NewVector2(btn.X()+(btn.Width()-tw)/2, btn.Y()+(btn.Height()-th)/2), txt)
+		}
+		drawTabButton(colorBtn, "Color", !nineSlice)
+		drawTabButton(nineBtn, "9-Slice", nineSlice)
+	}
+
+	// Tab content labels (editable values are the widgets on layer 1).
+	if nineSlice {
+		drawLabel(11, "texture")
+		drawLabel(12, "border")
+	} else {
+		drawLabel(11, "color")
+		drawLabel(12, "outline_color")
+		drawLabel(13, "outline_thickness")
+	}
+}
+
+// rectTabStrip returns the body rect of the Rect layout's tab-strip row (row 10), plus
+// whether the target is a Rect. The strip is host-drawn and host hit-tested, so it needs
+// its own rect rather than a field widget.
+func (c *ComponentArgsComponent) rectTabStrip() (math.Rect, bool) {
+	p, ok := c.target.(*RectComponent)
+	if !ok || p == nil {
+		return math.Rect{}, false
+	}
+	rect := c.Rect()
+	y := rect.Y() + c.titleH() + float64(rectRowBase-1)*c.RowHeight - c.scroll
+	return math.NewRect(rect.X(), y, rect.Width(), c.RowHeight), true
+}
+
+// rectTabButton returns the clickable rect of one tab button (0 = Color, 1 = 9-Slice)
+// within the tab strip, splitting the strip's inner width in half.
+func (c *ComponentArgsComponent) rectTabButton(tab int) math.Rect {
+	strip, _ := c.rectTabStrip()
+	inner := math.NewRect(strip.X()+4, strip.Y(), strip.Width()-8, strip.Height())
+	half := inner.Width() / 2
+	if tab == 0 {
+		return math.NewRect(inner.X(), inner.Y(), half, inner.Height())
+	}
+	return math.NewRect(inner.X()+half, inner.Y(), half, inner.Height())
+}
+
+// setRectMode switches the Rect's fill mode and records an undo step, persisting the
+// .obj through so the mode is saved with the rest of the args. No field is cleared: the
+// color and texture+border data both survive the switch; only Mode flips.
+func (c *ComponentArgsComponent) setRectMode(mode string) {
+	p, ok := c.target.(*RectComponent)
+	if !ok || p == nil || p.Mode == mode {
+		return
+	}
+	old := p.Mode
+	p.Mode = mode
+	owner := c.target.GetOwner()
+	history.record(
+		"changed rect mode",
+		func() { p.Mode = old; persistObjectFile(owner) },
+		func() { p.Mode = mode; persistObjectFile(owner) },
+		true,
+	)
+	persistObjectFile(owner)
+	c.rebuildRows()
+}
+
 // drawRequiresFooter draws the "requires" footer at the bottom of the window: the
 // component kinds the target depends on (via core.Dependable), flagged in red when any
 // of them are missing from the owner object. A component with no dependencies draws no
@@ -716,8 +906,16 @@ func (c *ComponentArgsComponent) rebuildRows() {
 	if c.target == nil {
 		return
 	}
+	// Fit the window to its content before placing widgets: the row count depends on the
+	// target (and, for Sprite/Rect, its current state), so the height is recomputed here on
+	// open, tab switch, and texture empty↔set. Clamp scroll first so a shorter list that no
+	// longer scrolls doesn't leave stale offset and push the widgets off the bottom.
+	c.SetSize(c.Width, c.desiredArgsHeight())
+	c.clampScroll()
 	if c.isSprite() {
 		c.buildSpriteBindings()
+	} else if c.isRect() {
+		c.buildRectBindings()
 	} else {
 		c.buildGenericBindings()
 	}
@@ -738,6 +936,12 @@ func (c *ComponentArgsComponent) rebuildRows() {
 		// Animator added, or a clip naming this sprite) rebuilds the rows and locks the
 		// visible/flip/frame fields at once.
 		c.spriteManaged = spriteManagedByAnimator(c.target.(*Sprite))
+	}
+
+	// Record the Rect's active tab so a mode change outside a tab click (undo/redo, a
+	// texture set on load) rebuilds the rows to match.
+	if c.isRect() {
+		c.rectNineSlice = c.target.(*RectComponent).IsNineSlice()
 	}
 }
 
@@ -773,9 +977,10 @@ func (c *ComponentArgsComponent) buildGenericBindings() {
 	}
 }
 
-// spriteField returns the reflected arg field of the Sprite target with the given json
-// name (draw_layer/group/texture/offset/...).
-func (c *ComponentArgsComponent) spriteField(name string) (argField, bool) {
+// fieldFor returns the reflected arg field of the target component with the given json
+// name (draw_layer/group/texture/offset/...). It is the generic field lookup shared by
+// the Sprite and Rect custom layouts.
+func (c *ComponentArgsComponent) fieldFor(name string) (argField, bool) {
 	for _, f := range enumerateArgs(c.target) {
 		if f.name == name {
 			return f, true
@@ -787,7 +992,7 @@ func (c *ComponentArgsComponent) spriteField(name string) (argField, bool) {
 // placePair builds the field `name` as a two-part side-by-side binding at `row` with the
 // given part column (0 = left, 1 = right).
 func (c *ComponentArgsComponent) placePair(name string, col, row int) {
-	f, ok := c.spriteField(name)
+	f, ok := c.fieldFor(name)
 	if !ok {
 		return
 	}
@@ -812,20 +1017,20 @@ func (c *ComponentArgsComponent) buildSpriteBindings() {
 
 	c.placeBinding(c.buildNameBinding()) // row 0
 
-	if f, ok := c.spriteField("draw_layer"); ok {
+	if f, ok := c.fieldFor("draw_layer"); ok {
 		for _, b := range c.bindingsFor(f) {
 			b.row = 1
 			c.placeBinding(b)
 		}
 	}
-	if f, ok := c.spriteField("group"); ok {
+	if f, ok := c.fieldFor("group"); ok {
 		for _, b := range c.bindingsFor(f) {
 			b.row = 2
 			c.placeBinding(b)
 		}
 	}
 	// offset (Vector2, two side-by-side boxes) is always editable.
-	if f, ok := c.spriteField("offset"); ok {
+	if f, ok := c.fieldFor("offset"); ok {
 		for _, b := range c.bindingsFor(f) {
 			b.row = 4
 			c.placeBinding(b)
@@ -845,7 +1050,7 @@ func (c *ComponentArgsComponent) buildSpriteBindings() {
 	c.placePair("height", 1, 8)
 
 	// texture (row 10), then the texture-only frame rows.
-	if f, ok := c.spriteField("texture"); ok {
+	if f, ok := c.fieldFor("texture"); ok {
 		for _, b := range c.bindingsFor(f) {
 			b.row = 10
 			c.placeBinding(b)
@@ -858,6 +1063,149 @@ func (c *ComponentArgsComponent) buildSpriteBindings() {
 			c.placeBinding(c.frameSliderBinding()) // row 12
 		}
 	}
+}
+
+// buildRectBindings builds the Rect's custom grouped layout:
+//
+//	0 name, 1 draw_layer, 2 group, 3 separator, 4 offset, 5 size (width|height),
+//	6 visible, 7 enabled, 8 blocking, 9 separator, 10 tab strip, then the active tab's
+//	content: Color → 11 color, 12 outline_color, 13 outline_thickness;
+//	9-Slice → 11 texture, 12 border.
+//
+// visible/enabled/blocking are *bool (not reflection-editable), so they are bound through
+// IsVisible/IsEnabled/BlocksPointer and their setters. Only the active tab's fields are
+// built; the other tab's data stays on the component untouched.
+func (c *ComponentArgsComponent) buildRectBindings() {
+	p, _ := c.target.(*RectComponent)
+
+	c.placeBinding(c.buildNameBinding()) // row 0
+
+	if f, ok := c.fieldFor("draw_layer"); ok {
+		for _, b := range c.bindingsFor(f) {
+			b.row = 1
+			c.placeBinding(b)
+		}
+	}
+	if f, ok := c.fieldFor("group"); ok {
+		for _, b := range c.bindingsFor(f) {
+			b.row = 2
+			c.placeBinding(b)
+		}
+	}
+	// offset (Vector2, two side-by-side boxes) is always editable.
+	if f, ok := c.fieldFor("offset"); ok {
+		for _, b := range c.bindingsFor(f) {
+			b.row = 4
+			c.placeBinding(b)
+		}
+	}
+
+	// size: width and height side-by-side on one row.
+	c.placePair("width", 0, 5)
+	c.placePair("height", 1, 5)
+
+	// visible/enabled/blocking checkboxes.
+	c.placeBinding(c.rectFlagBinding("visible"))
+	c.placeBinding(c.rectFlagBinding("enabled"))
+	c.placeBinding(c.rectFlagBinding("blocking"))
+
+	if p != nil && p.IsNineSlice() {
+		c.placeBinding(c.rectTextureBinding()) // row 11
+		if f, ok := c.fieldFor("border"); ok {
+			for _, b := range c.bindingsFor(f) {
+				b.row = 12
+				c.placeBinding(b)
+			}
+		}
+	} else {
+		if f, ok := c.fieldFor("color"); ok {
+			for _, b := range c.bindingsFor(f) {
+				b.row = 11
+				c.placeBinding(b)
+			}
+		}
+		if f, ok := c.fieldFor("outline_color"); ok {
+			for _, b := range c.bindingsFor(f) {
+				b.row = 12
+				c.placeBinding(b)
+			}
+		}
+		if f, ok := c.fieldFor("outline_thickness"); ok {
+			for _, b := range c.bindingsFor(f) {
+				b.row = 13
+				c.placeBinding(b)
+			}
+		}
+	}
+}
+
+// rectFlagBinding builds one of the Rect's *bool flags (visible/enabled/blocking) as a
+// checkbox, bound through the BaseUIComponent accessors since a *bool is not
+// reflection-editable.
+func (c *ComponentArgsComponent) rectFlagBinding(field string) fieldBinding {
+	p := c.target.(*RectComponent)
+	row := 6
+	if field == "enabled" {
+		row = 7
+	} else if field == "blocking" {
+		row = 8
+	}
+	get := func() bool {
+		switch field {
+		case "visible":
+			return p.IsVisible()
+		case "enabled":
+			return p.IsEnabled()
+		default:
+			return p.BlocksPointer()
+		}
+	}
+	apply := func(s string) error {
+		v, err := parseBool(s)
+		if err != nil {
+			return err
+		}
+		switch field {
+		case "visible":
+			p.SetVisible(v)
+		case "enabled":
+			p.SetEnabled(v)
+		default:
+			p.SetBlocking(v)
+		}
+		return nil
+	}
+	b := fieldBinding{
+		key:     field,
+		row:     row,
+		parts:   1,
+		kind:    kindCheck,
+		get:     func() string { return strconv.FormatBool(get()) },
+		apply:   apply,
+		getBool: get,
+	}
+	b.old = b.get()
+	return b
+}
+
+// rectTextureBinding builds the Rect's `texture` argument as a file-selector button
+// (kindFile) that opens the project browser, mirroring the Sprite's texture picker. On
+// commit the path is written straight onto the Rect (a plain string field — no texture
+// cache to reset); DrawDebug reads the size live each frame.
+func (c *ComponentArgsComponent) rectTextureBinding() fieldBinding {
+	p := c.target.(*RectComponent)
+	b := fieldBinding{
+		key:        "texture",
+		row:        11,
+		parts:      1,
+		kind:       kindFile,
+		get:        func() string { return p.Texture },
+		apply:      func(s string) error { p.Texture = s; return nil },
+		fileFilter: func(rel string) bool { return fileTypeOf(rel) == "image" },
+	}
+	b.onBrowse = func() { c.browseTexture() }
+	b.old = b.get()
+	return b
 }
 
 // frameSliderBinding builds the Sprite's `frame` argument as an integer slider bounded
@@ -942,10 +1290,11 @@ func (c *ComponentArgsComponent) visibleBinding() fieldBinding {
 	return b
 }
 
-// browseTexture opens the project file browser to pick the sprite's texture image. On
-// selection the chosen project-relative path commits through the texture binding (so it
-// records undo and resets the sprite's cached texture size via the binding's apply). It
-// is a no-op when no scene is available or a modal is already up.
+// browseTexture opens the project file browser to pick the target's texture image (used
+// by both the Sprite and Rect layouts). On selection the chosen project-relative path
+// commits through the texture binding (so it records undo; the Sprite's binding also
+// resets its cached texture size). It is a no-op when no scene is available or a modal is
+// already up.
 func (c *ComponentArgsComponent) browseTexture() {
 	scene := c.GetScene()
 	if scene == nil || modalOpen() {
