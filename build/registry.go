@@ -204,6 +204,12 @@ func (g *Generator) generateRegistry(kinds []componentKind) error {
 	b.WriteString("// Auto-registers every component in the project.\n")
 	b.WriteString("package components\n\n")
 	b.WriteString("import \"github.com/EnesBaytekin/imge/core\"\n\n")
+	// The engine version this build was produced by, exposed so a project (e.g. the
+	// editor) can show it. It is generated rather than imported, since the build's
+	// `_engine` copy carries the engine subpackages (core/engine/…) but not the root
+	// `imge` package that holds the version variable.
+	fmt.Fprintf(&b, "// engineVersion is the IMGE engine version this project was built with.\n")
+	fmt.Fprintf(&b, "const engineVersion = %q\n\n", imge.EngineVersion)
 	b.WriteString("func init() {\n")
 	for _, k := range kinds {
 		fmt.Fprintf(&b, "\tcore.RegisterComponent(%q, func() core.Component { return &%s{} })\n", k.kind, k.typeName)
