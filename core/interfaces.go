@@ -354,6 +354,12 @@ type WindowConfig struct {
 	// rasterized at logical resolution (quantized to whole logical pixels) and
 	// upscaled, so rotation stays chunky/pixel-perfect like the shape pipeline.
 	SmoothRotation bool
+	// Vsync controls whether the platform waits for the display's vertical blank
+	// before presenting each frame. The default (true) prevents tearing, but the
+	// wait adds one or more frames of input-to-photon latency. Set false for the
+	// lowest-latency input at the cost of possible tearing — the biggest lever for
+	// "input lag" on a vsync-on display.
+	Vsync bool
 }
 
 // Window handles window management and events.

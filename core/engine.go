@@ -35,6 +35,9 @@ func DefaultConfig() Config {
 			// SmoothRotation defaults to true: texture rotation is smooth
 			// (sub-unit), matching the historical behavior.
 			SmoothRotation: true,
+			// Vsync defaults to true: no tearing. Set false for lowest-latency input
+			// (trades tearing for responsiveness).
+			Vsync: true,
 			// Fullscreen defaults to false: the window opens at the largest
 			// integer scale fitting the screen and is locked there, toggling only
 			// between windowed and fullscreen. Resizable defaults to false (fixed
@@ -43,6 +46,8 @@ func DefaultConfig() Config {
 			Resizable:  false,
 			Scale:      0,
 		},
+		// TargetFPS 60 = fixed-step update (default; flat CPU on high-refresh panels,
+		// deterministic physics). 0 = sync with the refresh rate.
 		TargetFPS:    60,
 		FixedUpdate:  false,
 		InitialScene: "",
@@ -119,7 +124,9 @@ func (g *Game) SetPlatform(platform Platform) {
 }
 
 // TargetFPS returns the configured target update rate (frames per second), used by
-// the platform to drive its update loop. A value <= 0 means "use the platform default".
+// the platform to drive its update loop. The default is 60 (fixed step); 0 means
+// "sync updates with the display refresh rate", and any other positive value caps
+// the update rate to that number.
 func (g *Game) TargetFPS() int {
 	return g.config.TargetFPS
 }

@@ -42,6 +42,10 @@ type Platform struct {
 	// For resizable windows it is folded into pixelScale so each logical unit maps
 	// to pixelPerUnit*scale physical pixels; Layout then returns the window size 1:1.
 	scale int
+
+	// vsync mirrors WindowConfig.Vsync: whether the platform waits for the display's
+	// vertical blank before presenting. false = lowest-latency input (possible tearing).
+	vsync bool
 }
 
 // New creates a new Ebitengine platform instance.
@@ -89,6 +93,7 @@ func (p *Platform) Init(cfg core.WindowConfig) error {
 	p.logicalWidth = cfg.Width
 	p.logicalHeight = cfg.Height
 	p.resizable = cfg.Resizable && !cfg.Fullscreen
+	p.vsync = cfg.Vsync
 
 	ppu := cfg.PixelPerUnit
 	if ppu <= 0 {
@@ -128,11 +133,19 @@ func (p *Platform) Run(game *core.Game) error {
 	if game == nil {
 		return fmt.Errorf("ebitengine: nil game")
 	}
-	// Apply the game's configured target frame rate. Without this, target_fps in
-	// game.imge is silently ignored and the loop always runs at Ebitengine's default.
+	// Apply the game's configured target frame rate. The default is 60 (fixed step);
+	// a positive value caps the update rate to that number, and 0 opts into syncing
+	// updates with the display refresh rate (lowest input latency, but the loop runs
+	// as fast as the panel refreshes, so a 120/144 Hz panel costs more CPU).
 	if tps := game.TargetFPS(); tps > 0 {
 		ebiten.SetTPS(tps)
+	} else {
+		ebiten.SetTPS(ebiten.SyncWithFPS)
 	}
+	// Vsync off is the single biggest lever for input latency: with vsync on, the
+	// present waits for the display's vertical blank, adding a frame or more of
+	// input-to-photon delay. Off trades tearing for responsiveness.
+	ebiten.SetVsyncEnabled(p.vsync)
 	return ebiten.RunGame(&runner{platform: p, game: game})
 }
 

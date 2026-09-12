@@ -94,3 +94,36 @@ func TestSaveGameConfigRoundTrip(t *testing.T) {
 		t.Fatalf("round-trip mismatch: %+v", got)
 	}
 }
+
+func TestTargetFPSDefaultsToSixty(t *testing.T) {
+	path := writeGameFile(t, `{
+	  "name": "My Game",
+	  "format_version": 1,
+	  "window": { "width": 320, "height": 180 }
+	}`)
+
+	c, err := LoadGameConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Game.TargetFPS != 60 {
+		t.Fatalf("default target_fps = %d, want 60", c.Game.TargetFPS)
+	}
+}
+
+func TestTargetFPSExplicitZeroKeepsSync(t *testing.T) {
+	path := writeGameFile(t, `{
+	  "name": "My Game",
+	  "format_version": 1,
+	  "window": { "width": 320, "height": 180 },
+	  "game": { "target_fps": 0 }
+	}`)
+
+	c, err := LoadGameConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Game.TargetFPS != 0 {
+		t.Fatalf("explicit target_fps 0 = %d, want 0 (sync)", c.Game.TargetFPS)
+	}
+}

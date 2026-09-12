@@ -113,7 +113,7 @@ func spawnGameSettings(scene *core.Scene) {
 	win := &GameSettingsComponent{}
 	win.SetName("game_settings")
 	win.Width = 300
-	win.Height = 248
+	win.Height = 280
 	win.cfg = cfg
 	win.path = path
 	obj.AddComponent(win)
@@ -156,6 +156,10 @@ func (c *GameSettingsComponent) buildWidgets() {
 		func() string { return cfg.Name },
 		func(s string) error { cfg.Name = s; return nil }, nil)
 
+	c.addField("format_version", "Format Version", kindText,
+		func() string { return strconv.Itoa(cfg.FormatVersion) },
+		intApply(&cfg.FormatVersion), nil)
+
 	c.addField("window_title", "Title", kindText,
 		func() string { return cfg.Window.Title },
 		func(s string) error { cfg.Window.Title = s; return nil }, nil)
@@ -196,6 +200,11 @@ func (c *GameSettingsComponent) buildWidgets() {
 		boolApply(&cfg.Window.SmoothRotation),
 		func() bool { return cfg.Window.SmoothRotation })
 
+	c.addField("vsync", "Vsync", kindCheck,
+		func() string { return strconv.FormatBool(cfg.Window.Vsync) },
+		boolApply(&cfg.Window.Vsync),
+		func() bool { return cfg.Window.Vsync })
+
 	c.addField("target_fps", "Target FPS", kindText,
 		func() string { return strconv.Itoa(cfg.Game.TargetFPS) },
 		intApply(&cfg.Game.TargetFPS), nil)
@@ -205,7 +214,7 @@ func (c *GameSettingsComponent) buildWidgets() {
 		func(s string) error { cfg.Game.InitialScene = s; return nil }, nil)
 
 	// Build the value widgets (single-part, no scroll: the window is sized to fit all
-	// eleven fields).
+	// fourteen fields).
 	rect := c.Rect()
 	valX := rect.X() + 130
 	valW := rect.Width() - 130 - 12

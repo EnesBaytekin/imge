@@ -222,6 +222,7 @@ func (g *Generator) generateDesktopMainGo(hasData bool) error {
 		WindowScale          int
 		WindowSmoothShapes   bool
 		WindowSmoothRotation bool
+		WindowVsync          bool
 		TargetFPS            int
 		InitialScene         string
 		EmbedDirective       string
@@ -238,6 +239,7 @@ func (g *Generator) generateDesktopMainGo(hasData bool) error {
 		WindowScale:          g.Analysis.GameConfig.Window.Scale,
 		WindowSmoothShapes:   g.Analysis.GameConfig.Window.SmoothShapes,
 		WindowSmoothRotation: g.Analysis.GameConfig.Window.SmoothRotation,
+		WindowVsync:          g.Analysis.GameConfig.Window.Vsync,
 		TargetFPS:            g.Analysis.GameConfig.Game.TargetFPS,
 		InitialScene:         g.Analysis.GameConfig.Game.InitialScene,
 		EmbedDirective:       embedDirective,
@@ -265,6 +267,7 @@ func (g *Generator) generateWebMainGo(hasData bool) error {
 		WindowPixelPerUnit   int
 		WindowSmoothShapes   bool
 		WindowSmoothRotation bool
+		WindowVsync          bool
 		TargetFPS            int
 		InitialScene         string
 		HasData              bool
@@ -278,6 +281,7 @@ func (g *Generator) generateWebMainGo(hasData bool) error {
 		WindowPixelPerUnit:   g.Analysis.GameConfig.Window.PixelPerUnit,
 		WindowSmoothShapes:   g.Analysis.GameConfig.Window.SmoothShapes,
 		WindowSmoothRotation: g.Analysis.GameConfig.Window.SmoothRotation,
+		WindowVsync:          g.Analysis.GameConfig.Window.Vsync,
 		TargetFPS:            g.Analysis.GameConfig.Game.TargetFPS,
 		InitialScene:         g.Analysis.GameConfig.Game.InitialScene,
 		HasData:              hasData,
@@ -360,6 +364,7 @@ func main() {
 			Scale:      {{.WindowScale}},
 			SmoothShapes: {{.WindowSmoothShapes}},
 			SmoothRotation: {{.WindowSmoothRotation}},
+			Vsync: {{.WindowVsync}},
 		},
 		TargetFPS:    {{.TargetFPS}},
 		InitialScene: "{{.InitialScene}}",
@@ -495,6 +500,7 @@ func main() {
 			PixelPerUnit: {{.WindowPixelPerUnit}},
 			SmoothShapes: {{.WindowSmoothShapes}},
 			SmoothRotation: {{.WindowSmoothRotation}},
+			Vsync: {{.WindowVsync}},
 		},
 		TargetFPS:    {{.TargetFPS}},
 		InitialScene: "{{.InitialScene}}",

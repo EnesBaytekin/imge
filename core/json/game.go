@@ -31,16 +31,22 @@ type WindowConfig struct {
 	// logical pixels ("chunky"), so a rotated sprite stays pixel-perfect like the
 	// rest of the chunky shape pipeline.
 	SmoothRotation bool `json:"smooth_rotation"`
+	// Vsync controls whether the platform waits for the display's vertical blank
+	// before presenting. Defaults to true (no tearing); set false for the lowest
+	// input latency.
+	Vsync bool `json:"vsync"`
 }
 
-// UnmarshalJSON defaults SmoothRotation to true when the field is absent, so a
-// game.imge written before the flag existed keeps the historical smooth rotation
-// (rather than silently flipping to chunky). When present, its written value wins.
+// UnmarshalJSON defaults SmoothRotation and Vsync to true when the fields are absent,
+// so a game.imge written before the flags existed keeps the historical behavior
+// (smooth rotation, vsync on) rather than silently flipping to chunky/tearing. When
+// present, the written value wins.
 func (w *WindowConfig) UnmarshalJSON(data []byte) error {
 	type windowAlias WindowConfig
 	aux := struct {
 		*windowAlias
 		SmoothRotation *bool `json:"smooth_rotation"`
+		Vsync          *bool `json:"vsync"`
 	}{windowAlias: (*windowAlias)(w)}
 	if err := json.Unmarshal(data, &aux); err != nil {
 		return err
@@ -50,13 +56,50 @@ func (w *WindowConfig) UnmarshalJSON(data []byte) error {
 	} else {
 		w.SmoothRotation = true
 	}
+	if aux.Vsync != nil {
+		w.Vsync = *aux.Vsync
+	} else {
+		w.Vsync = true
+	}
 	return nil
 }
 
 // GameSettings represents game runtime settings.
+//
+// TargetFPS caps the update rate. The default (when the field is absent) is 60 —
+// a fixed step that keeps CPU use flat on high-refresh panels and gives
+// deterministic physics. 0 opts back into "sync updates with the display refresh
+// rate" (lowest input latency, but the loop runs as fast as the panel refreshes).
 type GameSettings struct {
 	TargetFPS    int    `json:"target_fps"`
 	InitialScene string `json:"initial_scene"`
+
+	// targetFPSSet records whether the "game" object was present in the JSON. It lets
+	// ApplyDefaults distinguish "target_fps omitted" (→ default 60) from "target_fps
+	// explicitly 0" (→ sync with refresh). It is unexported, so it never serializes.
+	targetFPSSet bool
+}
+
+// UnmarshalJSON defaults TargetFPS to 60 when the field is absent, so a game.imge
+// that omits target_fps runs at a fixed 60 rather than syncing to the display
+// refresh. An explicit 0 still means "sync with the refresh rate". Mirrors
+// WindowConfig.UnmarshalJSON's pointer-default pattern.
+func (g *GameSettings) UnmarshalJSON(data []byte) error {
+	type gameSettingsAlias GameSettings
+	aux := struct {
+		*gameSettingsAlias
+		TargetFPS *int `json:"target_fps"`
+	}{gameSettingsAlias: (*gameSettingsAlias)(g)}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	g.targetFPSSet = true
+	if aux.TargetFPS != nil {
+		g.TargetFPS = *aux.TargetFPS
+	} else {
+		g.TargetFPS = 60
+	}
+	return nil
 }
 
 // DefaultGameConfig returns a config with every field at its default value. The
@@ -74,8 +117,12 @@ func DefaultGameConfig() *GameConfig {
 			// SmoothRotation defaults to true: rotation is smooth (sub-unit) at any
 			// pixel_per_unit, matching the historical texture-rotation behavior.
 			SmoothRotation: true,
+			// Vsync defaults to true (no tearing); set false for lowest input latency.
+			Vsync: true,
 		},
 		Game: GameSettings{
+			// TargetFPS defaults to 60: a fixed step keeps CPU flat on high-refresh
+			// panels and gives deterministic physics (0 = sync with the refresh rate).
 			TargetFPS:    60,
 			InitialScene: "main",
 		},
@@ -102,7 +149,11 @@ func ApplyDefaults(c *GameConfig) {
 	if c.Window.PixelPerUnit <= 0 {
 		c.Window.PixelPerUnit = 1
 	}
-	if c.Game.TargetFPS == 0 {
+	// A game.imge with no "game" object at all never invokes GameSettings.UnmarshalJSON,
+	// so target_fps is still 0 here. Default it to 60 in that case; an explicit
+	// target_fps: 0 (the "sync with refresh" opt-out) is preserved because
+	// UnmarshalJSON records that the object was present.
+	if !c.Game.targetFPSSet {
 		c.Game.TargetFPS = 60
 	}
 	if c.Game.InitialScene == "" {

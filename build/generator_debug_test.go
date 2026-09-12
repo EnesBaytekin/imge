@@ -20,6 +20,7 @@ type mainTemplateData struct {
 	WindowScale          int
 	WindowSmoothShapes   bool
 	WindowSmoothRotation bool
+	WindowVsync          bool
 	TargetFPS            int
 	InitialScene         string
 	EmbedDirective       string
