@@ -1,6 +1,8 @@
 package components
 
 import (
+	"os"
+
 	"github.com/EnesBaytekin/imge/core"
 	"github.com/EnesBaytekin/imge/core/math"
 )
@@ -283,6 +285,18 @@ func (t *SceneListComponent) Update(ctx *core.Context) {
 	t.hoverPlus = t.plusRect(rect).ContainsPoint(mouse)
 	t.hoverGear = t.gearRect(rect).ContainsPoint(mouse)
 
+	// Tooltips for the symbol-only buttons, shown while the cursor rests on them.
+	switch {
+	case t.hoverGear:
+		showTooltip("Scene settings", mouse)
+	case t.hoverPlus:
+		showTooltip("New scene", mouse)
+	case t.hoverStar != nil:
+		showTooltip("Set as start scene", mouse)
+	case t.hoverX != nil:
+		showTooltip("Delete scene", mouse)
+	}
+
 	if !ctx.Input.IsMouseButtonJustPressed(core.MouseButtonLeft) {
 		return
 	}
@@ -304,14 +318,25 @@ func (t *SceneListComponent) Update(ctx *core.Context) {
 		})
 		return
 	}
-	// "*" strip: mark that scene as the game's start scene.
+	// "*" strip: mark that scene as the game's start scene (undoable).
 	if t.hoverStar != nil {
 		entry := *t.hoverStar
 		if vp := t.viewportComponent(); vp != nil {
-			if err := setInitialScene(vp.CurrentProject(), entry.name); err != nil {
-				console.Print("set initial scene: " + err.Error())
+			dir := vp.CurrentProject()
+			prev := t.initial
+			if entry.name != prev {
+				if err := setInitialScene(dir, entry.name); err != nil {
+					console.Print("set initial scene: " + err.Error())
+				} else {
+					t.initial = entry.name
+					history.record(
+						"set start scene to "+entry.name,
+						func() { _ = setInitialScene(dir, prev); t.initial = prev },
+						func() { _ = setInitialScene(dir, entry.name); t.initial = entry.name },
+						false,
+					)
+				}
 			}
-			t.initial = entry.name
 		}
 		return
 	}
@@ -363,7 +388,8 @@ func (t *SceneListComponent) handleScrollbarPress(mouse math.Vector2, rect math.
 
 // deleteScene removes a scene file and re-resolves the surrounding state: if it was
 // the active scene, the viewport moves to the first remaining scene (or clears); if it
-// was the initial scene, initial_scene moves to the new active/first scene.
+// was the initial scene, initial_scene moves to the new active/first scene. The whole
+// operation is recorded in the editor undo history so it can be reversed with Ctrl+Z.
 func (t *SceneListComponent) deleteScene(entry sceneEntry) {
 	vp := t.viewportComponent()
 	if vp == nil {
@@ -377,69 +403,84 @@ func (t *SceneListComponent) deleteScene(entry sceneEntry) {
 	wasInitial := t.initial == entry.name
 
 	// Capture the file's bytes before removing it so the deletion is undoable.
-	if !captureDeletedScene(entry, dir, wasActive, wasInitial) {
+	content, err := os.ReadFile(entry.path)
+	if err != nil {
 		console.Print("delete scene: cannot read scene for undo")
+		return
+	}
+
+	// Unload the deleted scene from the viewport first (without saving) so the switch
+	// below never auto-saves it back over the just-removed file.
+	if wasActive {
+		vp.ClearScene()
 	}
 
 	if err := deleteSceneFile(entry.path); err != nil {
 		console.Print("delete scene: " + err.Error())
 		return
 	}
-	// A scene deletion is a top-level undo boundary: the next Ctrl+Z restores the
-	// deleted scene (restoreLastDeletedScene) instead of undoing an in-scene edit.
-	// Clearing history also drops entries that reference live objects the scene
-	// switch below invalidates anyway.
-	history.clear()
-	// Drop the deleted scene from the viewport first, so the switch below doesn't
-	// auto-save it back over the just-removed file.
-	if wasActive {
-		vp.ClearScene()
+
+	// Resolve the fallback scene the initial_scene (and active scene) moves to.
+	nextName, nextFile := "", ""
+	if remaining := listScenes(dir); len(remaining) > 0 {
+		nextName = remaining[0].name
+		nextFile = remaining[0].file
 	}
+
 	if wasInitial {
-		remaining := listScenes(dir)
-		next := ""
-		if len(remaining) > 0 {
-			next = remaining[0].name
-		}
-		if err := setInitialScene(dir, next); err != nil {
+		if err := setInitialScene(dir, nextName); err != nil {
 			console.Print("set initial scene: " + err.Error())
 		}
 	}
+
 	t.refresh()
-	if wasActive && len(t.entries) > 0 {
-		vp.SetScene(t.entries[0].file)
-	}
-}
 
-// restoreLastDeletedScene undoes the most recent scene deletion: it rewrites the
-// deleted .scene file, restores initial_scene when the deleted scene was the start
-// scene, refreshes the list, and reopens the scene in the viewport when it was the
-// active one. Returns true when there was a deletion to undo.
-func (t *SceneListComponent) restoreLastDeletedScene() bool {
-	if lastDeletedScene == nil {
-		return false
+	if wasActive && nextFile != "" {
+		vp.SetScene(nextFile) // clears history; the record below survives the switch
 	}
-	d := *lastDeletedScene
 
-	if err := restoreDeletedSceneFile(d); err != nil {
-		console.Print("restore scene: " + err.Error())
-		return false
-	}
-	// Only consume the slot once the file is safely back on disk.
-	lastDeletedScene = nil
+	editorScene := t.GetScene()
 
-	if d.wasInitial {
-		if err := setInitialScene(d.projectDir, d.name); err != nil {
-			console.Print("restore initial scene: " + err.Error())
-		}
-	}
-	t.refresh()
-	if d.wasActive {
-		if vp := t.viewportComponent(); vp != nil {
-			vp.SetScene(d.file)
-		}
-	}
-	return true
+	// Record AFTER the scene switch so it survives the switch's history.clear(). The
+	// closures touch only files, game.imge, and the viewport, so they stay valid across
+	// scene switches (undoing/redoing is a scene-level undo boundary).
+	history.record(
+		"deleted scene "+entry.name,
+		func() {
+			if err := restoreDeletedSceneFile(entry.path, content); err != nil {
+				console.Print("restore scene: " + err.Error())
+			}
+			if wasInitial {
+				_ = setInitialScene(dir, entry.name)
+			}
+			if sl := lookupSceneList(editorScene); sl != nil {
+				sl.refresh()
+			}
+			if wasActive {
+				if vp := lookupViewport(editorScene); vp != nil && vp.CurrentSceneName() != entry.file {
+					vp.SetScene(entry.file)
+				}
+			}
+		},
+		func() {
+			if vp := lookupViewport(editorScene); vp != nil && vp.CurrentSceneName() == entry.file {
+				vp.ClearScene() // unload without saving before the file is removed
+			}
+			_ = deleteSceneFile(entry.path)
+			if wasInitial {
+				_ = setInitialScene(dir, nextName)
+			}
+			if sl := lookupSceneList(editorScene); sl != nil {
+				sl.refresh()
+			}
+			if wasActive && nextFile != "" {
+				if vp := lookupViewport(editorScene); vp != nil {
+					vp.SetScene(nextFile)
+				}
+			}
+		},
+		false,
+	)
 }
 
 func (t *SceneListComponent) Draw(r core.Renderer) {

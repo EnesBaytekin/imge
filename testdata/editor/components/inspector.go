@@ -121,14 +121,15 @@ func (c *InspectorComponent) titleH() float64 { return c.RowHeight + 8 }
 const tagListVisible = 5
 
 // tagHeaderY returns the content-space y (relative to the panel's top) of the "TAGS"
-// header row, given the number of property rows above it.
-func (c *InspectorComponent) tagHeaderY(nProps int) float64 {
-	return c.titleH() + float64(nProps)*c.RowHeight
+// header row, given the number of property layout rows above it (separator rows between
+// field groups included).
+func (c *InspectorComponent) tagHeaderY(nRows int) float64 {
+	return c.titleH() + float64(nRows)*c.RowHeight
 }
 
 // tagListY returns the content-space y of the first tag row (below the header).
-func (c *InspectorComponent) tagListY(nProps int) float64 {
-	return c.tagHeaderY(nProps) + c.RowHeight
+func (c *InspectorComponent) tagListY(nRows int) float64 {
+	return c.tagHeaderY(nRows) + c.RowHeight
 }
 
 // tagListH returns the visible height of the scrollable tag list. It collapses to zero
@@ -148,20 +149,20 @@ func (c *InspectorComponent) tagListH(nTags int) float64 {
 // component row begins, given the number of property rows above it and the tag count.
 // The COMPONENTS header sits one row above this, and the tags section sits between the
 // properties and the components.
-func (c *InspectorComponent) compStart(nProps, nTags int) float64 {
-	return c.tagListY(nProps) + c.tagListH(nTags) + c.RowHeight
+func (c *InspectorComponent) compStart(nRows, nTags int) float64 {
+	return c.tagListY(nRows) + c.tagListH(nTags) + c.RowHeight
 }
 
 // tagAddRect returns the inline add-tag input rect within the TAGS header row.
-func (c *InspectorComponent) tagAddRect(rect math.Rect, nProps int) math.Rect {
-	y := rect.Y() + c.tagHeaderY(nProps)
+func (c *InspectorComponent) tagAddRect(rect math.Rect, nRows int) math.Rect {
+	y := rect.Y() + c.tagHeaderY(nRows)
 	const labelW, plusW = 40.0, 18.0
 	return math.NewRect(rect.X()+labelW, y+1, rect.Width()-labelW-plusW-4, c.RowHeight-2)
 }
 
 // tagPlusRect returns the "+" add-tag button rect at the header row's right edge.
-func (c *InspectorComponent) tagPlusRect(rect math.Rect, nProps int) math.Rect {
-	y := rect.Y() + c.tagHeaderY(nProps)
+func (c *InspectorComponent) tagPlusRect(rect math.Rect, nRows int) math.Rect {
+	y := rect.Y() + c.tagHeaderY(nRows)
 	const s = 14.0
 	return math.NewRect(rect.X()+rect.Width()-18, y+(c.RowHeight-s)/2, s, s)
 }
@@ -192,8 +193,8 @@ func (c *InspectorComponent) clampTagScroll(nTags int) {
 
 // plusRect returns the "+" add-component button rect in the COMPONENTS header row's
 // top-right corner, computed from the header row (one row above the list).
-func (c *InspectorComponent) plusRect(rect math.Rect, nProps, nTags int) math.Rect {
-	y := rect.Y() + c.compStart(nProps, nTags) - c.RowHeight // the header row
+func (c *InspectorComponent) plusRect(rect math.Rect, nRows, nTags int) math.Rect {
+	y := rect.Y() + c.compStart(nRows, nTags) - c.RowHeight // the header row
 	const s = 14.0
 	return math.NewRect(rect.X()+rect.Width()-18, y+(c.RowHeight-s)/2, s, s)
 }
@@ -317,6 +318,60 @@ func (c *InspectorComponent) props(obj *core.Object, inObjEditor bool) []prop {
 	return out
 }
 
+// propGroup returns the related-field group a property belongs to. The inspector draws
+// a separator line before each group change, so the object's identity, transform, scene
+// placement, and flags read as distinct sections instead of one undifferentiated list.
+func propGroup(label string) string {
+	switch label {
+	case "name", "file":
+		return "identity"
+	case "position", "rotation", "scale":
+		return "transform"
+	case "layer", "depth":
+		return "scene"
+	case "ui", "active":
+		return "flags"
+	}
+	return ""
+}
+
+// propRow returns the 0-based layout row (in RowHeight units, relative to the top of the
+// property area) of the prop at index i, counting one extra separator row before each
+// group boundary. The first prop is row 0.
+func propRow(props []prop, i int) int {
+	row := i
+	for j := 1; j <= i; j++ {
+		if propGroup(props[j].label) != propGroup(props[j-1].label) {
+			row++
+		}
+	}
+	return row
+}
+
+// propRows returns the total number of layout rows the property list occupies,
+// separators included. It is what the tags and components sections below it are offset
+// by.
+func propRows(props []prop) int {
+	if len(props) == 0 {
+		return 0
+	}
+	rows := len(props)
+	for j := 1; j < len(props); j++ {
+		if propGroup(props[j].label) != propGroup(props[j-1].label) {
+			rows++
+		}
+	}
+	return rows
+}
+
+// drawPropSeparator draws a thin horizontal line centered in layout `row` (in RowHeight
+// units below the property area's top), separating two related-field groups. It matches
+// the separator style used for the COMPONENTS header below.
+func (c *InspectorComponent) drawPropSeparator(r core.Renderer, rect math.Rect, bodyTop float64, row int) {
+	sepY := bodyTop + float64(row)*c.RowHeight + c.RowHeight/2
+	r.DrawLine(math.NewVector2(rect.X()+4, sepY), math.NewVector2(rect.X()+rect.Width()-10, sepY), c.Section, 1)
+}
+
 // buildBindings converts the object's editable properties into field bindings, one
 // widget per property. Read-only rows (nil setter) are skipped — the host draws them.
 func (c *InspectorComponent) buildBindings(obj *core.Object) []fieldBinding {
@@ -327,6 +382,9 @@ func (c *InspectorComponent) buildBindings(obj *core.Object) []fieldBinding {
 		if p.set == nil {
 			continue
 		}
+		// The layout row accounts for separator rows between field groups, so a widget
+		// sits under its label rather than colliding with a separator line.
+		row := propRow(props, i)
 		// "position" and "scale" are Vector2s, edited as two side-by-side boxes
 		// (x | y) instead of a single "x, y" string.
 		if p.label == "position" || p.label == "scale" {
@@ -344,7 +402,7 @@ func (c *InspectorComponent) buildBindings(obj *core.Object) []fieldBinding {
 				setY = func(v float64) { sc := obj.GetScale(); obj.SetScale(sc.X, v) }
 			}
 			bx := fieldBinding{
-				key: p.label + "_x", row: i, col: 0, parts: 2, kind: kindText,
+				key: p.label + "_x", row: row, col: 0, parts: 2, kind: kindText,
 				get: func() string { return formatFloat(getX()) },
 				apply: func(s string) error {
 					f, err := parseFloat(s)
@@ -356,7 +414,7 @@ func (c *InspectorComponent) buildBindings(obj *core.Object) []fieldBinding {
 				},
 			}
 			by := fieldBinding{
-				key: p.label + "_y", row: i, col: 1, parts: 2, kind: kindText,
+				key: p.label + "_y", row: row, col: 1, parts: 2, kind: kindText,
 				get: func() string { return formatFloat(getY()) },
 				apply: func(s string) error {
 					f, err := parseFloat(s)
@@ -374,7 +432,7 @@ func (c *InspectorComponent) buildBindings(obj *core.Object) []fieldBinding {
 		}
 		b := fieldBinding{
 			key:   p.label,
-			row:   i,
+			row:   row,
 			parts: 1,
 			kind:  p.kind,
 			get:   p.get,
@@ -478,7 +536,7 @@ func (c *InspectorComponent) layoutRows() {
 	layoutWidgets(c.bindings, c.GetOwner(), rect.Y()+c.titleH(), rect.X()+64, valueW, 0, c.RowHeight, rect.Y()+rect.Height())
 	if c.tagInput != nil {
 		obj := inspectorTarget(c.GetScene())
-		ar := c.tagAddRect(rect, len(c.props(obj, objectEditorActive())))
+		ar := c.tagAddRect(rect, propRows(c.props(obj, objectEditorActive())))
 		if ar.Width() > 0 {
 			c.tagInput.Width = ar.Width()
 			c.tagInput.Height = ar.Height()
@@ -562,16 +620,16 @@ func (c *InspectorComponent) Update(ctx *core.Context) {
 	inObjEditor := objectEditorActive()
 	props := c.props(obj, inObjEditor)
 	tags := sortedTags(obj)
-	nProps, nTags := len(props), len(tags)
-	compY := rect.Y() + c.compStart(nProps, nTags)
-	available := rect.Height() - c.compStart(nProps, nTags)
+	nRows, nTags := propRows(props), len(tags)
+	compY := rect.Y() + c.compStart(nRows, nTags)
+	available := rect.Height() - c.compStart(nRows, nTags)
 
 	// Track the component row (and its "x" strip) plus the "+" button under the
 	// cursor, so the COMPONENTS list reads as clickable.
 	c.hoverComp = -1
 	c.hoverX = -1
 	c.hoverDup = -1
-	c.hoverPlus = c.plusRect(rect, nProps, nTags).ContainsPoint(mouse)
+	c.hoverPlus = c.plusRect(rect, nRows, nTags).ContainsPoint(mouse)
 	c.hoverAction = !inObjEditor && obj != nil && c.actionRect(rect).ContainsPoint(mouse)
 	c.hoverEdit = !inObjEditor && obj != nil && obj.File != "" && c.editRect(rect).ContainsPoint(mouse)
 	for i := range comps {
@@ -593,8 +651,8 @@ func (c *InspectorComponent) Update(ctx *core.Context) {
 	c.hoverTagAdd = false
 	c.hoverTagX = -1
 	if obj != nil {
-		c.hoverTagAdd = c.tagPlusRect(rect, nProps).ContainsPoint(mouse)
-		listY := rect.Y() + c.tagListY(nProps)
+		c.hoverTagAdd = c.tagPlusRect(rect, nRows).ContainsPoint(mouse)
+		listY := rect.Y() + c.tagListY(nRows)
 		for i := range tags {
 			y := listY + float64(i)*c.RowHeight - c.tagScroll
 			if y+c.RowHeight < listY || y > listY+c.tagListH(nTags) {
@@ -610,13 +668,27 @@ func (c *InspectorComponent) Update(ctx *core.Context) {
 	}
 	c.clampTagScroll(nTags)
 
+	// Tooltips for the symbol-only buttons, shown while the cursor rests on them.
+	switch {
+	case c.hoverPlus:
+		showTooltip("Add component", mouse)
+	case c.hoverDup >= 0:
+		showTooltip("Duplicate component", mouse)
+	case c.hoverX >= 0:
+		showTooltip("Remove component", mouse)
+	case c.hoverTagAdd:
+		showTooltip("Add tag", mouse)
+	case c.hoverTagX >= 0:
+		showTooltip("Remove tag", mouse)
+	}
+
 	// Wheel scrolls the tags list when the cursor is over it, otherwise the component
 	// list — unless a widget holds focus (so a focused TextInput never scrolls out from
 	// under the caret).
 	if s := ctx.Input.GetMouseScroll(); s.Y != 0 {
 		if mgr := lookupUIManager(c.GetScene()); mgr == nil || !mgr.HasFocus() {
 			if obj != nil {
-				listY := rect.Y() + c.tagListY(nProps)
+				listY := rect.Y() + c.tagListY(nRows)
 				if mouse.Y >= listY && mouse.Y < listY+c.tagListH(nTags) {
 					c.tagScroll -= s.Y * c.RowHeight * 2
 					c.clampTagScroll(nTags)
@@ -777,11 +849,15 @@ func (c *InspectorComponent) Draw(r core.Renderer) {
 	// values are drawn by their widgets (layer 1, above this chrome).
 	props := c.props(obj, inObjEditor)
 	tags := sortedTags(obj)
-	nProps, nTags := len(props), len(tags)
+	nRows, nTags := propRows(props), len(tags)
 	bodyTop := rect.Y() + c.titleH()
 	valX := rect.X() + 64
 	for i, p := range props {
-		y := bodyTop + float64(i)*c.RowHeight
+		// Draw a separator line between related-field groups, centered in its own row.
+		if i > 0 && propGroup(props[i].label) != propGroup(props[i-1].label) {
+			c.drawPropSeparator(r, rect, bodyTop, propRow(props, i)-1)
+		}
+		y := bodyTop + float64(propRow(props, i))*c.RowHeight
 		ty := y + (c.RowHeight-th)/2
 		if ty < y {
 			ty = y
@@ -796,17 +872,17 @@ func (c *InspectorComponent) Draw(r core.Renderer) {
 	// on layer 1 above this chrome) and a "+" button, then a list of tag rows each with an
 	// "x" remove button. The list collapses when empty and grows up to tagListVisible rows
 	// before scrolling; a subtle inset panel groups the rows so they read as one area.
-	tagHeaderY := rect.Y() + c.tagHeaderY(nProps)
+	tagHeaderY := rect.Y() + c.tagHeaderY(nRows)
 	tsY := tagHeaderY + (c.RowHeight-th)/2
 	r.DrawText("TAGS", c.FontID, c.FontSize, math.NewVector2(rect.X()+6, tsY), c.Section)
-	tplus := c.tagPlusRect(rect, nProps)
+	tplus := c.tagPlusRect(rect, nRows)
 	if c.hoverTagAdd {
 		r.DrawRect(tplus, c.Background.Lerp(math.White, 0.12))
 	}
 	tpw, tph := r.MeasureText("+", c.FontID, c.FontSize)
 	r.DrawText("+", c.FontID, c.FontSize, math.NewVector2(tplus.X()+(tplus.Width()-tpw)/2, tplus.Y()+(tplus.Height()-tph)/2), c.Section)
 
-	tagListTop := rect.Y() + c.tagListY(nProps)
+	tagListTop := rect.Y() + c.tagListY(nRows)
 	listH := c.tagListH(nTags)
 	if listH > 0 {
 		// Grouping panel behind the tag rows so they read as a single field rather than
@@ -839,12 +915,12 @@ func (c *InspectorComponent) Draw(r core.Renderer) {
 
 	// Components section header — one row above the scrollable list, with a "+"
 	// add-component button in its top-right corner.
-	compY := rect.Y() + c.compStart(nProps, nTags)
+	compY := rect.Y() + c.compStart(nRows, nTags)
 	// Separator between the object's own values (props + tags) and its components.
 	r.DrawLine(math.NewVector2(rect.X()+4, compY-c.RowHeight), math.NewVector2(rect.X()+rect.Width()-10, compY-c.RowHeight), c.Section, 1)
 	sty := (compY - c.RowHeight) + (c.RowHeight-th)/2
 	r.DrawText("COMPONENTS", c.FontID, c.FontSize, math.NewVector2(rect.X()+6, sty), c.Section)
-	plus := c.plusRect(rect, nProps, nTags)
+	plus := c.plusRect(rect, nRows, nTags)
 	if c.hoverPlus {
 		r.DrawRect(plus, c.Background.Lerp(math.White, 0.12))
 	}

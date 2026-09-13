@@ -181,8 +181,41 @@ func (c *NewSceneComponent) commit() {
 	if sl := lookupSceneList(c.GetScene()); sl != nil {
 		sl.refresh()
 	}
+	prev := vp.CurrentSceneName()
+	editorScene := c.GetScene()
 	vp.SetScene(name)
 	c.dismiss = true
+
+	// Record the undo AFTER SetScene (which clears history), so it survives the switch.
+	// The closures touch only files and the viewport, so they stay valid across scene
+	// switches; undoing/redoing is a scene-level undo boundary, like scene deletion.
+	history.record(
+		"created scene "+name,
+		func() {
+			if vp := lookupViewport(editorScene); vp != nil {
+				if vp.CurrentSceneName() == name {
+					vp.ClearScene() // unload the created scene without saving it back
+					if prev != "" {
+						vp.SetScene(prev)
+					}
+				}
+			}
+			_ = deleteSceneFile(scenePath(dir, name))
+			if sl := lookupSceneList(editorScene); sl != nil {
+				sl.refresh()
+			}
+		},
+		func() {
+			_ = createSceneFile(dir, name)
+			if sl := lookupSceneList(editorScene); sl != nil {
+				sl.refresh()
+			}
+			if vp := lookupViewport(editorScene); vp != nil {
+				vp.SetScene(name)
+			}
+		},
+		false,
+	)
 }
 
 // centerOnce repositions the panel to the screen center on its first frame.

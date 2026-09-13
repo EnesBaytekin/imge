@@ -8,13 +8,11 @@ import (
 // SceneSettingsComponent is the modal "Scene Settings" window opened by the scene
 // list's "#" button. It edits the active scene's name, background color, and camera
 // (x/y/zoom) in place through real engine widgets (@TextInput and @ColorPicker),
-// reusing the field-binding machinery the game-settings modal uses. The edits mutate
-// the live scene so the viewport previews them immediately; "Save" writes the scene
-// back to its .scene file (and syncs game.imge's initial_scene if the name changed),
-// while "Close" (or a click outside) reverts the live scene to its captured originals.
-//
-// As with game settings, these are scene-config edits saved explicitly — they do not
-// touch the scene-edit undo history.
+// reusing the field-binding machinery the game-settings modal uses. Every committed
+// change applies to the live scene immediately, is written straight back to disk
+// (auto-save), and is recorded in the editor undo history; a rename also follows
+// game.imge's initial_scene when this scene was the start scene. The title bar's "x"
+// closes the window — changes persist, so closing never reverts.
 type SceneSettingsComponent struct {
 	core.BaseUIComponent
 
@@ -36,16 +34,10 @@ type SceneSettingsComponent struct {
 	bindings []fieldBinding
 	labels   []string
 
-	// Originals captured at spawn, restored on cancel/outside-click.
-	origName string
-	origBG   math.Color
-	origCam  *core.Camera // nil means the scene had no camera
-
-	saveBtn  *ButtonComponent
-	closeBtn *ButtonComponent
-
 	dismiss  bool
 	centered bool
+
+	closeHover bool // the "x" close button is under the cursor
 
 	dragging bool         // the title bar is being dragged to move the window
 	dragGrab math.Vector2 // mouse offset from the window's top-left when the drag began
@@ -106,12 +98,9 @@ func spawnSceneSettings(scene *core.Scene) {
 	win := &SceneSettingsComponent{}
 	win.SetName("scene_settings")
 	win.Width = 300
-	win.Height = 140
+	win.Height = 112
 	win.sc = sc
 	win.vp = vp
-	win.origName = sc.Name
-	win.origBG = sc.BackgroundColor
-	win.origCam = sc.Camera
 	obj.AddComponent(win)
 
 	if err := scene.AddObject(obj); err != nil {
@@ -149,16 +138,47 @@ func (c *SceneSettingsComponent) addField(key, label string, kind fieldKind, get
 	c.labels = append(c.labels, label)
 }
 
-// buildWidgets registers every scene field and creates its widget, then the Save/Close
-// buttons. All widgets are children of this window object, initialized manually (the
-// object's own Initialize already ran).
+// buildWidgets registers every scene field and creates its widget. All widgets are
+// children of this window object, initialized manually (the object's own Initialize
+// already ran). Each binding's afterApply persists the live scene back to disk, so a
+// committed change is saved immediately (and undo/redo re-saves it too).
 func (c *SceneSettingsComponent) buildWidgets() {
 	owner := c.GetOwner()
 	sc := c.sc
+	vp := c.vp
+	editorScene := c.GetScene()
+
+	// persist auto-saves the live scene and refreshes the scene list (so a rename shows
+	// up immediately). It captures only long-lived objects — the viewport and the editor
+	// scene — so the undo closures stay valid after this modal closes.
+	persist := func() {
+		if vp == nil {
+			return
+		}
+		if err := vp.Save(); err != nil {
+			console.Print("scene settings: " + err.Error())
+		}
+		if sl := lookupSceneList(editorScene); sl != nil {
+			sl.refresh()
+		}
+	}
 
 	c.addField("name", "Name", kindText,
 		func() string { return sc.Name },
-		func(s string) error { sc.Name = s; return nil }, nil)
+		func(s string) error {
+			// A rename follows game.imge's initial_scene when this scene was the start
+			// scene. Reading the old name before overwriting it keeps the same closure
+			// correct under undo/redo (which call apply with the prior value).
+			if old := sc.Name; old != s {
+				if vp.CurrentProject() != "" && initialSceneName(vp.CurrentProject()) == old {
+					if err := setInitialScene(vp.CurrentProject(), s); err != nil {
+						console.Print("set initial scene: " + err.Error())
+					}
+				}
+			}
+			sc.Name = s
+			return nil
+		}, nil)
 
 	c.addField("background", "Background", kindColor,
 		func() string { return sc.BackgroundColor.HexString() },
@@ -220,6 +240,11 @@ func (c *SceneSettingsComponent) buildWidgets() {
 			return nil
 		}, nil)
 
+	// Every field auto-saves on commit (and on undo/redo).
+	for i := range c.bindings {
+		c.bindings[i].afterApply = persist
+	}
+
 	rect := c.Rect()
 	valX := rect.X() + 130
 	valW := rect.Width() - 130 - 12
@@ -228,47 +253,30 @@ func (c *SceneSettingsComponent) buildWidgets() {
 		y := rect.Y() + c.titleH() + float64(i)*c.RowHeight
 		b.widget = makeFieldWidget(b, owner, math.NewVector2(valX, y), valW, c.RowHeight, c.FontID, c.FontSize, c.ValueText)
 	}
-
-	buttonY := c.titleH() + float64(len(c.bindings))*c.RowHeight + 4
-	c.saveBtn = makePanelButton(owner, "save", "Save", math.NewVector2(8, buttonY), 138, 20, c.FontID, c.FontSize, c.Accent)
-	c.closeBtn = makePanelButton(owner, "close", "Close", math.NewVector2(152, buttonY), 140, 20, c.FontID, c.FontSize, c.BorderColor)
-}
-
-// commitField applies a committed value through the binding without recording undo
-// (the scene is saved explicitly, not part of the scene-edit history).
-func (c *SceneSettingsComponent) commitField(b *fieldBinding, s string) error {
-	if s == b.old {
-		return nil
-	}
-	if err := b.apply(s); err != nil {
-		return err
-	}
-	b.old = s
-	return nil
 }
 
 // pollCommits detects committed widget changes each frame — a ColorPicker commit, a
-// TextInput Enter or blur — and applies them. Mirrors the game-settings modal's
-// pollCommits (no undo recording).
+// TextInput Enter or blur — and applies them, recording an undo entry per change. The
+// entry is marked clean because persist() writes the change straight back to disk.
 func (c *SceneSettingsComponent) pollCommits(ctx *core.Context) {
 	for i := range c.bindings {
 		b := &c.bindings[i]
 		switch b.kind {
 		case kindColor:
 			cp := b.widget.(*ColorPickerComponent)
-			_ = c.commitField(b, formatColorHex(cp.GetColor()))
+			_ = commitStringDirty(b, formatColorHex(cp.GetColor()), false)
 		default:
 			ti := b.widget.(*TextInputComponent)
 			focused := ti.IsFocused()
 			if focused && ctx.Input.IsKeyJustPressed(core.KeyEnter) {
-				if err := c.commitField(b, ti.Text); err != nil {
+				if err := commitStringDirty(b, ti.Text, false); err != nil {
 					ti.TextColor = c.ErrorColor
 				} else {
 					ti.TextColor = c.ValueText
 				}
 			}
 			if b.wasFocused && !focused {
-				if err := c.commitField(b, ti.Text); err != nil {
+				if err := commitStringDirty(b, ti.Text, false); err != nil {
 					ti.Text = b.get() // revert on blur-error
 				}
 				ti.TextColor = c.ValueText
@@ -278,63 +286,9 @@ func (c *SceneSettingsComponent) pollCommits(ctx *core.Context) {
 	}
 }
 
-// commitAll force-applies every widget's current value before Save, so a TextInput
-// still being edited (no Enter/blur yet) is captured.
-func (c *SceneSettingsComponent) commitAll() {
-	for i := range c.bindings {
-		b := &c.bindings[i]
-		switch b.kind {
-		case kindColor:
-			_ = c.commitField(b, formatColorHex(b.widget.(*ColorPickerComponent).GetColor()))
-		default:
-			_ = c.commitField(b, b.widget.(*TextInputComponent).Text)
-		}
-	}
-}
-
-// revert restores the live scene to the originals captured at spawn.
-func (c *SceneSettingsComponent) revert() {
-	if c.sc == nil {
-		return
-	}
-	c.sc.Name = c.origName
-	c.sc.BackgroundColor = c.origBG
-	c.sc.Camera = c.origCam
-}
-
-// save writes the edited scene back to disk and syncs the scene list (and
-// game.imge's initial_scene when the name changed).
-func (c *SceneSettingsComponent) save() {
-	c.commitAll()
-
-	vp := c.vp
-	if vp == nil {
-		vp = lookupViewport(c.GetScene())
-	}
-	if vp == nil {
-		c.dismiss = true
-		return
-	}
-
-	// A rename moves the scene's display name; if it was the initial scene, follow it.
-	if c.sc.Name != c.origName && vp.CurrentProject() != "" {
-		if initialSceneName(vp.CurrentProject()) == c.origName {
-			if err := setInitialScene(vp.CurrentProject(), c.sc.Name); err != nil {
-				console.Print("set initial scene: " + err.Error())
-			}
-		}
-	}
-
-	if err := vp.Save(); err != nil {
-		console.Print("scene settings: " + err.Error())
-	} else {
-		console.Print("saved scene settings")
-	}
-
-	if sl := lookupSceneList(c.GetScene()); sl != nil {
-		sl.refresh()
-	}
-	c.dismiss = true
+// closeRect returns the "x" close button rect in the title bar's top-right corner.
+func (c *SceneSettingsComponent) closeRect(rect math.Rect) math.Rect {
+	return math.NewRect(rect.X()+rect.Width()-18, rect.Y()+2, 14, 14)
 }
 
 func (c *SceneSettingsComponent) Update(ctx *core.Context) {
@@ -356,22 +310,23 @@ func (c *SceneSettingsComponent) Update(ctx *core.Context) {
 		}
 	}
 
+	// Recompute after any drag this frame so the hit tests below use the fresh position.
+	rect := c.Rect()
+	c.closeHover = c.closeRect(rect).ContainsPoint(mouse)
+	if c.closeHover {
+		showTooltip("Close", mouse)
+	}
+
 	c.pollCommits(ctx)
 
-	if c.closeBtn != nil && c.closeBtn.ConsumeClick() {
-		c.revert()
-		c.dismiss = true
-		return
-	}
-	if c.saveBtn != nil && c.saveBtn.ConsumeClick() {
-		c.save()
-		return
-	}
-
-	// Title-bar press starts a drag (tested before the outside-click check, so moving
-	// the window never reads as a dismissal).
 	if ctx.Input.IsMouseButtonJustPressed(core.MouseButtonLeft) {
-		rect := c.Rect()
+		// Close button ("x"): changes persist immediately, so it just dismisses.
+		if c.closeRect(rect).ContainsPoint(mouse) {
+			c.dismiss = true
+			return
+		}
+		// Title-bar press starts a drag (tested before the outside-click check, so moving
+		// the window never reads as a dismissal).
 		if math.NewRect(rect.X(), rect.Y(), rect.Width(), c.titleH()).ContainsPoint(mouse) {
 			c.dragging = true
 			c.dragGrab = mouse.Subtract(rect.Position)
@@ -380,7 +335,6 @@ func (c *SceneSettingsComponent) Update(ctx *core.Context) {
 	}
 
 	if modalOutsideClick(c.GetScene(), c.GetOwner(), ctx) {
-		c.revert()
 		c.dismiss = true
 	}
 }
@@ -412,9 +366,15 @@ func (c *SceneSettingsComponent) Draw(r core.Renderer) {
 
 	_, th := r.MeasureText("Ag", c.FontID, c.FontSize)
 
-	// Title bar.
+	// Title bar, with the "x" close button (red on hover) in the top-right corner.
+	titleY := rect.Y() + (c.titleH()-th)/2
 	r.DrawRect(math.NewRect(rect.X(), rect.Y(), rect.Width(), c.titleH()), c.Accent)
-	r.DrawText("SCENE SETTINGS", c.FontID, c.FontSize, math.NewVector2(rect.X()+6, rect.Y()+(c.titleH()-th)/2), c.TitleText)
+	r.DrawText("SCENE SETTINGS", c.FontID, c.FontSize, math.NewVector2(rect.X()+6, titleY), c.TitleText)
+	xColor := c.TitleText
+	if c.closeHover {
+		xColor = c.ErrorColor
+	}
+	r.DrawText("X", c.FontID, c.FontSize, math.NewVector2(rect.X()+rect.Width()-16, titleY), xColor)
 
 	// Field name labels (the value widgets draw themselves as layer-1 children).
 	for i := range c.bindings {

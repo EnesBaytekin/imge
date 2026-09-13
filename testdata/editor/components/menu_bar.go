@@ -532,8 +532,6 @@ func (c *MenuBarComponent) openEditorSettings() {
 func (c *MenuBarComponent) undo() {
 	if history.undo() {
 		c.status = "undone"
-	} else if sl := lookupSceneList(c.GetScene()); sl != nil && sl.restoreLastDeletedScene() {
-		c.status = "restored scene"
 	} else {
 		c.status = "nothing to undo"
 	}

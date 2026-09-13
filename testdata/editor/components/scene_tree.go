@@ -294,6 +294,16 @@ func (t *SceneTreeComponent) Update(ctx *core.Context) {
 		}
 	}
 
+	// Tooltips for the symbol-only buttons, shown while the cursor rests on them.
+	switch {
+	case t.hoverPlus:
+		showTooltip("Add object", mouse)
+	case t.hoverDup != nil:
+		showTooltip("Duplicate object", mouse)
+	case t.hoverX != nil:
+		showTooltip("Delete object", mouse)
+	}
+
 	if !ctx.Input.IsMouseButtonJustPressed(core.MouseButtonLeft) {
 		return
 	}

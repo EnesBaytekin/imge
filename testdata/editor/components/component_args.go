@@ -447,6 +447,9 @@ func (c *ComponentArgsComponent) Update(ctx *core.Context) {
 	// Recompute after any drag this frame so the hit tests below use the fresh position.
 	rect = c.Rect()
 	c.closeHover = math.NewRect(rect.X()+rect.Width()-18, rect.Y()+2, 14, 14).ContainsPoint(mouse)
+	if c.closeHover {
+		showTooltip("Close", mouse)
+	}
 
 	// A scrollbar drag keeps following the cursor even outside the window.
 	if c.scrollDragging {

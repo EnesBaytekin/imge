@@ -69,6 +69,14 @@
       "components": [
         { "kind": "ConsoleComponent", "name": "console", "args": { "width": 600, "height": 90 } }
       ]
+    },
+    {
+      "name": "tooltip",
+      "ui": true,
+      "layer": 6,
+      "components": [
+        { "kind": "TooltipComponent", "name": "tooltip" }
+      ]
     }
   ]
 }
