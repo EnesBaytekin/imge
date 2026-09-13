@@ -8,6 +8,7 @@ package components
 import (
 	"fmt"
 	stdmath "math"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
@@ -368,6 +369,7 @@ type fieldBinding struct {
 	old        string // last committed value
 	wasFocused bool   // TextInput blur tracking
 	afterApply func() // optional side effect after a committed apply (incl. undo/redo)
+	restore    func() // optional: re-open/re-focus this binding's window after undo/redo
 }
 
 // makeFieldWidget creates the engine widget for a binding, attaches it to the window
@@ -495,21 +497,26 @@ func commitStringDirty(b *fieldBinding, s string, dirty bool) error {
 	if b.afterApply != nil {
 		b.afterApply()
 	}
-	history.record(
+	history.recordRestore(
 		"changed "+strings.TrimPrefix(b.key, "_"),
 		func() {
 			_ = b.apply(old)
 			if b.afterApply != nil {
 				b.afterApply()
 			}
+			b.old = old
+			refreshWidget(b, true) // force-sync so pollCommits doesn't re-record the revert
 		},
 		func() {
 			_ = b.apply(s)
 			if b.afterApply != nil {
 				b.afterApply()
 			}
+			b.old = s
+			refreshWidget(b, true)
 		},
 		dirty,
+		b.restore,
 	)
 	b.old = s
 	return nil
@@ -566,33 +573,42 @@ func pollCommits(bindings []fieldBinding, ctx *core.Context, valueText, errorCol
 // are silent; SetColor's `if !open` guard keeps an open picker panel's working color.
 func refreshWidgets(bindings []fieldBinding) {
 	for i := range bindings {
-		b := &bindings[i]
-		switch b.kind {
-		case kindText:
-			ti := b.widget.(*TextInputComponent)
-			if ti.IsFocused() {
-				continue
-			}
-			ti.Text = b.get()
-		case kindCheck:
-			b.widget.(*CheckBoxComponent).SetChecked(b.getBool())
-		case kindColor:
-			b.widget.(*ColorPickerComponent).SetColor(b.getColor())
-		case kindCombobox:
-			cb := b.widget.(*ComboBoxComponent)
-			cb.Items = b.getOptions()
-			cb.SetValue(b.get())
-		case kindSlider:
-			sl := b.widget.(*SliderComponent)
-			sl.Min = b.sliderMin()
-			sl.Max = b.sliderMax()
-			if b.sliderStep > 0 {
-				sl.Step = b.sliderStep
-			}
-			sl.SetValue(b.getFloat())
-		case kindFile:
-			b.widget.(*ButtonComponent).Text = fileButtonLabel(b)
+		refreshWidget(&bindings[i], false)
+	}
+}
+
+// refreshWidget re-syncs one binding's widget to the model. force overwrites even a
+// focused TextInput — used after undo/redo, where the model is authoritative and a stale
+// in-progress text would otherwise re-commit the reverted value on the next poll/blur.
+func refreshWidget(b *fieldBinding, force bool) {
+	if b == nil || b.widget == nil {
+		return
+	}
+	switch b.kind {
+	case kindText:
+		ti := b.widget.(*TextInputComponent)
+		if ti.IsFocused() && !force {
+			return
 		}
+		ti.Text = b.get()
+	case kindCheck:
+		b.widget.(*CheckBoxComponent).SetChecked(b.getBool())
+	case kindColor:
+		b.widget.(*ColorPickerComponent).SetColor(b.getColor())
+	case kindCombobox:
+		cb := b.widget.(*ComboBoxComponent)
+		cb.Items = b.getOptions()
+		cb.SetValue(b.get())
+	case kindSlider:
+		sl := b.widget.(*SliderComponent)
+		sl.Min = b.sliderMin()
+		sl.Max = b.sliderMax()
+		if b.sliderStep > 0 {
+			sl.Step = b.sliderStep
+		}
+		sl.SetValue(b.getFloat())
+	case kindFile:
+		b.widget.(*ButtonComponent).Text = fileButtonLabel(b)
 	}
 }
 
@@ -725,10 +741,12 @@ func pointerOwnedElsewhere(scene *core.Scene, owner *core.Object, pos math.Vecto
 // versus pure navigation or editor-only UI state (selection, grid size). It drives the
 // "unsaved changes" close prompt: only dirty steps make the document unsaved.
 type editStep struct {
-	label string
-	undo  func()
-	redo  func()
-	dirty bool
+	label     string
+	undo      func()
+	redo      func()
+	dirty     bool
+	sceneFile string // the target scene the edit belongs to ("" = none/global)
+	restore   func() // optional: re-open/re-focus the window after undo/redo
 }
 
 // editHistory is the editor-wide undo stack. It lives at package level so any panel can
@@ -742,14 +760,32 @@ type editHistory struct {
 
 var history editHistory
 
+// activeViewport is the single viewport instance, set when it initializes. The history
+// records read it to tag each edit with the scene it belongs to, and focusScene switches
+// the viewport back to that scene before an undo/redo applies.
+var activeViewport *ViewportComponent
+
 // maxHistory bounds the undo stack so a long editing session can't grow unbounded.
 const maxHistory = 100
 
 // record pushes a reversible edit (with its description) and clears the redo stack (a
 // fresh edit invalidates the redo chain, matching every editor). dirty marks the step
-// as a project-data change for the unsaved-changes prompt.
+// as a project-data change for the unsaved-changes prompt. The step is auto-tagged with
+// the scene currently focused in the viewport so undo can switch back to it.
 func (h *editHistory) record(label string, undo, redo func(), dirty bool) {
-	h.undoStack = append(h.undoStack, editStep{label, undo, redo, dirty})
+	h.recordRestore(label, undo, redo, dirty, nil)
+}
+
+// recordRestore is record with an optional restore closure: it is invoked after an
+// undo/redo applies the step, and re-opens/re-focuses the window the edit was made in
+// (e.g. a component-args window that has since been closed), so an undone change is
+// visible again rather than silently applied off-screen.
+func (h *editHistory) recordRestore(label string, undo, redo func(), dirty bool, restore func()) {
+	step := editStep{label: label, undo: undo, redo: redo, dirty: dirty, restore: restore}
+	if activeViewport != nil {
+		step.sceneFile = activeViewport.SceneFile()
+	}
+	h.undoStack = append(h.undoStack, step)
 	if len(h.undoStack) > maxHistory {
 		h.undoStack = h.undoStack[len(h.undoStack)-maxHistory:]
 	}
@@ -774,6 +810,24 @@ func (h *editHistory) markSaved() { h.dirty = false }
 // isDirty reports whether there are unsaved project-data edits.
 func (h *editHistory) isDirty() bool { return h.dirty }
 
+// focusScene switches the viewport back to the scene an edit belongs to, so an undo/redo
+// applies to (and displays) the scene the edit was made in rather than whatever scene is
+// currently open. It is a no-op when the step has no scene, the viewport is already
+// there, or the scene file can't be mapped to a scene name.
+func focusScene(sceneFile string) {
+	if sceneFile == "" || activeViewport == nil {
+		return
+	}
+	if activeViewport.SceneFile() == sceneFile {
+		return
+	}
+	name := strings.TrimSuffix(filepath.Base(sceneFile), ".scene")
+	if name == "" {
+		return
+	}
+	activeViewport.SetScene(name)
+}
+
 // undo reverts the most recent edit and moves it to the redo stack, describing the
 // change in the console. It returns false when there is nothing to undo.
 func (h *editHistory) undo() bool {
@@ -782,7 +836,11 @@ func (h *editHistory) undo() bool {
 	}
 	step := h.undoStack[len(h.undoStack)-1]
 	h.undoStack = h.undoStack[:len(h.undoStack)-1]
+	focusScene(step.sceneFile)
 	step.undo()
+	if step.restore != nil {
+		step.restore()
+	}
 	h.redoStack = append(h.redoStack, step)
 	console.Print("undid: " + step.label)
 	if step.dirty {
@@ -799,7 +857,11 @@ func (h *editHistory) redo() bool {
 	}
 	step := h.redoStack[len(h.redoStack)-1]
 	h.redoStack = h.redoStack[:len(h.redoStack)-1]
+	focusScene(step.sceneFile)
 	step.redo()
+	if step.restore != nil {
+		step.restore()
+	}
 	h.undoStack = append(h.undoStack, step)
 	console.Print("redid: " + step.label)
 	if step.dirty {

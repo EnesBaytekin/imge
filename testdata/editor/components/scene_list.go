@@ -345,10 +345,21 @@ func (t *SceneListComponent) Update(ctx *core.Context) {
 	if t.handleScrollbarPress(mouse, rect) {
 		return
 	}
-	// Row click: switch to that scene.
+	// Row click: switch to that scene, recorded as an undoable navigation step so Ctrl+Z
+	// walks back across scene switches (switching focus is itself part of the history).
 	if ri >= 0 {
 		if vp := t.viewportComponent(); vp != nil {
-			vp.SetScene(t.entries[ri].file)
+			next := t.entries[ri].file
+			prev := vp.CurrentSceneName()
+			if next != prev {
+				history.record(
+					"switch to scene "+next,
+					func() { vp.SetScene(prev) },
+					func() { vp.SetScene(next) },
+					false,
+				)
+			}
+			vp.SetScene(next)
 		}
 	}
 }
@@ -436,14 +447,14 @@ func (t *SceneListComponent) deleteScene(entry sceneEntry) {
 	t.refresh()
 
 	if wasActive && nextFile != "" {
-		vp.SetScene(nextFile) // clears history; the record below survives the switch
+		vp.SetScene(nextFile)
 	}
 
 	editorScene := t.GetScene()
 
-	// Record AFTER the scene switch so it survives the switch's history.clear(). The
-	// closures touch only files, game.imge, and the viewport, so they stay valid across
-	// scene switches (undoing/redoing is a scene-level undo boundary).
+	// Record after the scene switch so the entries stack in the order the user sees them.
+	// The closures touch only files, game.imge, and the viewport, so they stay valid
+	// across scene switches (undoing/redoing is a scene-level undo boundary).
 	history.record(
 		"deleted scene "+entry.name,
 		func() {

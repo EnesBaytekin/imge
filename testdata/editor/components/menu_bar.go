@@ -197,6 +197,7 @@ func (c *MenuBarComponent) Initialize() {
 			label: "File",
 			items: []menuEntry{
 				{label: "Open Project...", run: c.openProject},
+				{label: "New Project...", run: c.newProject},
 				{label: "Save", hint: "Ctrl+S", run: c.save},
 				{label: "Browse Files...", run: c.browseFiles},
 			},
@@ -508,9 +509,16 @@ func (c *MenuBarComponent) drawDropdown(r core.Renderer) {
 	r.ClearClip()
 }
 
-// openProject opens the modal project-path input.
+// openProject opens the filesystem project picker (select a game.imge to load its
+// directory as the project).
 func (c *MenuBarComponent) openProject() {
-	spawnOpenProject(c.GetScene())
+	spawnProjectPicker(c.GetScene(), pickerOpen)
+}
+
+// newProject opens the filesystem picker in new-project mode (pick a folder, name the
+// game, and create a blank project inside it).
+func (c *MenuBarComponent) newProject() {
+	spawnProjectPicker(c.GetScene(), pickerNew)
 }
 
 // browseFiles opens the floating project file-browser window.

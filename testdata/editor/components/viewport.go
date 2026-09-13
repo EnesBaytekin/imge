@@ -63,10 +63,20 @@ type ViewportComponent struct {
 	cam   editorCamera
 	scene *core.Scene
 
+	// scenes caches loaded scenes by their resolved .scene path, so cross-scene undo can
+	// switch back to a scene without re-reading (and re-saving) it from disk. SetProject
+	// resets it (undo never crosses a project open); SetScene keeps it.
+	scenes map[string]*core.Scene
+
 	// objectCams is the object editor's pan/zoom per project-relative .obj path, loaded
 	// from and saved to .imge.editor. The object editor reads/updates it so each .obj
 	// reopens at the view it was left at.
 	objectCams map[string]editorCameraSettings
+
+	// sceneCams is the viewport's pan/zoom per project-relative .scene path, loaded from
+	// and saved to .imge.editor. Switching scenes captures the outgoing scene's view and
+	// restores the incoming one's, so each scene reopens where it was left.
+	sceneCams map[string]editorCameraSettings
 
 	// sceneFile is the resolved path of the loaded target scene ("" when none loaded).
 	// Save writes the serialized scene back to it.
@@ -221,6 +231,7 @@ func (c *ViewportComponent) Initialize() {
 	if c.Blocking == nil {
 		c.SetBlocking(true)
 	}
+	activeViewport = c
 	c.loadTarget()
 }
 
@@ -460,6 +471,8 @@ func (c *ViewportComponent) SetProject(dir string) {
 	c.dragMoved = false
 	c.scene = nil
 	c.sceneFile = ""
+	c.scenes = nil
+	c.sceneCams = nil
 	c.cam = newEditorCamera()
 	history.clear() // undo entries reference the previous project's live components
 	closeAllArgsWindows()
@@ -494,6 +507,7 @@ func (c *ViewportComponent) SetScene(name string) {
 		if err := c.Save(); err != nil {
 			console.Print("scene switch: " + err.Error())
 		}
+		c.captureSceneCam(c.sceneFile) // remember where we left this scene
 	}
 	c.selected = nil
 	c.dragging = false
@@ -503,7 +517,8 @@ func (c *ViewportComponent) SetScene(name string) {
 	c.scene = nil
 	c.sceneFile = ""
 	c.cam = newEditorCamera()
-	history.clear() // undo entries reference the outgoing scene's live components
+	// The undo history deliberately survives a scene switch: cross-scene undo is the
+	// point, and each step is tagged with its own scene so undo() can switch back.
 	closeAllArgsWindows()
 	closeActiveModal()
 	closeActiveObjectEditor()
@@ -523,10 +538,12 @@ func (c *ViewportComponent) ClearScene() {
 	c.dragObj = nil
 	c.dragActive = false
 	c.dragMoved = false
+	delete(c.scenes, c.sceneFile) // drop the cached copy; undo restores the file from disk
 	c.scene = nil
 	c.sceneFile = ""
 	c.cam = newEditorCamera()
-	history.clear()
+	// History survives a clear: deleting the last scene is undoable (the delete records
+	// its own entry), so it must not wipe the stack here.
 	closeAllArgsWindows()
 	closeActiveObjectEditor()
 }
@@ -549,12 +566,12 @@ func (c *ViewportComponent) ReloadScene() {
 	c.dragObj = nil
 	c.dragActive = false
 	c.dragMoved = false
+	delete(c.scenes, c.sceneFile) // force a fresh read from disk below
 	c.scene = nil
 	c.sceneFile = ""
 	// The camera is intentionally preserved: ReloadScene refreshes scene data (e.g. a
 	// .obj save propagating to file-referenced instances), not navigation, so the user's
 	// view stays where it was.
-	history.clear() // undo entries reference the outgoing scene's live components
 	closeAllArgsWindows()
 	c.loadProjectScene()
 }
@@ -600,6 +617,38 @@ func (c *ViewportComponent) PixelStep() float64 {
 	return 1
 }
 
+// sceneRelPath returns sceneFile relative to the project dir — the stable key used for
+// per-scene camera storage (it matches how objectCams keys .obj paths, and keeps the
+// .imge.editor cache portable). Falls back to the absolute path when Rel fails.
+func (c *ViewportComponent) sceneRelPath(sceneFile string) string {
+	if sceneFile == "" || c.projectDir == "" {
+		return sceneFile
+	}
+	if rel, err := filepath.Rel(c.projectDir, sceneFile); err == nil {
+		return rel
+	}
+	return sceneFile
+}
+
+// captureSceneCam records the current camera against the given scene file's relative
+// path, so switching away (or saving) remembers where this scene was left.
+func (c *ViewportComponent) captureSceneCam(sceneFile string) {
+	if sceneFile == "" {
+		return
+	}
+	if c.sceneCams == nil {
+		c.sceneCams = make(map[string]editorCameraSettings)
+	}
+	c.sceneCams[c.sceneRelPath(sceneFile)] = editorCameraSettings{X: c.cam.x, Y: c.cam.y, Zoom: c.cam.zoom}
+}
+
+// restoreSceneCam applies the saved camera for the given scene file, if one was stored.
+func (c *ViewportComponent) restoreSceneCam(sceneFile string) {
+	if cam, ok := c.sceneCams[c.sceneRelPath(sceneFile)]; ok {
+		c.cam = editorCamera{x: cam.X, y: cam.Y, zoom: cam.Zoom}
+	}
+}
+
 // saveEditorPrefs writes the editor-only viewport settings — grid spacing/colors, the
 // navigation camera, and the last selection — to the target project's .imge.editor
 // cache. It is a no-op when no project is loaded. Called on project switch and window
@@ -613,6 +662,10 @@ func (c *ViewportComponent) saveEditorPrefs() {
 	if objectEditorActive() {
 		activeObjectEditor.captureCam()
 	}
+	// Capture the current scene's view so its latest pan/zoom is persisted alongside the
+	// already-captured scenes (this is the only save point, so the open scene is included
+	// here rather than only on a switch away).
+	c.captureSceneCam(c.sceneFile)
 	s := editorSettings{
 		FormatVersion: 1,
 		GridStepX:     c.GridStepX,
@@ -634,6 +687,12 @@ func (c *ViewportComponent) saveEditorPrefs() {
 			s.ObjectCams[rel] = &editorCameraSettings{X: cam.X, Y: cam.Y, Zoom: cam.Zoom}
 		}
 	}
+	if len(c.sceneCams) > 0 {
+		s.SceneCams = make(map[string]*editorCameraSettings, len(c.sceneCams))
+		for rel, cam := range c.sceneCams {
+			s.SceneCams[rel] = &editorCameraSettings{X: cam.X, Y: cam.Y, Zoom: cam.Zoom}
+		}
+	}
 	if err := writeEditorSettings(c.projectDir, s); err != nil {
 		log.Printf("viewport: failed to write %s: %v", editorSettingsPath(c.projectDir), err)
 	}
@@ -646,6 +705,7 @@ func (c *ViewportComponent) loadEditorPrefs() {
 	// Reset the per-file object-camera store: it is rebuilt from this project's cache so
 	// switching projects never leaks the previous project's object-editor views.
 	c.objectCams = nil
+	c.sceneCams = nil
 	s, err := readEditorSettings(c.projectDir)
 	if err != nil {
 		return
@@ -681,6 +741,18 @@ func (c *ViewportComponent) loadEditorPrefs() {
 			}
 			c.objectCams[rel] = editorCameraSettings{X: cam.X, Y: cam.Y, Zoom: cam.Zoom}
 		}
+	}
+	if len(s.SceneCams) > 0 {
+		c.sceneCams = make(map[string]editorCameraSettings, len(s.SceneCams))
+		for rel, cam := range s.SceneCams {
+			if cam == nil || cam.Zoom <= 0 {
+				continue
+			}
+			c.sceneCams[rel] = editorCameraSettings{X: cam.X, Y: cam.Y, Zoom: cam.Zoom}
+		}
+		// A saved per-scene camera for the loaded scene wins over the project-wide fallback
+		// camera, so reopening the editor lands each scene where it was left.
+		c.restoreSceneCam(c.sceneFile)
 	}
 	if s.SelectedObject != "" && c.scene != nil {
 		if obj := c.scene.GetObjectByName(s.SelectedObject); obj != nil {
@@ -1396,15 +1468,28 @@ func (c *ViewportComponent) loadProjectScene() bool {
 		log.Printf("viewport: no scene file found in %q (scene=%q)", project, c.Scene)
 		return false
 	}
-	scene := core.NewScene(filepath.Base(sceneFile))
-	if err := scene.LoadForDisplay(sceneFile); err != nil {
-		log.Printf("viewport: failed to load %s: %v", sceneFile, err)
-		return false
+
+	// Reuse a previously-loaded scene when one exists: cross-scene undo needs the same
+	// live *core.Scene (and its objects) it was edited against, so undoing an edit made in
+	// scene A after switching to scene B still lands on the objects the closures captured.
+	scene := c.scenes[sceneFile]
+	if scene == nil {
+		scene = core.NewScene(filepath.Base(sceneFile))
+		if err := scene.LoadForDisplay(sceneFile); err != nil {
+			log.Printf("viewport: failed to load %s: %v", sceneFile, err)
+			return false
+		}
+		if c.scenes == nil {
+			c.scenes = make(map[string]*core.Scene)
+		}
+		c.scenes[sceneFile] = scene
 	}
+
 	c.Project = project // pin to the resolved absolute dir so a later SetScene re-resolves
 	c.projectDir = project
 	c.sceneFile = sceneFile
 	c.scene = scene
+	c.restoreSceneCam(sceneFile) // resume this scene's last pan/zoom if one was saved
 
 	// Read the target's logical screen size so drawViewBounds can outline the game
 	// window's world area. A missing/unreadable game.imge only means no outline — the

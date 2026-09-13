@@ -34,6 +34,11 @@ type editorSettings struct {
 	// project-relative path), so reopening a given .obj restores the view the user left
 	// it at instead of re-framing on the origin every time.
 	ObjectCams map[string]*editorCameraSettings `json:"object_cameras,omitempty"`
+
+	// SceneCams stores the viewport's pan/zoom per scene file (keyed by the
+	// project-relative .scene path), so switching back to a scene restores the view the
+	// user left it at instead of resetting to the origin.
+	SceneCams map[string]*editorCameraSettings `json:"scene_cameras,omitempty"`
 }
 
 type editorCameraSettings struct {

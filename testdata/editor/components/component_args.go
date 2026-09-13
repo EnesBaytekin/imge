@@ -927,8 +927,19 @@ func (c *ComponentArgsComponent) rebuildRows() {
 	// definition, so a file-referenced object writes through to its template on commit and
 	// on undo/redo (commitString invokes afterApply for both).
 	owner := c.target.GetOwner()
+	comp := c.target
+	editorScene := c.GetScene()
 	for i := range c.bindings {
 		c.bindings[i].afterApply = func() { persistObjectFile(owner) }
+		// restore re-opens this window after an undo/redo, so an undone change stays
+		// visible even if the window was closed in the meantime. It captures the component
+		// and editor scene (not c.target/c.GetScene, which are nilled when the window
+		// closes); the owner guard skips it once the target object itself is gone.
+		c.bindings[i].restore = func() {
+			if comp != nil && comp.GetOwner() != nil {
+				spawnArgsWindow(editorScene, comp)
+			}
+		}
 	}
 
 	// Record the Sprite's textured state so a later texture commit can detect empty↔set
