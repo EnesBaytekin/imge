@@ -541,7 +541,20 @@ func pollCommits(bindings []fieldBinding, ctx *core.Context, valueText, errorCol
 			_ = commitString(b, cb.GetValue())
 		case kindSlider:
 			sl := b.widget.(*SliderComponent)
-			_ = commitString(b, formatFloat(sl.GetValue()))
+			s := formatFloat(sl.GetValue())
+			if sl.IsDragging() {
+				// Live-apply the thumb position so the object tracks the drag in real
+				// time, but leave b.old at the pre-drag value: on release the normal
+				// commit records a single undo entry spanning the whole drag instead of
+				// one entry per intermediate frame.
+				if s != b.old {
+					if b.apply(s) == nil && b.afterApply != nil {
+						b.afterApply()
+					}
+				}
+				continue
+			}
+			_ = commitString(b, s)
 		case kindFile:
 			btn := b.widget.(*ButtonComponent)
 			if btn.ConsumeClick() && b.onBrowse != nil {

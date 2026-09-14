@@ -938,6 +938,12 @@ func (c *ComponentArgsComponent) rebuildRows() {
 		c.bindings[i].restore = func() {
 			if comp != nil && comp.GetOwner() != nil {
 				spawnArgsWindow(editorScene, comp)
+				// Re-select the edited object so the viewport highlights exactly what was
+				// undone/redone — even after focusScene switched scenes (which clears the
+				// selection). SelectSilent keeps this out of the undo stack.
+				if activeViewport != nil {
+					activeViewport.SelectSilent(comp.GetOwner())
+				}
 			}
 		}
 	}

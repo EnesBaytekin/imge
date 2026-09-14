@@ -17,6 +17,7 @@ import (
 //   - Step = 1     -> whole numbers only (the common "integer slider"),
 //   - Step = 0.5   -> halves,
 //   - Step = 0     -> continuous (any float in [Min, Max]).
+//
 // Snapping is exact: with Step >= 1 the result is a clean integer; with a fractional
 // Step the result is rounded to Step's own decimal places so 0.3 stays 0.3 and not
 // 0.30000000000000004.
@@ -152,6 +153,11 @@ func (s *SliderComponent) Adjust(pos math.Vector2) {
 func (s *SliderComponent) EndAdjust() {
 	s.dragging = false
 }
+
+// IsDragging reports whether the user is currently dragging the thumb (between
+// BeginAdjust and EndAdjust). The editor uses it to defer committing a slider's value
+// until the drag ends, so one drag produces one undo entry instead of one per frame.
+func (s *SliderComponent) IsDragging() bool { return s.dragging }
 
 // snap quantizes v to the nearest Step multiple and, for a fractional Step, rounds
 // to Step's own decimal places so repeated values stay clean.

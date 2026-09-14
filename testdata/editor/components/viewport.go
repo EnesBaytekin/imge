@@ -769,34 +769,23 @@ func (c *ViewportComponent) SelectedObject() *core.Object { return c.selected }
 // components) so its DrawDebug pass still highlights the pick. Passing nil clears the
 // selection. Other panels (e.g. the object tree) call this to drive selection, so the
 // viewport stays the single source of truth.
+//
+// Selection is navigation/inspection, not a project-data change, so it is deliberately
+// NOT recorded in the undo stack: the user can undo, click around to inspect objects,
+// and still redo, without those clicks clobbering the redo chain.
 func (c *ViewportComponent) Select(obj *core.Object) {
-	old := c.selected
-	if old == obj {
+	if c.selected == obj {
 		return
 	}
-	// Selection is itself undoable: record the transition so Ctrl+Z restores the prior
-	// selection first, then the next undo reverts the edit underneath it visibly. It is
-	// not dirty — selection is navigation, not a project-data change.
-	label := "deselected"
-	if old != nil {
-		label = "deselected " + old.Name
-	}
-	if obj != nil {
-		label = "selected " + obj.Name
-	}
-	history.record(
-		label,
-		func() { c.applySelection(old) },
-		func() { c.applySelection(obj) },
-		false,
-	)
 	c.applySelection(obj)
 }
 
 // SelectSilent changes the selection without recording an undo step. It is for
 // programmatic side effects (selecting a freshly added/duplicated object, or clearing
 // the selection after a removal) where the selection change is part of another
-// undoable action, not a user's deliberate click.
+// undoable action, not a user's deliberate click. Since Select no longer records,
+// this is now identical to Select; it remains as a call-site hint that the change is
+// programmatic.
 func (c *ViewportComponent) SelectSilent(obj *core.Object) {
 	c.applySelection(obj)
 }
