@@ -184,4 +184,9 @@ Full documentation lives in [`docs/`](docs/) — start with
 
 ## License
 
-MIT
+[Mozilla Public License 2.0](LICENSE) (`MPL-2.0`).
+
+The engine's own source is **copyleft at the file level**: anyone who modifies or
+redistributes IMGE's code must share those changes under the same license. A game built
+*with* IMGE is a separate "Larger Work" — your scenes, objects, and components are yours,
+and you may license them however you like, including closed-source.
