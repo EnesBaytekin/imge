@@ -11,6 +11,7 @@ from your project directory (the directory containing `game.imge`).
 | `imge init sample` | Scaffold the sample platformer demo (`sample` / `demo` / `example` all work) |
 | `imge build [flags]` | Build the game |
 | `imge run` | Build and launch the desktop game |
+| `imge editor [path]` | Open a project in the IMGE editor |
 | `imge new <kind> <name>` | Scaffold a blank object, component, or scene |
 | `imge version` | Print the engine version |
 | `imge help` | Print usage (also `-h` / `--help`) |
@@ -50,6 +51,25 @@ values instead of typing boilerplate from scratch.
 - **Refuses to overwrite** an existing file.
 - **JSON comments** — `.obj`, `.scene`, and `game.imge` all accept `//` and `/* */`
   comments in hand-written files; the generated templates don't add any.
+
+## `imge editor`
+
+Opens the visual **IMGE editor** on a project.
+
+```sh
+imge editor            # open the current directory (if it is a project)
+imge editor path/to/my-game
+```
+
+- With no path, `imge editor` opens the current directory — but only if it contains a
+  `game.imge`; it refuses otherwise.
+- The editor binary is **embedded inside `imge`** and built on first use, then cached under
+  your user cache directory. The cache key is derived from the engine version and the embedded
+  editor/engine source, so a new `imge` binary rebuilds it automatically; an unchanged one
+  reuses the cached build and starts instantly.
+- The editor edits the project **in place** — the same files `imge build` reads.
+
+See the [IMGE Editor](editor.md) guide for everything the editor can do.
 
 ## `imge build`
 

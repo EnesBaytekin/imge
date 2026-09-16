@@ -155,6 +155,9 @@ scans the **whole project root** for these files, so they can live anywhere. See
 
 - `imge_build/` — build output (see [the `imge` tool](cli.md#output)). Safe to delete.
 - `.imge_build/` — a temporary directory the builder cleans up; never commit it.
+- `.imge.editor` — the [IMGE Editor](editor.md)'s per-project settings cache (grid
+  spacing, camera, last selection). It is created next to `game.imge` when you use the
+  editor and is **never** part of the build; add it to your own `.gitignore`.
 
 The `.imge_build`, `imge_build`, `.git`, and `node_modules` directories are excluded
 from the scan and the embed, so you can nest projects or keep a build around without

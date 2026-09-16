@@ -58,6 +58,10 @@ The two places you spend your time:
 The [JSON format](json-format.md) reference covers the scene/object files in full;
 [Custom components](custom-components.md) covers the Go side.
 
+> **Prefer a visual workflow?** Run `imge editor` in the project to place objects,
+> tweak components, and run the game in a GUI instead of hand-editing JSON — see the
+> [IMGE Editor](editor.md) guide.
+
 ## A minimal first object
 
 Add this to `scenes/main.scene` to put a 32×32 sprite on screen:
@@ -84,6 +88,7 @@ Then `imge run`.
 
 ## Where to go next
 
+- [IMGE Editor](editor.md) — the visual editor for placing objects and tweaking components.
 - [Project structure](project-structure.md) — understand the layout.
 - [Objects](objects.md) — the object model.
 - [Scenes & camera](scenes-and-camera.md) — scenes, switching, camera.

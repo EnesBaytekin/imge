@@ -1,10 +1,70 @@
-# IMGE — Minimal 2D Game Engine in Go
+# IMGE Minimal Game Engine
 
-**IMGE** (Minimal Game Engine) is a 2D pixel-art game engine. You describe your game with
-JSON files (scenes, objects) and small Go "components", then `imge build` compiles it into a
-single self-contained executable — or a web (WASM) bundle. It's built on
-[Ebitengine](https://ebitengine.org/), a pure-Go 2D game library, so the engine itself is Go
-all the way down — no C/C++ engine to link against.
+**IMGE** is a minimal 2D pixel-art game engine. You describe your game with **JSON files**
+(scenes and objects) and small **Go components**, then `imge build` compiles the whole thing
+into a single self-contained executable — or a web (WASM) bundle. It is built on
+[Ebitengine](https://ebitengine.org/), a pure-Go 2D game library, so the engine is Go all the
+way down: no C/C++ engine to link against, no hidden runtime.
+
+IMGE is built around one idea: **the tool should get out of the way**. Scenes and objects are
+plain, human-readable JSON (with `//` comments), components are tiny Go structs, and there is no
+mandatory boilerplate — exported, JSON-tagged fields become the component's *arguments*
+automatically, and every component registers itself. A full visual **editor** is included and is
+itself written with IMGE, so if a workflow feels awkward in the editor, it is awkward in the
+engine too — and gets fixed.
+
+---
+
+![IMGE editor overview](docs/assets/editor-overview.png)
+
+## Key features
+
+- **Minimal and intuitive** — a game is a set of **scenes**, each holding **objects**, each
+  object a list of **components**. No entity framework, no mandatory architecture.
+- **JSON-first** — scenes (`.scene`), object templates (`.obj`), and the game config
+  (`game.imge`) are all editable JSON with `//` and `/* */` comments. The engine reads them
+  directly.
+- **Go components** — write behavior as small structs embedding `core.BaseComponent`. Exported,
+  JSON-tagged fields are *export variables* (set from JSON); lowercase fields stay private.
+  Components **auto-register** — no `init()`.
+- **Built-in components** — rendering (`@Sprite`, `@Animator`, `@Rect`), physics & movement
+  (`@Collider`, `@Mover`, `@Velocity`, `@Gravity`, `@Friction`), sound (`@Sound`), gameplay
+  helpers (`@Health`, `@PlayerController`, `@Chase`), and a full UI kit (`@UIManager`,
+  `@Button`, `@TextInput`, `@CheckBox`, `@ComboBox`, `@ColorPicker`, `@Slider`, `@List`). See
+  [`docs/components.md`](docs/components.md).
+- **Events** — components talk to each other with `Emit`/`On`, and reach sibling components
+  directly via `core.GetFrom[...]`.
+- **Cross-compile** — `imge build` produces native Linux / Windows / macOS binaries and a web
+  (WASM) bundle from the same project.
+- **The IMGE Editor** — a visual, in-engine editor for placing objects, tweaking components,
+  building scenes, and running the game — described below and in
+  [`docs/editor.md`](docs/editor.md).
+
+## The editor
+
+The **IMGE Editor** is a full graphical editor that ships inside the `imge` CLI. It is written
+entirely in IMGE itself (the editor is a normal IMGE project), which is deliberate: the editor
+and the games you build use the same components, the same JSON, and the same rendering.
+
+```sh
+imge editor          # open the current project
+imge editor path/to/my-game   # open a specific project
+```
+
+With it you can:
+
+- **Open / create** projects, scenes, and object templates from the menu bar.
+- **Navigate** the viewport — pan, zoom, a configurable grid and axes.
+- **Place, move, duplicate and remove** objects by dragging with grid/pixel snapping.
+- **Edit every component** in a dedicated arguments window (checkboxes, sliders, color pickers,
+  file pickers — not raw text where a control fits better).
+- **Isolate-edit** an object template (`.obj`) in its own editor, with changes written through
+  to every instance that references it.
+- **Undo/redo** everything (`Ctrl+Z` / `Ctrl+Y`), with unsaved-change protection on close.
+- **Run and stop** the game in place (`F5`), with its output captured in the console.
+
+The editor is documented in depth in [`docs/editor.md`](docs/editor.md) — every panel, menu,
+shortcut, and setting, in its current state.
 
 ## What you need
 
@@ -43,6 +103,8 @@ mygame/
 └── assets/        # images and sounds
 ```
 
+Prefer a visual workflow? Run `imge editor` in the project instead of editing the JSON by hand.
+
 ## How a game is made
 
 A game is a set of **objects** placed into **scenes**. Each object is a list of
@@ -54,10 +116,7 @@ you write in `components/`.
 - **Components** (`components/*.go`) — Go structs that embed `core.BaseComponent` and write
   `Initialize`/`Update`/`Draw`. Exported, JSON-tagged fields are "export variables" — their
   values come from the component's `args` in the object/scene JSON; lowercase fields stay
-  private. Components auto-register (no `init()`). Built-ins include `@Collider`,
-  `@Mover`, `@Velocity`, `@Gravity`, `@Friction`, `@Sprite`, `@Animator`, `@Sound`,
-  and behavior components like `@PlayerController`, `@Chase`, `@Health` (see
-  `docs/components.md`).
+  private. Components auto-register (no `init()`).
 - **Assets** (`assets/`) — PNG/JPEG images and WAV/MP3/OGG sounds, embedded into the build.
 
 Example — give an object a sprite and a hitbox:
@@ -115,6 +174,13 @@ python3 -m http.server 8000   # then open http://localhost:8000/
 Windows (amd64/arm64) builds from any host (pure Go). macOS and non-native Linux targets need
 Ebitengine's Cgo (GLFW), so build those natively or via CI — `imge build` prints which
 targets it skipped and why.
+
+## Documentation
+
+Full documentation lives in [`docs/`](docs/) — start with
+[Getting started](docs/getting-started.md), then the
+[editor guide](docs/editor.md), the [component reference](docs/components.md), and the
+[cookbook](docs/cookbook.md).
 
 ## License
 

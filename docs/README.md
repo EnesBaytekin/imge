@@ -15,7 +15,17 @@ into a single self-contained executable or a web (WASM) bundle.
 |---|---|---|
 | [**Getting started**](getting-started.md) | Install, `imge init`, and your first running game | 5 min |
 | [**Project structure**](project-structure.md) | What every file and directory is for | 3 min |
-| [**The `imge` tool**](cli.md) | `init` / `build` / `run` / `version`, flags, cross-compilation | 5 min |
+| [**The `imge` tool**](cli.md) | `init` / `build` / `run` / `editor` / `version`, flags, cross-compilation | 5 min |
+
+## The editor
+
+| | | |
+|---|---|---|
+| [**IMGE Editor**](editor.md) | The visual editor: every panel, menu, shortcut, and setting | guide |
+
+The editor is the visual front door to IMGE — place objects, tweak components, build
+scenes, and run the game without hand-editing JSON. It is itself an IMGE project, so
+everything it edits is the same JSON and components your game uses.
 
 ## Core concepts
 
