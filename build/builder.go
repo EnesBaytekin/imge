@@ -109,6 +109,9 @@ func (b *Builder) buildDesktop(buildDir string, analysis *ProjectAnalysis, goos,
 	if err := copyFile(src, dst); err != nil {
 		return "", fmt.Errorf("failed to copy executable: %w", err)
 	}
+	if err := b.writeThirdPartyLicenses(buildDir, outDir); err != nil {
+		return "", err
+	}
 
 	fmt.Printf("Built %s\n", dst)
 	return dst, nil
@@ -141,6 +144,9 @@ func (b *Builder) buildWeb(buildDir string, analysis *ProjectAnalysis) (string, 
 	}
 	if err := b.writeIndexHTML(outDir, analysis.GameConfig.Window.Title); err != nil {
 		return "", fmt.Errorf("failed to write index.html: %w", err)
+	}
+	if err := b.writeThirdPartyLicenses(buildDir, outDir); err != nil {
+		return "", err
 	}
 
 	fmt.Printf("Built web bundle in %s/\n", outDir)
@@ -246,4 +252,53 @@ func (b *Builder) writeIndexHTML(outDir, title string) error {
 </html>
 `
 	return os.WriteFile(filepath.Join(outDir, "index.html"), []byte(page), 0644)
+}
+
+// writeThirdPartyLicenses writes THIRD_PARTY_LICENSES.txt next to the build
+// output. The engine and Ebitengine are both compiled into the game binary, so
+// their attribution must accompany every distributed build — a plain text file
+// beside the executable, not content injected into it. The engine is MPL-2.0
+// (source linked) and Ebitengine is Apache-2.0 (full text included).
+func (b *Builder) writeThirdPartyLicenses(buildDir, outDir string) error {
+	dir, err := moduleCacheDir(buildDir, "github.com/hajimehoshi/ebiten/v2")
+	if err != nil {
+		return err
+	}
+	licenseText, err := os.ReadFile(filepath.Join(dir, "LICENSE"))
+	if err != nil {
+		return fmt.Errorf("failed to read Ebitengine LICENSE: %w", err)
+	}
+
+	header := "This product bundles the following software:\n\n" +
+		"IMGE Minimal Game Engine (https://github.com/EnesBaytekin/imge)\n" +
+		"Copyright (c) 2026 Enes Baytekin\n" +
+		"Licensed under the Mozilla Public License, v. 2.0.\n" +
+		"Source code: https://github.com/EnesBaytekin/imge\n" +
+		"License text: https://mozilla.org/MPL/2.0/\n\n" +
+		"Ebitengine (https://ebitengine.org)\n" +
+		"Copyright (c) Hajime Hoshi and the Ebitengine Authors\n" +
+		"Licensed under the Apache License, Version 2.0.\n\n" +
+		"---\n\n"
+
+	content := header + string(licenseText)
+	if err := os.WriteFile(filepath.Join(outDir, "THIRD_PARTY_LICENSES.txt"), []byte(content), 0644); err != nil {
+		return fmt.Errorf("failed to write THIRD_PARTY_LICENSES.txt: %w", err)
+	}
+	return nil
+}
+
+// moduleCacheDir resolves the on-disk directory of a module dependency from the
+// generated build module (the Go module cache), via `go list -m`.
+func moduleCacheDir(buildDir, module string) (string, error) {
+	cmd := exec.Command("go", "list", "-m", "-f", "{{.Dir}}", module)
+	cmd.Dir = buildDir
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve module %s: %w", module, err)
+	}
+	dir := strings.TrimSpace(string(out))
+	if dir == "" {
+		return "", fmt.Errorf("module %s resolved to an empty directory", module)
+	}
+	return dir, nil
 }
