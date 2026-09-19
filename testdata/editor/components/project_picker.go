@@ -62,6 +62,11 @@ type ProjectPickerComponent struct {
 	createDir        *CheckBoxComponent
 	createDirChecked bool
 
+	filterInput    *TextInputComponent
+	filter         string
+	newFolderInput *TextInputComponent
+	newFolderBtn   *ButtonComponent
+
 	cancel *ButtonComponent
 	ok     *ButtonComponent
 
@@ -91,11 +96,17 @@ const projectFileName = "game.imge"
 
 func (c *ProjectPickerComponent) titleH() float64 { return 18 }
 
-func (c *ProjectPickerComponent) listH() float64 { return 200 }
+func (c *ProjectPickerComponent) listH() float64 { return 180 }
 
-// listRect is the scrollable directory-listing area.
+// searchRect is the filter input above the listing.
+func (c *ProjectPickerComponent) searchRect(rect math.Rect) math.Rect {
+	return math.NewRect(rect.X()+8, rect.Y()+c.titleH()+16, rect.Width()-16, 20)
+}
+
+// listRect is the scrollable directory-listing area, below the search bar.
 func (c *ProjectPickerComponent) listRect(rect math.Rect) math.Rect {
-	return math.NewRect(rect.X()+8, rect.Y()+c.titleH()+18, rect.Width()-16, c.listH())
+	sr := c.searchRect(rect)
+	return math.NewRect(rect.X()+8, sr.Y()+24, rect.Width()-16, c.listH())
 }
 
 // pathLabelRect is the small line under the title showing the current directory.
@@ -108,7 +119,12 @@ func (c *ProjectPickerComponent) pathLabelRect(rect math.Rect) math.Rect {
 func (c *ProjectPickerComponent) rows() []dirEntry {
 	rows := make([]dirEntry, 0, len(c.entries)+1)
 	rows = append(rows, dirEntry{name: "..", isDir: true})
-	rows = append(rows, c.entries...)
+	for _, e := range c.entries {
+		if c.filter != "" && !strings.Contains(strings.ToLower(e.name), strings.ToLower(c.filter)) {
+			continue
+		}
+		rows = append(rows, e)
+	}
 	return rows
 }
 
@@ -247,6 +263,47 @@ func (c *ProjectPickerComponent) buildWidgets() {
 	owner := c.GetOwner()
 	btnY := c.Height - 30
 
+	// Filter bar (both modes): filters the directory listing as you type.
+	fi := &TextInputComponent{}
+	fi.FontID = c.FontID
+	fi.Size = c.FontSize
+	fi.TextColor = c.TitleText
+	fi.PlaceholderColor = c.Dim
+	fi.BackgroundColor = fieldBackground
+	fi.OutlineColor = fieldOutline
+	fi.OutlineThickness = 1
+	fi.Placeholder = "search..."
+	fi.Width = c.Width - 16
+	fi.Height = 20
+	fi.DrawLayer = 1
+	fi.SetName("filter")
+	fi.SetOffset(math.NewVector2(8, 34))
+	owner.AddComponent(fi)
+	fi.Initialize()
+	c.filterInput = fi
+
+	// New-folder row (both modes): a folder-name field plus a button that creates
+	// the directory and navigates into it.
+	nfi := &TextInputComponent{}
+	nfi.FontID = c.FontID
+	nfi.Size = c.FontSize
+	nfi.TextColor = c.TitleText
+	nfi.PlaceholderColor = c.Dim
+	nfi.BackgroundColor = fieldBackground
+	nfi.OutlineColor = fieldOutline
+	nfi.OutlineThickness = 1
+	nfi.Placeholder = "folder name..."
+	nfi.Width = c.Width - 108
+	nfi.Height = 20
+	nfi.DrawLayer = 1
+	nfi.SetName("new_folder_name")
+	nfi.SetOffset(math.NewVector2(8, 242))
+	owner.AddComponent(nfi)
+	nfi.Initialize()
+	c.newFolderInput = nfi
+
+	c.newFolderBtn = makePanelButton(owner, "new_folder", "New Folder", math.NewVector2(c.Width-92, 242), 84, 20, c.FontID, c.FontSize, c.BorderColor)
+
 	if c.mode == pickerNew {
 		ti := &TextInputComponent{}
 		ti.FontID = c.FontID
@@ -261,7 +318,7 @@ func (c *ProjectPickerComponent) buildWidgets() {
 		ti.Height = 20
 		ti.DrawLayer = 1
 		ti.SetName("name")
-		ti.SetOffset(math.NewVector2(8, 240))
+		ti.SetOffset(math.NewVector2(8, 268))
 		owner.AddComponent(ti)
 		ti.Initialize()
 		ti.Text = "My Game"
@@ -275,7 +332,7 @@ func (c *ProjectPickerComponent) buildWidgets() {
 		cb.BoxSize = 16
 		cb.DrawLayer = 1
 		cb.SetName("create_dir")
-		cb.SetOffset(math.NewVector2(8, 266))
+		cb.SetOffset(math.NewVector2(8, 294))
 		owner.AddComponent(cb)
 		cb.Initialize()
 		cb.SetChecked(true)
@@ -359,6 +416,33 @@ func (c *ProjectPickerComponent) navigateUp() {
 	}
 	c.dir = parent
 	c.errorText = ""
+	c.reload()
+}
+
+// createNewFolder creates a new directory inside the current one from the folder-name
+// field, then navigates into it (matching "make a folder, then work inside it").
+func (c *ProjectPickerComponent) createNewFolder() {
+	name := strings.TrimSpace(c.newFolderInput.Text)
+	switch {
+	case name == "":
+		c.errorText = "folder name is required"
+		return
+	case strings.ContainsAny(name, `/\`):
+		c.errorText = "name can't contain / or \\"
+		return
+	}
+	path := filepath.Join(c.dir, name)
+	if err := os.Mkdir(path, 0o755); err != nil {
+		if os.IsExist(err) {
+			c.errorText = "folder already exists"
+		} else {
+			c.errorText = err.Error()
+		}
+		return
+	}
+	c.errorText = ""
+	c.newFolderInput.Text = ""
+	c.dir = path
 	c.reload()
 }
 
@@ -463,6 +547,16 @@ func (c *ProjectPickerComponent) Update(ctx *core.Context) {
 		c.createDirChecked = c.createDir.GetChecked()
 	}
 
+	// Poll the filter field each frame; reset the cursor when it changes.
+	if c.filterInput != nil {
+		f := c.filterInput.Text
+		if f != c.filter {
+			c.filter = f
+			c.cursor = 0
+			c.scroll = 0
+		}
+	}
+
 	// Buttons.
 	if c.cancel != nil && c.cancel.ConsumeClick() {
 		c.dismiss = true
@@ -478,6 +572,9 @@ func (c *ProjectPickerComponent) Update(ctx *core.Context) {
 			return
 		}
 	}
+	if c.newFolderBtn != nil && c.newFolderBtn.ConsumeClick() {
+		c.createNewFolder()
+	}
 
 	// Enter in the name field creates (new mode), matching a typed-in name.
 	if c.nameInput != nil && c.nameInput.IsFocused() && ctx.Input.IsKeyJustPressed(core.KeyEnter) {
@@ -487,8 +584,15 @@ func (c *ProjectPickerComponent) Update(ctx *core.Context) {
 		}
 	}
 
-	// Keyboard list navigation, only when the name field is not focused.
-	kbFree := c.nameInput == nil || !c.nameInput.IsFocused()
+	// Enter in the folder-name field creates a directory and enters it.
+	if c.newFolderInput != nil && c.newFolderInput.IsFocused() && ctx.Input.IsKeyJustPressed(core.KeyEnter) {
+		c.createNewFolder()
+	}
+
+	// Keyboard list navigation, only when no text field holds focus.
+	kbFree := (c.nameInput == nil || !c.nameInput.IsFocused()) &&
+		(c.filterInput == nil || !c.filterInput.IsFocused()) &&
+		(c.newFolderInput == nil || !c.newFolderInput.IsFocused())
 	if kbFree {
 		if ctx.Input.IsKeyJustPressed(core.KeyUp) {
 			c.moveCursor(rect, -1)
@@ -653,7 +757,7 @@ func (c *ProjectPickerComponent) Draw(r core.Renderer) {
 
 	// New-mode extras: the live target path preview sits under the name/checkbox.
 	if c.mode == pickerNew {
-		ty := rect.Y() + 288
+		ty := rect.Y() + 316
 		r.DrawText("create in: "+c.targetDir(), c.FontID, c.FontSize, math.NewVector2(rect.X()+8, ty), c.Dim)
 	}
 
@@ -663,9 +767,9 @@ func (c *ProjectPickerComponent) Draw(r core.Renderer) {
 		errText = c.errorText
 	}
 	if errText != "" {
-		ey := rect.Y() + 240
+		ey := rect.Y() + 268
 		if c.mode == pickerNew {
-			ey = rect.Y() + 304
+			ey = rect.Y() + 332
 		}
 		r.DrawText(errText, c.FontID, c.FontSize, math.NewVector2(rect.X()+8, ey), c.ErrorColor)
 	}

@@ -1447,6 +1447,17 @@ func pixelStepFromPPU(ppu int) float64 {
 	return 1 / float64(ppu)
 }
 
+// smoothResFromPPU returns the rasterization resolution (px per world unit) to render
+// the target game's smooth paths at — its pixel_per_unit, normalized to >= 1 (the
+// engine's PPU default). At PPU 1 a smooth shape still rasterizes at 1 px/unit, which
+// is indistinguishable from chunky, matching the game exactly.
+func smoothResFromPPU(ppu int) float64 {
+	if ppu <= 0 {
+		ppu = 1
+	}
+	return float64(ppu)
+}
+
 // recordComponentOffsetChange records an undoable offset move on a component, and writes
 // the owner's .obj through on undo/redo so a drag on a file-referenced object stays
 // consistent with the shared template.

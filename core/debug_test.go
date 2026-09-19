@@ -51,6 +51,9 @@ func (nopRenderer) MeasureTextWrapped(string, string, float64, float64, WrapMode
 	return 0, 0
 }
 func (nopRenderer) SetCamera(float64, float64, float64) {}
+func (nopRenderer) SetSmoothShapes(bool)                {}
+func (nopRenderer) SetSmoothRotation(bool)              {}
+func (nopRenderer) SetSmoothResolution(float64)         {}
 func (nopRenderer) SetObjectTransform(math.Vector2, float64, math.Vector2) {
 }
 func (nopRenderer) ClearObjectTransform()       {}

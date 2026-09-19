@@ -97,6 +97,19 @@ type ViewportComponent struct {
 	// drag snapping so Alt-drag lands on a representable pixel. Defaults to 1 (PPU = 1).
 	pixelStep float64
 
+	// smoothShapes mirrors the target game's smooth_shapes setting, read from its
+	// game.imge, so the viewport rasterizes vector shapes the way the game will.
+	smoothShapes bool
+
+	// smoothRotation mirrors the target game's smooth_rotation setting, read from its
+	// game.imge, so the viewport rasterizes rotated textures the way the game will.
+	smoothRotation bool
+
+	// smoothRes is the target game's pixel_per_unit, used as the fixed rasterization
+	// resolution for the smooth paths so the viewport shows shapes/rotations at the
+	// game's own pixel grid, independent of the editor's camera zoom.
+	smoothRes float64
+
 	panning   bool
 	lastMouse math.Vector2
 
@@ -605,6 +618,9 @@ func (c *ViewportComponent) RefreshLogicalSize() {
 		c.logicalW = float64(cfg.Window.Width)
 		c.logicalH = float64(cfg.Window.Height)
 		c.pixelStep = pixelStepFromPPU(cfg.Window.PixelPerUnit)
+		c.smoothShapes = cfg.Window.SmoothShapes
+		c.smoothRotation = cfg.Window.SmoothRotation
+		c.smoothRes = smoothResFromPPU(cfg.Window.PixelPerUnit)
 	}
 }
 
@@ -1100,8 +1116,21 @@ func (c *ViewportComponent) Draw(r core.Renderer) {
 	// window's top-left, i.e. the world origin) land at the matching world spot.
 	r.SetCamera(c.cam.x-rect.X()/c.cam.zoom, c.cam.y-rect.Y()/c.cam.zoom, c.cam.zoom)
 	if c.scene != nil {
+		// Rasterize the target scene's vector shapes with the target project's own
+		// smooth_shapes setting, its rotated textures with its smooth_rotation
+		// setting, and both at the target's pixel_per_unit resolution, so the editor
+		// shows the scene at the game's own pixel grid (independent of the editor's
+		// pan/zoom). The editor's own UI keeps its defaults — chunky shapes, smooth
+		// rotation at the current zoom (smooth_rotation defaults to true) — so restore
+		// those before leaving.
+		r.SetSmoothShapes(c.smoothShapes)
+		r.SetSmoothRotation(c.smoothRotation)
+		r.SetSmoothResolution(c.smoothRes)
 		c.scene.DrawWorld(r, c.DrawDebug)
 		c.drawUIObjects(r)
+		r.SetSmoothResolution(0)
+		r.SetSmoothRotation(true)
+		r.SetSmoothShapes(false)
 	}
 	r.SetCamera(0, 0, 0)
 
@@ -1425,6 +1454,9 @@ func (c *ViewportComponent) loadTarget() {
 // false when there is nothing to load (no project, no scene file, or load error).
 func (c *ViewportComponent) loadProjectScene() bool {
 	c.logicalW, c.logicalH = 0, 0
+	c.smoothShapes = false
+	c.smoothRotation = true
+	c.smoothRes = 1
 	project := c.Project
 	if project == "" {
 		project = os.Getenv("IMGE_PROJECT")
@@ -1487,6 +1519,9 @@ func (c *ViewportComponent) loadProjectScene() bool {
 		c.logicalW = float64(cfg.Window.Width)
 		c.logicalH = float64(cfg.Window.Height)
 		c.pixelStep = pixelStepFromPPU(cfg.Window.PixelPerUnit)
+		c.smoothShapes = cfg.Window.SmoothShapes
+		c.smoothRotation = cfg.Window.SmoothRotation
+		c.smoothRes = smoothResFromPPU(cfg.Window.PixelPerUnit)
 	} else {
 		log.Printf("viewport: no logical size (game.imge): %v", err)
 	}

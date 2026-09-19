@@ -45,6 +45,18 @@ type ObjectEditorComponent struct {
 	cam    editorCamera // navigation camera over the object
 	framed bool
 
+	// smoothShapes mirrors the target game's smooth_shapes setting so the isolated
+	// object renders the way it will in the game (see ViewportComponent.smoothShapes).
+	smoothShapes bool
+
+	// smoothRotation mirrors the target game's smooth_rotation setting (see
+	// ViewportComponent.smoothRotation).
+	smoothRotation bool
+
+	// smoothRes is the target game's pixel_per_unit, used as the fixed rasterization
+	// resolution for the smooth paths (see ViewportComponent.smoothRes).
+	smoothRes float64
+
 	dragging bool
 	dragGrab math.Vector2
 
@@ -163,6 +175,9 @@ func spawnObjectEditor(scene *core.Scene, rel string) {
 	editor.obj = obj
 	editor.world = world
 	editor.cam = newEditorCamera()
+	editor.smoothShapes = vp.smoothShapes
+	editor.smoothRotation = vp.smoothRotation
+	editor.smoothRes = vp.smoothRes
 	// Restore this .obj's last pan/zoom when one was saved, skipping the auto-frame on
 	// the origin so reopening the file lands exactly where the user left it.
 	if saved, ok := vp.objectCams[rel]; ok {
@@ -479,7 +494,13 @@ func (c *ObjectEditorComponent) Draw(r core.Renderer) {
 	c.drawAxes(r, worldRect)
 	r.SetCamera(c.cam.x-worldRect.X()/c.cam.zoom, c.cam.y-worldRect.Y()/c.cam.zoom, c.cam.zoom)
 	if c.world != nil {
+		r.SetSmoothShapes(c.smoothShapes)
+		r.SetSmoothRotation(c.smoothRotation)
+		r.SetSmoothResolution(c.smoothRes)
 		c.world.DrawWorld(r, true)
+		r.SetSmoothResolution(0)
+		r.SetSmoothRotation(true)
+		r.SetSmoothShapes(false)
 	}
 	r.SetCamera(0, 0, 0)
 	// Only the selected component is highlighted — the object itself has no selection

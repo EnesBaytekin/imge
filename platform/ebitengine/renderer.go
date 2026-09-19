@@ -38,7 +38,7 @@ type Renderer struct {
 
 	// smoothShapes opts vector shapes into framebuffer-resolution (fine)
 	// rasterization. When false (the default) shapes render "chunky": rasterized
-	// at logical resolution and upscaled, matching textures (see chunky()).
+	// at logical resolution and upscaled, matching textures (see shapeRes()).
 	smoothShapes bool
 
 	// smoothRotation opts texture rotation into framebuffer-resolution (fine)
@@ -46,6 +46,17 @@ type Renderer struct {
 	// rasterized at logical resolution and upscaled, so rotation is quantized to
 	// logical pixels (pixel-perfect) instead of sampled at sub-unit precision.
 	smoothRotation bool
+
+	// smoothRes overrides the rasterization resolution (px per world unit) of the
+	// smooth paths. The default 0 is the game's behavior: smooth shapes rasterize
+	// directly at the current zoom resolution, while smooth rotations rasterize at
+	// pixelScale (the game's pixel_per_unit), so a rotated texture's pixels are
+	// position-independent. A positive value rasterizes both into a buffer at that
+	// fixed resolution and upscales by zoom()/smoothRes, so their sub-unit precision
+	// is fixed (the target game's pixel_per_unit) instead of growing with the camera
+	// zoom — the editor's "magnifier" behavior, so the viewport shows the scene
+	// exactly as the game renders it, whatever the editor's pan/zoom.
+	smoothRes float64
 
 	// Object transform (local -> world), applied in addition to the camera while a
 	// non-UI object is drawing (see SetObjectTransform). objActive is false in
@@ -127,26 +138,56 @@ func (r *Renderer) setPixelScale(ppu float64) {
 	r.pixelScale = ppu
 }
 
-// setSmoothShapes opts vector shapes into fine (framebuffer-resolution)
+// SetSmoothShapes opts vector shapes into fine (framebuffer-resolution)
 // rasterization. The default is false: shapes render chunky.
-func (r *Renderer) setSmoothShapes(smooth bool) {
+func (r *Renderer) SetSmoothShapes(smooth bool) {
 	r.smoothShapes = smooth
 }
 
-// setSmoothRotation opts texture rotation into fine (framebuffer-resolution)
+// SetSmoothRotation opts texture rotation into fine (framebuffer-resolution)
 // rasterization. The default is false: rotated textures render chunky.
-func (r *Renderer) setSmoothRotation(smooth bool) {
+func (r *Renderer) SetSmoothRotation(smooth bool) {
 	r.smoothRotation = smooth
 }
 
-// chunky reports whether vector shapes should rasterize at logical resolution
-// (integer-anchored, deterministic) and then be upscaled and positioned, instead
-// of rasterizing directly at framebuffer resolution. smoothShapes opts into the
-// fine path. Quantizing the anchor keeps a shape's pixel pattern stable as it
-// moves fractionally — including at pixelScale 1, where the fine path would
-// re-rasterize at the fractional position and wobble every frame.
-func (r *Renderer) chunky() bool {
-	return !r.smoothShapes
+// SetSmoothResolution overrides the rasterization resolution (px per world unit) of
+// the smooth paths. res <= 0 restores the game's default (smooth shapes directly at
+// the current zoom, smooth rotations at pixelScale); res > 0 rasterizes both into a
+// buffer at that fixed resolution and upscales, so sub-unit precision is decoupled
+// from camera zoom. The editor sets this to the target game's pixel_per_unit while
+// drawing its scene, and restores it to 0 for its own UI.
+func (r *Renderer) SetSmoothResolution(res float64) {
+	r.smoothRes = res
+}
+
+// shapeRes returns the rasterization resolution (px per world unit) for vector
+// shapes: 1 = chunky (rasterize at logical resolution and upscale), 0 = smooth at
+// the current zoom (direct framebuffer rasterization), N>0 = smooth at a fixed N
+// px/unit (rasterize into a buffer and upscale by zoom()/N). Quantizing the anchor
+// to the raster grid keeps a shape's pixel pattern stable as it moves fractionally.
+func (r *Renderer) shapeRes() float64 {
+	if !r.smoothShapes {
+		return 1
+	}
+	return r.smoothRes
+}
+
+// textureRes returns the rasterization resolution (px per world unit) for rotated
+// textures: 1 = chunky (rasterize at logical resolution and upscale), N>0 = smooth at
+// N px/unit (rasterize into a buffer and upscale by zoom()/N). For smooth rotation N
+// is the editor's fixed smoothRes when set, else the renderer's pixelScale (the game's
+// pixel_per_unit). Rasterizing into a buffer keeps a rotated texture's pixels
+// position-independent — the image is rotated once at a fixed resolution regardless of
+// where it sits, then blitted into place — so a fractional object position only shifts
+// the whole image by a sub-pixel amount instead of re-sampling the rotation.
+func (r *Renderer) textureRes() float64 {
+	if !r.smoothRotation {
+		return 1
+	}
+	if r.smoothRes > 0 {
+		return r.smoothRes
+	}
+	return r.pixelScale
 }
 
 // shapeCacheMaxEntries bounds the shape cache so a long session can't exhaust
@@ -159,7 +200,7 @@ const shapeCacheMaxEntries = 4096
 
 // chunkySprite returns a cached logical-resolution rasterization of a shape,
 // creating and rasterizing it on first use. The buffer's pixel (0,0) is the
-// shape's world-space top-left, which callers position via blitChunky.
+// shape's world-space top-left, which callers position via blitRes.
 func (r *Renderer) chunkySprite(key string, w, h int, rasterize func(*ebiten.Image)) *ebiten.Image {
 	if img, ok := r.shapeCache[key]; ok {
 		return img
@@ -182,16 +223,24 @@ func (r *Renderer) chunkySprite(key string, w, h int, rasterize func(*ebiten.Ima
 	return img
 }
 
-// blitChunky draws a logical-resolution sprite upscaled by zoom() at the fractional
-// screen position of worldMin+frac. The sprite's pixels stay chunky (zoom() x zoom())
-// while its position moves fractionally — the same model textures use.
-func (r *Renderer) blitChunky(img *ebiten.Image, worldMin, frac math.Vector2) {
+// blitRes draws a buffer rasterized at `res` px per world unit onto the target,
+// upscaled by zoom()/res so its res pixels land at zoom() screen pixels — the same
+// on-screen size whatever res is, so a shape rasterized at a higher resolution
+// (smoothRes) still covers the same screen area as its chunky (res=1) counterpart.
+func (r *Renderer) blitRes(img *ebiten.Image, worldMin, frac math.Vector2, res float64) {
 	pos := r.screenPos(math.NewVector2(worldMin.X+frac.X, worldMin.Y+frac.Y))
-	z := r.zoom()
+	z := r.zoom() / res
 	var geoM ebiten.GeoM
 	geoM.Scale(z, z)
 	geoM.Translate(pos.X, pos.Y)
 	r.target.DrawImage(img, &ebiten.DrawImageOptions{GeoM: geoM})
+}
+
+// blitChunky draws a logical-resolution sprite upscaled by zoom() at the fractional
+// screen position of worldMin+frac — the blitRes case with res=1. Text uses it, since
+// text is always rendered chunky (rasterized at logical resolution and upscaled).
+func (r *Renderer) blitChunky(img *ebiten.Image, worldMin, frac math.Vector2) {
+	r.blitRes(img, worldMin, frac, 1)
 }
 
 // colorKey encodes a color into a stable, compact cache-key suffix.
@@ -336,8 +385,8 @@ func (r *Renderer) fillPolygonScreen(pts []math.Vector2, c math.Color) {
 // logical resolution and blits upscaled, so the polygon's pixel pattern stays
 // stable and pixel-perfect.
 func (r *Renderer) drawFilledPolygonWorld(corners [4]math.Vector2, c math.Color) {
-	if r.chunky() {
-		r.drawFilledPolygonChunky(corners, c)
+	if res := r.shapeRes(); res > 0 {
+		r.drawFilledPolygonRes(corners, c, res)
 		return
 	}
 	pts := make([]math.Vector2, 4)
@@ -347,15 +396,17 @@ func (r *Renderer) drawFilledPolygonWorld(corners [4]math.Vector2, c math.Color)
 	r.fillPolygonScreen(pts, c)
 }
 
-// drawFilledPolygonChunky rasterizes a filled polygon at logical resolution (its
-// corners quantized to whole units, so its pixel pattern is deterministic regardless
-// of fractional motion) and blits it upscaled — the chunky analog of drawRectChunky
-// for rotated shapes. The cache key encodes the full quantized shape, since a rotated
-// rect's pattern depends on more than just its bounding-box size.
-func (r *Renderer) drawFilledPolygonChunky(corners [4]math.Vector2, c math.Color) {
+// drawFilledPolygonRes rasterizes a filled polygon at `res` px/unit (its corners
+// quantized to the 1/res grid, so its pixel pattern is deterministic regardless of
+// fractional motion below a game pixel) and blits it upscaled by zoom()/res — the
+// generalized analog of the chunky path for rotated shapes. res=1 is the chunky
+// case; res>1 is the editor's ppu-based smooth case. The cache key encodes the full
+// quantized shape, since a rotated rect's pattern depends on more than just its
+// bounding-box size.
+func (r *Renderer) drawFilledPolygonRes(corners [4]math.Vector2, c math.Color, res float64) {
 	var q [4]math.Vector2
 	for i := range corners {
-		q[i] = math.NewVector2(stdmath.Round(corners[i].X), stdmath.Round(corners[i].Y))
+		q[i] = math.NewVector2(stdmath.Round(corners[i].X*res)/res, stdmath.Round(corners[i].Y*res)/res)
 	}
 	minX, minY := q[0].X, q[0].Y
 	maxX, maxY := q[0].X, q[0].Y
@@ -365,24 +416,24 @@ func (r *Renderer) drawFilledPolygonChunky(corners [4]math.Vector2, c math.Color
 		maxX = stdmath.Max(maxX, p.X)
 		maxY = stdmath.Max(maxY, p.Y)
 	}
-	bw := int(maxX - minX)
-	bh := int(maxY - minY)
+	bw := int(stdmath.Round((maxX - minX) * res))
+	bh := int(stdmath.Round((maxY - minY) * res))
 	if bw <= 0 || bh <= 0 {
 		return
 	}
-	key := fmt.Sprintf("poly:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%s",
-		bw, bh,
-		int(q[0].X-minX), int(q[0].Y-minY),
-		int(q[1].X-minX), int(q[1].Y-minY),
-		int(q[2].X-minX), int(q[2].Y-minY),
-		int(q[3].X-minX), int(q[3].Y-minY),
+	key := fmt.Sprintf("poly:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%s",
+		int(res), bw, bh,
+		int((q[0].X-minX)*res), int((q[0].Y-minY)*res),
+		int((q[1].X-minX)*res), int((q[1].Y-minY)*res),
+		int((q[2].X-minX)*res), int((q[2].Y-minY)*res),
+		int((q[3].X-minX)*res), int((q[3].Y-minY)*res),
 		colorKey(c))
 	img := r.chunkySprite(key, bw, bh, func(dst *ebiten.Image) {
 		pts := []math.Vector2{
-			math.NewVector2(q[0].X-minX, q[0].Y-minY),
-			math.NewVector2(q[1].X-minX, q[1].Y-minY),
-			math.NewVector2(q[2].X-minX, q[2].Y-minY),
-			math.NewVector2(q[3].X-minX, q[3].Y-minY),
+			math.NewVector2((q[0].X-minX)*res, (q[0].Y-minY)*res),
+			math.NewVector2((q[1].X-minX)*res, (q[1].Y-minY)*res),
+			math.NewVector2((q[2].X-minX)*res, (q[2].Y-minY)*res),
+			math.NewVector2((q[3].X-minX)*res, (q[3].Y-minY)*res),
 		}
 		cr, cg, cb, ca := toRGBA(c).RGBA()
 		crf := float32(cr) / 0xffff
@@ -406,7 +457,7 @@ func (r *Renderer) drawFilledPolygonChunky(corners [4]math.Vector2, c math.Color
 		op.ColorScaleMode = ebiten.ColorScaleModePremultipliedAlpha
 		dst.DrawTriangles(vs, []uint16{0, 1, 2, 0, 2, 3}, whiteImage, op)
 	})
-	r.blitChunky(img, math.NewVector2(minX, minY), math.NewVector2(0, 0))
+	r.blitRes(img, math.NewVector2(minX, minY), math.NewVector2(0, 0), res)
 }
 
 // screenPos maps a world point to screen coordinates under the current camera,
@@ -481,8 +532,8 @@ func (r *Renderer) DrawRect(rect math.Rect, c math.Color) {
 		}
 		rect = r.rectToWorld(rect)
 	}
-	if r.chunky() {
-		r.drawRectChunky(rect, c)
+	if res := r.shapeRes(); res > 0 {
+		r.drawRectRes(rect, c, res)
 		return
 	}
 	p := r.screenPos(rect.Position)
@@ -493,25 +544,26 @@ func (r *Renderer) DrawRect(rect math.Rect, c math.Color) {
 		toRGBA(c), false)
 }
 
-// drawRectChunky rasterizes the rect at logical resolution and blits it upscaled.
-func (r *Renderer) drawRectChunky(rect math.Rect, c math.Color) {
-	// Snap width/height to whole units (matching the line path, which snaps its
+// drawRectRes rasterizes the rect at `res` px/unit and blits it upscaled by
+// zoom()/res. res=1 is the chunky path; res>1 is the editor's ppu-based smooth path.
+func (r *Renderer) drawRectRes(rect math.Rect, c math.Color, res float64) {
+	// Snap width/height to the res grid (matching the line path, which snaps its
 	// endpoints) so a rect whose size changes fractionally each frame — a slider
 	// fill, a scrollbar thumb — reuses one of a few cached buffers instead of
 	// minting a new image per sub-pixel change.
-	w := stdmath.Round(rect.Width())
-	h := stdmath.Round(rect.Height())
+	w := stdmath.Round(rect.Width() * res)
+	h := stdmath.Round(rect.Height() * res)
 	if w <= 0 || h <= 0 {
 		return
 	}
-	qx := stdmath.Round(rect.Position.X)
-	qy := stdmath.Round(rect.Position.Y)
+	qx := stdmath.Round(rect.Position.X*res) / res
+	qy := stdmath.Round(rect.Position.Y*res) / res
 	bw, bh := int(w), int(h)
-	key := fmt.Sprintf("rect:%d:%d:%s", bw, bh, colorKey(c))
+	key := fmt.Sprintf("rect:%d:%d:%d:%s", int(res), bw, bh, colorKey(c))
 	img := r.chunkySprite(key, bw, bh, func(dst *ebiten.Image) {
 		vector.DrawFilledRect(dst, 0, 0, float32(w), float32(h), toRGBA(c), false)
 	})
-	r.blitChunky(img, math.NewVector2(qx, qy), math.NewVector2(rect.Position.X-qx, rect.Position.Y-qy))
+	r.blitRes(img, math.NewVector2(qx, qy), math.NewVector2(rect.Position.X-qx, rect.Position.Y-qy), res)
 }
 
 // DrawRectOutline draws a rectangle outline (border only).
@@ -531,8 +583,8 @@ func (r *Renderer) DrawRectOutline(rect math.Rect, c math.Color, thickness float
 		}
 		rect = r.rectToWorld(rect)
 	}
-	if r.chunky() {
-		r.drawRectOutlineChunky(rect, c, thickness)
+	if res := r.shapeRes(); res > 0 {
+		r.drawRectOutlineRes(rect, c, thickness, res)
 		return
 	}
 	p := r.screenPos(rect.Position)
@@ -543,26 +595,27 @@ func (r *Renderer) DrawRectOutline(rect math.Rect, c math.Color, thickness float
 		float32(thickness*z), toRGBA(c), false)
 }
 
-// drawRectOutlineChunky rasterizes the outline at logical resolution and blits it
-// upscaled, aligned to the filled rect's grid. It draws four crisp edge strips
-// inside the bounds, sharing the fill's (0,0) anchor and fractional width/height, so
-// the outline's outer edge lands exactly on the filled rect's edge at every zoom. The
-// old centered StrokeRect straddled the boundary by half a pixel, which read as a
-// one-pixel shift at high zoom.
-func (r *Renderer) drawRectOutlineChunky(rect math.Rect, c math.Color, thickness float64) {
-	t := stdmath.Round(thickness)
+// drawRectOutlineRes rasterizes the outline at `res` px/unit and blits it upscaled by
+// zoom()/res, aligned to the filled rect's grid. res=1 is the chunky path; res>1 is
+// the editor's ppu-based smooth path. It draws four crisp edge strips inside the
+// bounds, sharing the fill's (0,0) anchor and fractional width/height, so the
+// outline's outer edge lands exactly on the filled rect's edge at every zoom. The old
+// centered StrokeRect straddled the boundary by half a pixel, which read as a one-pixel
+// shift at high zoom.
+func (r *Renderer) drawRectOutlineRes(rect math.Rect, c math.Color, thickness float64, res float64) {
+	t := stdmath.Round(thickness * res)
 	if t <= 0 {
 		return
 	}
-	w := stdmath.Round(rect.Width())
-	h := stdmath.Round(rect.Height())
+	w := stdmath.Round(rect.Width() * res)
+	h := stdmath.Round(rect.Height() * res)
 	if w <= 0 || h <= 0 {
 		return
 	}
-	qx := stdmath.Round(rect.Position.X)
-	qy := stdmath.Round(rect.Position.Y)
+	qx := stdmath.Round(rect.Position.X*res) / res
+	qy := stdmath.Round(rect.Position.Y*res) / res
 	bw, bh := int(w), int(h)
-	key := fmt.Sprintf("rectoutline:%d:%d:%d:%s", bw, bh, int(t), colorKey(c))
+	key := fmt.Sprintf("rectoutline:%d:%d:%d:%d:%s", int(res), bw, bh, int(t), colorKey(c))
 	img := r.chunkySprite(key, bw, bh, func(dst *ebiten.Image) {
 		fw, fh := float32(w), float32(h)
 		ft := float32(t)
@@ -577,7 +630,7 @@ func (r *Renderer) drawRectOutlineChunky(rect math.Rect, c math.Color, thickness
 		vector.DrawFilledRect(dst, 0, ft, ft, inner, toRGBA(c), false)
 		vector.DrawFilledRect(dst, fw-ft, ft, ft, inner, toRGBA(c), false)
 	})
-	r.blitChunky(img, math.NewVector2(qx, qy), math.NewVector2(rect.Position.X-qx, rect.Position.Y-qy))
+	r.blitRes(img, math.NewVector2(qx, qy), math.NewVector2(rect.Position.X-qx, rect.Position.Y-qy), res)
 }
 
 // DrawRectOutlineScreen draws a rectangle outline in screen space with a constant
@@ -612,8 +665,8 @@ func (r *Renderer) DrawCircle(center math.Vector2, radius float64, c math.Color)
 		center = r.objectToWorld(center)
 		radius *= r.objectRadiusScale()
 	}
-	if r.chunky() {
-		r.drawCircleChunky(center, radius, c)
+	if res := r.shapeRes(); res > 0 {
+		r.drawCircleRes(center, radius, c, res)
 		return
 	}
 	p := r.screenPos(center)
@@ -623,24 +676,25 @@ func (r *Renderer) DrawCircle(center math.Vector2, radius float64, c math.Color)
 		toRGBA(c), false)
 }
 
-// drawCircleChunky rasterizes the circle at logical resolution and blits it
-// upscaled. The center is quantized to a whole unit so the circle's edge snaps to
-// the unit grid; the sub-unit remainder is applied as a sub-pixel blit offset.
-func (r *Renderer) drawCircleChunky(center math.Vector2, radius float64, c math.Color) {
-	radius = stdmath.Round(radius)
-	if radius <= 0 {
+// drawCircleRes rasterizes the circle at `res` px/unit and blits it upscaled by
+// zoom()/res. res=1 is the chunky path; res>1 is the editor's ppu-based smooth path.
+// The center is quantized to the 1/res grid so the circle's edge snaps to the game
+// pixel grid; the sub-grid remainder is applied as a sub-pixel blit offset.
+func (r *Renderer) drawCircleRes(center math.Vector2, radius float64, c math.Color, res float64) {
+	rr := stdmath.Round(radius * res) // radius in res-pixels
+	if rr <= 0 {
 		return
 	}
-	qx := stdmath.Round(center.X)
-	qy := stdmath.Round(center.Y)
-	pad := int(radius) + 1 // +1 keeps the edge from clipping
-	key := fmt.Sprintf("circle:%d:%s", int(radius), colorKey(c))
+	qx := stdmath.Round(center.X*res) / res
+	qy := stdmath.Round(center.Y*res) / res
+	pad := int(rr) + 1 // +1 keeps the edge from clipping
+	key := fmt.Sprintf("circle:%d:%d:%s", int(res), int(rr), colorKey(c))
 	img := r.chunkySprite(key, 2*pad, 2*pad, func(dst *ebiten.Image) {
-		vector.DrawFilledCircle(dst, float32(pad), float32(pad), float32(radius), toRGBA(c), false)
+		vector.DrawFilledCircle(dst, float32(pad), float32(pad), float32(rr), toRGBA(c), false)
 	})
-	r.blitChunky(img,
-		math.NewVector2(qx-float64(pad), qy-float64(pad)),
-		math.NewVector2(center.X-qx, center.Y-qy))
+	r.blitRes(img,
+		math.NewVector2(qx-float64(pad)/res, qy-float64(pad)/res),
+		math.NewVector2(center.X-qx, center.Y-qy), res)
 }
 
 // DrawCircleOutline draws a circle outline.
@@ -652,8 +706,8 @@ func (r *Renderer) DrawCircleOutline(center math.Vector2, radius float64, c math
 		center = r.objectToWorld(center)
 		radius *= r.objectRadiusScale()
 	}
-	if r.chunky() {
-		r.drawCircleOutlineChunky(center, radius, c, thickness)
+	if res := r.shapeRes(); res > 0 {
+		r.drawCircleOutlineRes(center, radius, c, thickness, res)
 		return
 	}
 	p := r.screenPos(center)
@@ -663,28 +717,29 @@ func (r *Renderer) DrawCircleOutline(center math.Vector2, radius float64, c math
 		float32(thickness*z), toRGBA(c), false)
 }
 
-// drawCircleOutlineChunky rasterizes the outline at logical resolution and blits it
-// upscaled. The stroke is centered on the circle of the given radius, so it extends
-// half the thickness beyond it.
-func (r *Renderer) drawCircleOutlineChunky(center math.Vector2, radius float64, c math.Color, thickness float64) {
-	t := stdmath.Round(thickness)
+// drawCircleOutlineRes rasterizes the outline at `res` px/unit and blits it upscaled
+// by zoom()/res. res=1 is the chunky path; res>1 is the editor's ppu-based smooth path.
+// The stroke is centered on the circle of the given radius, so it extends half the
+// thickness beyond it.
+func (r *Renderer) drawCircleOutlineRes(center math.Vector2, radius float64, c math.Color, thickness float64, res float64) {
+	t := stdmath.Round(thickness * res)
 	if t <= 0 {
 		return
 	}
-	radius = stdmath.Round(radius)
-	if radius <= 0 {
+	rr := stdmath.Round(radius * res)
+	if rr <= 0 {
 		return
 	}
-	qx := stdmath.Round(center.X)
-	qy := stdmath.Round(center.Y)
-	pad := int(radius+t/2) + 1
-	key := fmt.Sprintf("circleoutline:%d:%d:%s", int(radius), int(t), colorKey(c))
+	qx := stdmath.Round(center.X*res) / res
+	qy := stdmath.Round(center.Y*res) / res
+	pad := int(rr+t/2) + 1
+	key := fmt.Sprintf("circleoutline:%d:%d:%d:%s", int(res), int(rr), int(t), colorKey(c))
 	img := r.chunkySprite(key, 2*pad, 2*pad, func(dst *ebiten.Image) {
-		vector.StrokeCircle(dst, float32(pad), float32(pad), float32(radius), float32(t), toRGBA(c), false)
+		vector.StrokeCircle(dst, float32(pad), float32(pad), float32(rr), float32(t), toRGBA(c), false)
 	})
-	r.blitChunky(img,
-		math.NewVector2(qx-float64(pad), qy-float64(pad)),
-		math.NewVector2(center.X-qx, center.Y-qy))
+	r.blitRes(img,
+		math.NewVector2(qx-float64(pad)/res, qy-float64(pad)/res),
+		math.NewVector2(center.X-qx, center.Y-qy), res)
 }
 
 // DrawLine draws a line between two points.
@@ -703,8 +758,8 @@ func (r *Renderer) drawLineWorld(start, end math.Vector2, c math.Color, thicknes
 	if r.target == nil {
 		return
 	}
-	if r.chunky() {
-		r.drawLineChunky(start, end, c, thickness)
+	if res := r.shapeRes(); res > 0 {
+		r.drawLineRes(start, end, c, thickness, res)
 		return
 	}
 	s := r.screenPos(start)
@@ -735,34 +790,35 @@ func (r *Renderer) drawLineScreen(start, end math.Vector2, c math.Color, thickne
 		float32(t), toRGBA(c), false)
 }
 
-// drawLineChunky rasterizes the line at logical resolution and blits it upscaled.
-// Both endpoints snap to whole units (a line has no single anchor to keep
+// drawLineRes rasterizes the line at `res` px/unit and blits it upscaled by
+// zoom()/res. res=1 is the chunky path; res>1 is the editor's ppu-based smooth path.
+// Both endpoints snap to the 1/res grid (a line has no single anchor to keep
 // fractional), and the stroke extends half the thickness around the line.
-func (r *Renderer) drawLineChunky(start, end math.Vector2, c math.Color, thickness float64) {
-	t := stdmath.Round(thickness)
+func (r *Renderer) drawLineRes(start, end math.Vector2, c math.Color, thickness float64, res float64) {
+	t := stdmath.Round(thickness * res)
 	if t <= 0 {
 		return
 	}
-	x0 := stdmath.Round(start.X)
-	y0 := stdmath.Round(start.Y)
-	x1 := stdmath.Round(end.X)
-	y1 := stdmath.Round(end.Y)
+	x0 := stdmath.Round(start.X*res) / res
+	y0 := stdmath.Round(start.Y*res) / res
+	x1 := stdmath.Round(end.X*res) / res
+	y1 := stdmath.Round(end.Y*res) / res
 	minX := stdmath.Min(x0, x1)
 	minY := stdmath.Min(y0, y1)
 	maxX := stdmath.Max(x0, x1)
 	maxY := stdmath.Max(y0, y1)
 	pad := stdmath.Ceil(t / 2)
-	bw := int(maxX - minX + 2*pad)
-	bh := int(maxY - minY + 2*pad)
-	key := fmt.Sprintf("line:%d:%d:%d:%s", int(x1-x0), int(y1-y0), int(t), colorKey(c))
+	bw := int(stdmath.Round((maxX-minX)*res) + 2*pad)
+	bh := int(stdmath.Round((maxY-minY)*res) + 2*pad)
+	key := fmt.Sprintf("line:%d:%d:%d:%d:%s", int(res), int((x1-x0)*res), int((y1-y0)*res), int(t), colorKey(c))
 	img := r.chunkySprite(key, bw, bh, func(dst *ebiten.Image) {
 		vector.StrokeLine(dst,
-			float32(x0-minX+pad), float32(y0-minY+pad),
-			float32(x1-minX+pad), float32(y1-minY+pad),
+			float32((x0-minX)*res+float64(pad)), float32((y0-minY)*res+float64(pad)),
+			float32((x1-minX)*res+float64(pad)), float32((y1-minY)*res+float64(pad)),
 			float32(t), toRGBA(c), false)
 	})
 	// No fractional offset: both endpoints are snapped to the grid.
-	r.blitChunky(img, math.NewVector2(minX-pad, minY-pad), math.NewVector2(0, 0))
+	r.blitRes(img, math.NewVector2(minX-float64(pad)/res, minY-float64(pad)/res), math.NewVector2(0, 0), res)
 }
 
 // DrawTexture draws a texture (or a sub-region of it) at the given position with
@@ -825,11 +881,13 @@ func (r *Renderer) DrawTexture(textureID string, src math.Rect, position math.Ve
 	sx *= z
 	sy *= z
 
-	// Chunky rotation: rasterize the rotated image at logical resolution and blit it
-	// upscaled (like the shape pipeline), instead of rotating at framebuffer
-	// resolution. This snaps a rotated texture's pixels to the logical grid.
-	if !r.smoothRotation && totalRot != 0 {
-		r.drawTextureChunky(drawImg, cx, cy, lsx, lsy, totalRot, centerWorld, transform, hue)
+	// Rotated textures are rasterized into a buffer at a fixed resolution — logical
+	// resolution for chunky rotation, the renderer's pixelScale (the game's ppu) for
+	// smooth rotation, or the editor's target ppu — and blitted upscaled into place.
+	// The buffer is rotated independent of the object's position, so a fractional
+	// position shifts the whole image rather than re-sampling the rotation.
+	if totalRot != 0 {
+		r.drawTextureRes(drawImg, cx, cy, lsx, lsy, totalRot, centerWorld, transform, hue, r.textureRes())
 		return
 	}
 
@@ -851,18 +909,20 @@ func (r *Renderer) DrawTexture(textureID string, src math.Rect, position math.Ve
 	colorm.DrawImage(r.target, drawImg, cm, &colorm.DrawImageOptions{GeoM: geoM})
 }
 
-// drawTextureChunky rasterizes a rotated texture into a logical-resolution buffer
-// sized to its rotated AABB and blits it upscaled, so its pixels stay snapped to the
-// logical grid (pixel-perfect rotation). The buffer is minted per frame — chunky
-// rotation is opt-in and rare — and its sub-unit center offset is folded into the
-// blit position, matching the shape pipeline's quantization.
-func (r *Renderer) drawTextureChunky(drawImg *ebiten.Image, cx, cy, lsx, lsy, totalRot float64, centerWorld math.Vector2, transform math.ColorTransform, hue float64) {
+// drawTextureRes rasterizes a rotated texture into a buffer at `res` px/unit sized to
+// its rotated AABB and blits it upscaled by zoom()/res, so its pixels stay snapped to
+// the rasterization grid (pixel-perfect rotation). res=1 is the chunky rotation path;
+// res>1 is smooth rotation (the game's pixelScale or the editor's target ppu). The
+// buffer is rotated about its own center, independent of the object's position, so a
+// fractional position only shifts the blit — the rotated pixels themselves are stable.
+// The buffer is minted per frame (rotation angles vary, so there is little to cache).
+func (r *Renderer) drawTextureRes(drawImg *ebiten.Image, cx, cy, lsx, lsy, totalRot float64, centerWorld math.Vector2, transform math.ColorTransform, hue float64, res float64) {
 	cos := stdmath.Abs(stdmath.Cos(totalRot))
 	sin := stdmath.Abs(stdmath.Sin(totalRot))
 	extX := stdmath.Abs(lsx)*cx*cos + stdmath.Abs(lsy)*cy*sin
 	extY := stdmath.Abs(lsx)*cx*sin + stdmath.Abs(lsy)*cy*cos
-	bw := int(stdmath.Ceil(2 * extX))
-	bh := int(stdmath.Ceil(2 * extY))
+	bw := int(stdmath.Ceil(2 * extX * res))
+	bh := int(stdmath.Ceil(2 * extY * res))
 	if bw <= 0 || bh <= 0 {
 		return
 	}
@@ -870,7 +930,7 @@ func (r *Renderer) drawTextureChunky(drawImg *ebiten.Image, cx, cy, lsx, lsy, to
 	buf := ebiten.NewImage(bw, bh)
 	var geoM ebiten.GeoM
 	geoM.Translate(-cx, -cy)
-	geoM.Scale(lsx, lsy)
+	geoM.Scale(lsx*res, lsy*res)
 	geoM.Rotate(totalRot)
 	geoM.Translate(float64(bw)/2, float64(bh)/2)
 	if transform.IsIdentity() {
@@ -882,9 +942,9 @@ func (r *Renderer) drawTextureChunky(drawImg *ebiten.Image, cx, cy, lsx, lsy, to
 
 	minX := centerWorld.X - extX
 	minY := centerWorld.Y - extY
-	worldMin := math.NewVector2(stdmath.Floor(minX), stdmath.Floor(minY))
-	frac := math.NewVector2(minX-stdmath.Floor(minX), minY-stdmath.Floor(minY))
-	r.blitChunky(buf, worldMin, frac)
+	worldMin := math.NewVector2(stdmath.Floor(minX*res)/res, stdmath.Floor(minY*res)/res)
+	frac := math.NewVector2(minX-worldMin.X, minY-worldMin.Y)
+	r.blitRes(buf, worldMin, frac, res)
 }
 
 // GetTextureSize returns the natural pixel size of a texture, loading it if

@@ -89,6 +89,30 @@ type Renderer interface {
 	// factor (1 = 1:1). A zoom <= 0 disables the transform (raw screen space).
 	SetCamera(cx, cy, zoom float64)
 
+	// SetSmoothShapes toggles whether vector shapes rasterize at framebuffer
+	// resolution (fine, sub-unit positions — "smooth") or at logical resolution
+	// (chunky, whole-unit snapped — the default). The platform sets it from the
+	// game config at startup; the editor flips it per-scene so a target project's
+	// smooth_shapes setting shows up in the viewport exactly as it will in the game.
+	SetSmoothShapes(smooth bool)
+
+	// SetSmoothRotation toggles whether rotated textures rasterize at framebuffer
+	// resolution (smooth, sub-unit angles — the default) or at logical resolution
+	// (chunky, quantized rotation). The platform sets it from the game config at
+	// startup; the editor flips it per-scene so a target project's smooth_rotation
+	// setting shows up in the viewport exactly as it will in the game.
+	SetSmoothRotation(smooth bool)
+
+	// SetSmoothResolution overrides the rasterization resolution (px per world unit)
+	// of the smooth paths. res <= 0 restores the default (rasterize directly at the
+	// current zoom resolution — the game's behavior). res > 0 rasterizes smooth
+	// shapes and rotations into a buffer at that fixed resolution and upscales, so
+	// sub-unit precision is decoupled from camera zoom. The editor sets this to the
+	// target game's pixel_per_unit while drawing its scene (and restores it to 0 for
+	// its own UI), so the viewport shows the scene at the game's own pixel grid
+	// whatever the editor's pan/zoom.
+	SetSmoothResolution(res float64)
+
 	// SetObjectTransform applies a world-space object transform to subsequent draw
 	// calls, in addition to the camera: each drawn primitive's local coordinates are
 	// first scaled, then rotated about the object origin, then translated to the
@@ -348,11 +372,13 @@ type WindowConfig struct {
 	// keeps shapes pixel-perfect and stable instead of re-rasterizing at
 	// fractional positions (which wobbles as the shape moves).
 	SmoothShapes bool
-	// SmoothRotation opts texture rotation into framebuffer-resolution (smooth,
-	// sub-unit) rasterization. The default (true) rotates at pixel_per_unit
-	// resolution — the historical behavior. When false, a rotated texture is
-	// rasterized at logical resolution (quantized to whole logical pixels) and
-	// upscaled, so rotation stays chunky/pixel-perfect like the shape pipeline.
+	// SmoothRotation opts texture rotation into sub-unit (smooth) rasterization. The
+	// default (true) rasterizes a rotated texture at pixel_per_unit resolution into a
+	// buffer that is rotated independently of the object's position and then placed,
+	// so a fractional position no longer changes the rotated result. When false, a
+	// rotated texture is rasterized at logical resolution (quantized to whole logical
+	// pixels) and upscaled, so rotation stays chunky/pixel-perfect like the shape
+	// pipeline.
 	SmoothRotation bool
 	// Vsync controls whether the platform waits for the display's vertical blank
 	// before presenting each frame. The default (true) prevents tearing, but the
