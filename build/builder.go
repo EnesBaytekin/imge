@@ -129,12 +129,16 @@ func (b *Builder) buildWeb(buildDir string, analysis *ProjectAnalysis) (string, 
 	}
 
 	wasmPath := filepath.Join(outDir, "game.wasm")
-	cmd := exec.Command("go", "build", "-mod=mod", "-o", wasmPath, ".")
+	// -s -w strips the symbol table and DWARF debug info, and -trimpath removes
+	// absolute build paths from panic traces. They're free and keep the wasm a
+	// little smaller (a few hundred KB of a ~14 MB binary on Go 1.25), though the
+	// bulk of the size is compiled engine code, not debug info.
+	cmd := exec.Command("go", "build", "-mod=mod", "-trimpath", "-ldflags", "-s -w", "-o", wasmPath, ".")
 	cmd.Dir = buildDir
 	cmd.Env = append(os.Environ(), "GOOS=js", "GOARCH=wasm")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	fmt.Println("Running: GOOS=js GOARCH=wasm go build -o imge_build/web/game.wasm")
+	fmt.Println("Running: GOOS=js GOARCH=wasm go build -trimpath -ldflags \"-s -w\" -o imge_build/web/game.wasm")
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("web build failed: %w", err)
 	}
