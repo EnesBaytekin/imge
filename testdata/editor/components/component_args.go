@@ -82,6 +82,28 @@ type ComponentArgsComponent struct {
 	// mode change arriving outside a tab click (undo/redo, or a texture set on load) rebuilds
 	// the rows to match.
 	rectNineSlice bool
+
+	// sourcePath is the source location of the target when it is an unregistered
+	// (GenericComponent) component, relative to the project directory — its .go file when
+	// found, otherwise the project's components/ directory. Shown in the footer and copied
+	// by the "copy" button. Cached on Open so the footer doesn't re-scan the project each
+	// frame. Empty means there is no source to show.
+	sourcePath string
+
+	// sourceAbs is the absolute form of sourcePath, used by the "open" button so the OS
+	// opens the real file even though the footer shows a project-relative path.
+	sourceAbs string
+
+	// sourceOpenHover / sourceCopyHover track the pointer over the footer's "open"/"copy"
+	// buttons; sourceCopied flashes the copy button to "copied" after a successful copy.
+	sourceOpenHover bool
+	sourceCopyHover bool
+	sourceCopied    bool
+
+	// sourceWrapH caches the wrapped height of sourcePath so the footer (and therefore the
+	// window) reserves exactly enough room to show the full path. Measured each frame in
+	// Update once the renderer is available; 0 until then.
+	sourceWrapH float64
 }
 
 // titleH returns the title-bar height, shared by Draw and Update so their hit tests
@@ -99,6 +121,43 @@ func (c *ComponentArgsComponent) requiresH() float64 {
 	return c.RowHeight + 4
 }
 
+// sourceH returns the height reserved for the "source" footer — the .go file location of
+// an unregistered (GenericComponent) component, its open/copy buttons, and the full
+// (wrapped) path — or 0 for a registered component. Like the requires footer, it lives
+// outside the scroll area.
+func (c *ComponentArgsComponent) sourceH() float64 {
+	if c.target == nil || genericArgs(c.target) == nil {
+		return 0
+	}
+	// 4px below the separator + one label/button row + 4px gap + the wrapped path.
+	return c.RowHeight + 8 + c.sourceWrapH
+}
+
+// footerH returns the total height reserved below the argument list (requires footer +
+// source footer). It is the amount by which the body's usable height is reduced.
+func (c *ComponentArgsComponent) footerH() float64 {
+	return c.requiresH() + c.sourceH()
+}
+
+// refreshSourceWrap measures the wrapped height of sourcePath and, when it changes,
+// resizes the window so the footer stays large enough to show the full path. Called from
+// Update once a renderer is available (a renderer is needed to measure text); the wrap
+// height is cached in sourceWrapH so sourceH()/desiredArgsHeight() stay stable.
+func (c *ComponentArgsComponent) refreshSourceWrap(r core.Renderer) {
+	if c.sourceH() == 0 {
+		return
+	}
+	path := c.sourcePath
+	if path == "" {
+		path = "not found"
+	}
+	_, h := r.MeasureTextWrapped(path, c.FontID, c.FontSize, c.Width-12, core.WrapChar, false)
+	if h != c.sourceWrapH {
+		c.sourceWrapH = h
+		c.SetSize(c.Width, c.desiredArgsHeight())
+	}
+}
+
 // desiredArgsHeight returns the window height that fits the current argument rows without
 // scrolling: title bar + requires footer + one row per visible row + a small bottom pad.
 // It is clamped so a short list keeps the original fixed window height (no jarring tiny
@@ -110,7 +169,7 @@ func (c *ComponentArgsComponent) desiredArgsHeight() float64 {
 		maxArgsHeight = 360 // cap: a long component list still scrolls
 		pad           = 6   // breathing room below the last row
 	)
-	h := c.titleH() + c.requiresH() + float64(c.rowCount())*c.RowHeight + pad
+	h := c.titleH() + c.footerH() + float64(c.rowCount())*c.RowHeight + pad
 	if h < minArgsHeight {
 		h = minArgsHeight
 	}
@@ -174,6 +233,9 @@ func (c *ComponentArgsComponent) rowCount() int {
 		}
 		return rectRowBase + rectColorRows
 	}
+	if gargs := genericArgs(c.target); gargs != nil {
+		return len(gargs) + 1 // name row + one row per raw arg
+	}
 	return len(enumerateArgs(c.target)) + 1
 }
 
@@ -206,6 +268,8 @@ func (c *ComponentArgsComponent) clipsRowRect() (math.Rect, bool) {
 func (c *ComponentArgsComponent) Open(comp core.Component) {
 	c.target = comp
 	c.scroll = 0
+	c.sourcePath = componentSourcePath(c.GetScene(), comp)
+	c.sourceAbs = componentSourceAbs(c.GetScene(), comp)
 	c.rebuildRows()
 }
 
@@ -444,6 +508,12 @@ func (c *ComponentArgsComponent) Update(ctx *core.Context) {
 		}
 	}
 
+	// Keep the source footer sized to the full (wrapped) path, growing/shrinking the
+	// window when the wrap changes (the renderer is first available this frame).
+	if ctx.Renderer != nil {
+		c.refreshSourceWrap(ctx.Renderer)
+	}
+
 	// Recompute after any drag this frame so the hit tests below use the fresh position.
 	rect = c.Rect()
 	c.closeHover = math.NewRect(rect.X()+rect.Width()-18, rect.Y()+2, 14, 14).ContainsPoint(mouse)
@@ -470,6 +540,24 @@ func (c *ComponentArgsComponent) Update(ctx *core.Context) {
 	// cursor, so a covered window ignores the pointer.
 	if pointerOwnedElsewhere(c.GetScene(), c.GetOwner(), mouse) {
 		return
+	}
+
+	// Source footer (unregistered component): hover state for the "open"/"copy" buttons
+	// and a tooltip naming what each does (the full path is on the copy tooltip).
+	c.sourceOpenHover = false
+	c.sourceCopyHover = false
+	if c.sourceH() != 0 && c.sourcePath != "" && ctx.Renderer != nil {
+		openRect, copyRect := c.sourceButtonRects(rect, ctx.Renderer)
+		c.sourceOpenHover = openRect.ContainsPoint(mouse)
+		c.sourceCopyHover = copyRect.ContainsPoint(mouse)
+		if !c.sourceOpenHover && !c.sourceCopyHover {
+			c.sourceCopied = false
+		}
+		if c.sourceOpenHover {
+			showTooltip("Open source in editor", mouse)
+		} else if c.sourceCopyHover {
+			showTooltip("Copy source path", mouse)
+		}
 	}
 
 	// Wheel scrolls the argument list, unless a widget holds focus (so a focused
@@ -514,6 +602,21 @@ func (c *ComponentArgsComponent) Update(ctx *core.Context) {
 				return
 			}
 		}
+		// Source footer "open"/"copy" buttons (unregistered component): open the .go file
+		// with the OS default editor, or copy its path to the clipboard.
+		if c.sourceH() != 0 && c.sourcePath != "" && ctx.Renderer != nil {
+			openRect, copyRect := c.sourceButtonRects(rect, ctx.Renderer)
+			if openRect.ContainsPoint(mouse) {
+				_ = openPathInEditor(c.sourceAbs)
+				return
+			}
+			if copyRect.ContainsPoint(mouse) {
+				if writeClipboard(c.sourcePath) == nil {
+					c.sourceCopied = true
+				}
+				return
+			}
+		}
 		c.handleScrollbarPress(mouse, rect)
 	}
 }
@@ -531,7 +634,7 @@ func (c *ComponentArgsComponent) clampScroll() {
 // scrollTrack returns the scrollbar track rect along the window body's right edge.
 func (c *ComponentArgsComponent) scrollTrack(rect math.Rect) math.Rect {
 	const w = 6.0
-	return math.NewRect(rect.X()+rect.Width()-w-2, rect.Y()+c.titleH(), w, rect.Height()-c.titleH()-c.requiresH())
+	return math.NewRect(rect.X()+rect.Width()-w-2, rect.Y()+c.titleH(), w, rect.Height()-c.titleH()-c.footerH())
 }
 
 // handleScrollbarPress consumes a click on the scrollbar: grabbing the thumb starts a
@@ -558,7 +661,7 @@ func (c *ComponentArgsComponent) handleScrollbarPress(mouse math.Vector2, rect m
 // maxScroll returns the scroll offset at which the last argument row is just visible.
 // The row count comes from rowCount(), which accounts for the Sprite's fixed layout.
 func (c *ComponentArgsComponent) maxScroll() float64 {
-	body := c.Rect().Height() - c.titleH() - c.requiresH()
+	body := c.Rect().Height() - c.titleH() - c.footerH()
 	if m := float64(c.rowCount())*c.RowHeight - body; m > 0 {
 		return m
 	}
@@ -597,7 +700,7 @@ func (c *ComponentArgsComponent) Draw(r core.Renderer) {
 	// rows are drawn by their widgets (layer 1, above this chrome); the host draws the
 	// name label and any read-only value.
 	bodyTop := rect.Y() + c.titleH()
-	body := math.NewRect(rect.X(), bodyTop, rect.Width(), rect.Height()-c.titleH()-c.requiresH())
+	body := math.NewRect(rect.X(), bodyTop, rect.Width(), rect.Height()-c.titleH()-c.footerH())
 	r.SetClipRect(body)
 	valX := rect.X() + rect.Width()/2
 
@@ -605,6 +708,8 @@ func (c *ComponentArgsComponent) Draw(r core.Renderer) {
 		c.drawSpriteRows(r, rect, bodyTop, valX, th)
 	} else if c.isRect() {
 		c.drawRectRows(r, rect, bodyTop, valX, th)
+	} else if genericArgs(c.target) != nil {
+		c.drawRawRows(r, rect, bodyTop, valX, th)
 	} else {
 		c.drawGenericRows(r, rect, bodyTop, valX, th)
 	}
@@ -618,6 +723,9 @@ func (c *ComponentArgsComponent) Draw(r core.Renderer) {
 
 	// "requires" footer: the component's declared dependencies, below the scroll area.
 	c.drawRequiresFooter(r, rect, th)
+
+	// "source" footer: an unregistered component's .go location + open/copy buttons.
+	c.drawSourceFooter(r, rect, th)
 
 	r.ClearClip()
 }
@@ -658,6 +766,38 @@ func (c *ComponentArgsComponent) drawGenericRows(r core.Renderer, rect math.Rect
 				color = c.TitleText
 			}
 			r.DrawText(val, c.FontID, c.FontSize, math.NewVector2(valX, ty), color)
+		}
+	}
+}
+
+// drawRawRows draws the argument rows for an unregistered (GenericComponent) component:
+// the name label plus one row per raw-args entry, with non-editable entries (nested
+// objects/arrays/null) rendered read-only as JSON by the host. Editable entries are drawn
+// by their widgets on layer 1.
+func (c *ComponentArgsComponent) drawRawRows(r core.Renderer, rect math.Rect, bodyTop, valX, th float64) {
+	gargs := genericArgs(c.target)
+
+	// Name row (row 0).
+	if y := bodyTop - c.scroll; y+c.RowHeight > bodyTop && y < rect.Y()+rect.Height() {
+		ty := y + (c.RowHeight-th)/2
+		if ty < y {
+			ty = y
+		}
+		r.DrawText("name", c.FontID, c.FontSize, math.NewVector2(rect.X()+6, ty), c.KeyText)
+	}
+
+	for i, arg := range gargs {
+		y := bodyTop + float64(i+1)*c.RowHeight - c.scroll
+		if y+c.RowHeight <= bodyTop || y >= rect.Y()+rect.Height() {
+			continue
+		}
+		ty := y + (c.RowHeight-th)/2
+		if ty < y {
+			ty = y
+		}
+		r.DrawText(arg.key, c.FontID, c.FontSize, math.NewVector2(rect.X()+6, ty), c.KeyText)
+		if !arg.editable {
+			r.DrawText(formatRawValue(arg.value), c.FontID, c.FontSize, math.NewVector2(valX, ty), c.KeyText)
 		}
 	}
 }
@@ -883,7 +1023,7 @@ func (c *ComponentArgsComponent) drawRequiresFooter(r core.Renderer, rect math.R
 	if len(deps) == 0 {
 		return
 	}
-	footerTop := rect.Y() + rect.Height() - c.requiresH()
+	footerTop := rect.Y() + rect.Height() - c.footerH()
 	r.DrawLine(math.NewVector2(rect.X(), footerTop), math.NewVector2(rect.X()+rect.Width(), footerTop), c.BorderColor, 1)
 
 	label := "requires: " + strings.Join(deps, ", ")
@@ -894,6 +1034,62 @@ func (c *ComponentArgsComponent) drawRequiresFooter(r core.Renderer, rect math.R
 	}
 	ty := footerTop + 4 + (c.RowHeight-th)/2
 	r.DrawText(label, c.FontID, c.FontSize, math.NewVector2(rect.X()+6, ty), color)
+}
+
+// drawSourceFooter draws the "source" footer at the bottom of the window for an
+// unregistered (GenericComponent) component: a "source" label with "open"/"copy" buttons
+// on the top row, and the full .go file location wrapped below it so the whole path is
+// visible (never tail-truncated). It draws nothing — and reserves no space — for a
+// registered component (see sourceH).
+func (c *ComponentArgsComponent) drawSourceFooter(r core.Renderer, rect math.Rect, th float64) {
+	if c.sourceH() == 0 {
+		return
+	}
+	footerTop := rect.Y() + rect.Height() - c.sourceH()
+	r.DrawLine(math.NewVector2(rect.X(), footerTop), math.NewVector2(rect.X()+rect.Width(), footerTop), c.BorderColor, 1)
+
+	ty := footerTop + 4 + (c.RowHeight-th)/2
+	r.DrawText("source", c.FontID, c.FontSize, math.NewVector2(rect.X()+6, ty), c.KeyText)
+
+	openRect, copyRect := c.sourceButtonRects(rect, r)
+
+	if c.sourceOpenHover {
+		r.DrawRect(openRect, c.Accent)
+	}
+	r.DrawText("open", c.FontID, c.FontSize, math.NewVector2(openRect.X(), ty), c.TitleText)
+
+	copyLabel := "copy"
+	if c.sourceCopied {
+		copyLabel = "copied"
+	}
+	if c.sourceCopyHover {
+		r.DrawRect(copyRect, c.Accent)
+	}
+	r.DrawText(copyLabel, c.FontID, c.FontSize, math.NewVector2(copyRect.X(), ty), c.TitleText)
+
+	// Full path on its own row(s), wrapping within the window width.
+	path := c.sourcePath
+	if path == "" {
+		path = "not found"
+	}
+	pathY := footerTop + 4 + c.RowHeight + 4
+	r.DrawTextWrapped(path, c.FontID, c.FontSize, rect.Width()-12, core.WrapChar, false,
+		math.NewVector2(rect.X()+6, pathY), c.ValueText)
+}
+
+// sourceButtonRects returns the text-tight rectangles of the source footer's "open" and
+// "copy" buttons, right-aligned on the footer row. Shared by Draw and Update so their hit
+// tests never drift from what is drawn.
+func (c *ComponentArgsComponent) sourceButtonRects(rect math.Rect, r core.Renderer) (openRect, copyRect math.Rect) {
+	const pad = 8
+	_, th := r.MeasureText("Ag", c.FontID, c.FontSize)
+	footerTop := rect.Y() + rect.Height() - c.sourceH()
+	ty := footerTop + 4 + (c.RowHeight-th)/2
+	copyW, _ := r.MeasureText("copy", c.FontID, c.FontSize)
+	openW, _ := r.MeasureText("open", c.FontID, c.FontSize)
+	copyX := rect.X() + rect.Width() - pad - copyW
+	openX := copyX - 10 - openW
+	return math.NewRect(openX, ty-1, openW, th+2), math.NewRect(copyX, ty-1, copyW, th+2)
 }
 
 // ============================================================================
@@ -978,11 +1174,28 @@ func (c *ComponentArgsComponent) placeBinding(b fieldBinding) {
 }
 
 // buildGenericBindings builds the name binding plus one binding per reflected editable
-// field, in declaration order (the non-Sprite path).
+// field, in declaration order (the non-Sprite path). Unregistered components instead
+// bind their verbatim raw args (see rawBinding).
 func (c *ComponentArgsComponent) buildGenericBindings() {
 	// The name row (row 0) is not a reflected JSON arg — it edits the component's own
-	// name, so it is built as a dedicated binding ahead of the reflected fields.
+	// name, so it is built as a dedicated binding ahead of the arg fields.
 	c.placeBinding(c.buildNameBinding())
+
+	// Unregistered (GenericComponent) components edit their verbatim args map directly:
+	// each entry gets a widget matched to its JSON value's type.
+	if gargs := genericArgs(c.target); gargs != nil {
+		raw := c.target.(core.RawArgsProvider).RawArgs()
+		for i := range gargs {
+			arg := &gargs[i]
+			if !arg.editable {
+				continue
+			}
+			b := c.rawBinding(raw, *arg)
+			b.row = i + 1 // row 0 is the name row
+			c.placeBinding(b)
+		}
+		return
+	}
 
 	fields := enumerateArgs(c.target)
 	for i := range fields {
@@ -995,6 +1208,74 @@ func (c *ComponentArgsComponent) buildGenericBindings() {
 			c.placeBinding(b)
 		}
 	}
+}
+
+// rawBinding builds the field binding for one raw-args entry. get/apply read and write
+// the value in the args map in place (the same map serialized back on save), so edits
+// round-trip identically. Only editable values reach this method; the widget kind and
+// value type select how the value is committed (bool checkbox, hex-string/RGBA color
+// picker, string/number text box).
+func (c *ComponentArgsComponent) rawBinding(raw map[string]interface{}, arg rawArg) fieldBinding {
+	key := arg.key
+	b := fieldBinding{key: key, parts: 1, kind: arg.kind}
+	switch arg.value.(type) {
+	case bool:
+		b.get = func() string { return strconv.FormatBool(raw[key].(bool)) }
+		b.apply = func(s string) error {
+			v, err := parseBool(s)
+			if err != nil {
+				return err
+			}
+			raw[key] = v
+			return nil
+		}
+		b.getBool = func() bool { return raw[key].(bool) }
+	case string:
+		if arg.kind == kindColor {
+			b.get = func() string {
+				col, _ := math.ParseHex(raw[key].(string))
+				return formatColorHex(col)
+			}
+			b.apply = func(s string) error {
+				if _, err := math.ParseHex(s); err != nil {
+					return err
+				}
+				raw[key] = s
+				return nil
+			}
+			b.getColor = func() math.Color {
+				col, _ := math.ParseHex(raw[key].(string))
+				return col
+			}
+		} else {
+			b.get = func() string { return raw[key].(string) }
+			b.apply = func(s string) error { raw[key] = s; return nil }
+		}
+	case float64, float32, int, int32, int64:
+		b.get = func() string { return formatRawValue(raw[key]) }
+		b.apply = func(s string) error {
+			f, err := parseFloat(s)
+			if err != nil {
+				return err
+			}
+			raw[key] = f
+			return nil
+		}
+	case map[string]interface{}:
+		// Only RGBA objects are editable (classified kindColor).
+		b.get = func() string { return formatColorHex(rawColorFromMap(raw[key].(map[string]interface{}))) }
+		b.apply = func(s string) error {
+			col, err := math.ParseHex(s)
+			if err != nil {
+				return err
+			}
+			raw[key] = rawMapFromColor(col)
+			return nil
+		}
+		b.getColor = func() math.Color { return rawColorFromMap(raw[key].(map[string]interface{})) }
+	}
+	b.old = b.get()
+	return b
 }
 
 // fieldFor returns the reflected arg field of the target component with the given json

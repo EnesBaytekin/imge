@@ -46,3 +46,23 @@ func (l *LabelComponent) Draw(r core.Renderer) {
 	}
 	r.DrawText(l.Text, l.FontID, l.Size, pos, l.Color)
 }
+
+// MeasuredBounds reports the label's on-screen rectangle for editor hit-testing. An
+// explicit Width×Height (the BaseUIComponent size) is used when set; otherwise the
+// bounds is the rendered text extent measured via the renderer, so a label that only
+// declares an offset and text is still selectable by the area its text actually draws.
+func (l *LabelComponent) MeasuredBounds(r core.Renderer) math.Rect {
+	if l.Width > 0 && l.Height > 0 {
+		return l.Rect()
+	}
+	if r == nil {
+		return l.Rect()
+	}
+	pos := l.Position()
+	if l.MaxWidth > 0 {
+		w, h := r.MeasureTextWrapped(l.Text, l.FontID, l.Size, l.MaxWidth, l.Wrap, false)
+		return math.NewRect(pos.X, pos.Y, w, h)
+	}
+	w, h := r.MeasureText(l.Text, l.FontID, l.Size)
+	return math.NewRect(pos.X, pos.Y, w, h)
+}

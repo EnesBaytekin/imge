@@ -5,6 +5,7 @@ package core
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -596,6 +597,19 @@ func (obj *Object) GetScale() math.Vector2 {
 // LoadFromJSON loads object data from JSON configuration.
 // Note: This creates a new object from JSON data, it doesn't update an existing object.
 func LoadObjectFromJSON(data []byte) (*Object, error) {
+	return loadObjectFromJSON(data, false)
+}
+
+// LoadObjectFromJSONLenient loads object data from JSON configuration, preserving a
+// component whose kind is not registered in the current binary as a GenericComponent
+// placeholder (so it round-trips on save) instead of failing the load. It is the
+// object-file counterpart to the scene loader's lenient mode, for tools (the editor)
+// that open objects built against components they did not compile in.
+func LoadObjectFromJSONLenient(data []byte) (*Object, error) {
+	return loadObjectFromJSON(data, true)
+}
+
+func loadObjectFromJSON(data []byte, lenient bool) (*Object, error) {
 	var config corejson.ObjectConfig
 	if err := json.Unmarshal(corejson.StripComments(data), &config); err != nil {
 		return nil, fmt.Errorf("failed to parse object JSON: %w", err)
@@ -615,6 +629,16 @@ func LoadObjectFromJSON(data []byte) (*Object, error) {
 	for _, compConfig := range config.Components {
 		component, err := CreateComponentFromJSON(compConfig.Kind, compConfig.Name, compConfig.Args)
 		if err != nil {
+			if lenient && !IsComponentRegistered(compConfig.Kind) {
+				// Preserve a custom component not compiled into this build as a
+				// GenericComponent, so it round-trips on save instead of being dropped.
+				obj.AddComponent(NewGenericComponent(compConfig.Kind, compConfig.Name, compConfig.Args))
+				continue
+			}
+			if lenient {
+				log.Printf("object: skipping component %q: %v", compConfig.Name, err)
+				continue
+			}
 			return nil, fmt.Errorf("failed to create component %s: %w", compConfig.Kind, err)
 		}
 		if err := obj.AddComponent(component); err != nil {
@@ -637,6 +661,16 @@ func LoadObjectFromFile(path string) (*Object, error) {
 		return nil, fmt.Errorf("failed to read object file %s: %w", path, err)
 	}
 	return LoadObjectFromJSON(data)
+}
+
+// LoadObjectFromFileLenient loads an object from a JSON file, preserving unregistered
+// component kinds as GenericComponent placeholders (see LoadObjectFromJSONLenient).
+func LoadObjectFromFileLenient(path string) (*Object, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read object file %s: %w", path, err)
+	}
+	return LoadObjectFromJSONLenient(data)
 }
 
 // ToJSONConfig converts the object to JSON configuration.

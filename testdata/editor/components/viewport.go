@@ -282,7 +282,7 @@ func (c *ViewportComponent) Update(ctx *core.Context) {
 	// topmost world object and arms a possible drag-to-move. Clicking empty space clears
 	// the selection (and starts no drag).
 	if over && !blocked && !space && !middle && ctx.Input.IsMouseButtonJustPressed(core.MouseButtonLeft) {
-		c.beginDrag(local)
+		c.beginDrag(local, ctx.Renderer)
 	}
 
 	// Drag-to-move: while the grabbed object's left button stays down (and Space/middle
@@ -315,17 +315,18 @@ func (c *ViewportComponent) Update(ctx *core.Context) {
 }
 
 // selectAt picks the topmost world object under a viewport-local point and highlights
-// it through the target scene's debug selection. A miss clears the selection.
-func (c *ViewportComponent) selectAt(local math.Vector2) {
+// it through the target scene's debug selection. A miss clears the selection. The
+// renderer (from ctx.Renderer) lets text-bearing components measure their bounds.
+func (c *ViewportComponent) selectAt(local math.Vector2, r core.Renderer) {
 	if c.scene == nil {
 		return
 	}
 	world := c.cam.ScreenToWorld(local)
-	comp := c.scene.Pick(world)
+	comp := c.scene.PickR(world, r)
 	var obj *core.Object
 	if comp != nil {
 		obj = comp.GetOwner()
-	} else if ui := c.pickUIObject(world); ui != nil {
+	} else if ui := c.pickUIObject(world, r); ui != nil {
 		// scene.Pick skips UI objects (they are screen-space in the game); the editor
 		// draws them in world space, so they get their own hit-test.
 		obj = ui
@@ -343,7 +344,8 @@ func (c *ViewportComponent) selectAt(local math.Vector2) {
 // pickUIObject returns the topmost UI object whose debug bounds contain the world point,
 // or nil. Scene.Pick skips UI objects (they are screen-space in the game), but the editor
 // draws them in world space, so viewport click-selection needs this separate hit-test.
-func (c *ViewportComponent) pickUIObject(world math.Vector2) *core.Object {
+// The renderer lets text-bearing components (MeasuredBoundsProvider) measure their bounds.
+func (c *ViewportComponent) pickUIObject(world math.Vector2, r core.Renderer) *core.Object {
 	objs := c.scene.GetSortedObjects()
 	for i := len(objs) - 1; i >= 0; i-- {
 		obj := objs[i]
@@ -356,6 +358,12 @@ func (c *ViewportComponent) pickUIObject(world math.Vector2) *core.Object {
 			}
 			bp, isBounds := comp.(core.DebugBoundsProvider)
 			if !isBounds {
+				continue
+			}
+			if mbp, ok := comp.(core.MeasuredBoundsProvider); ok && r != nil {
+				if mbp.MeasuredBounds(r).ContainsPoint(world) {
+					return obj
+				}
 				continue
 			}
 			if pp, ok := comp.(core.PointPicker); ok {
@@ -382,7 +390,7 @@ func (c *ViewportComponent) pickEmptyObject(local math.Vector2) *core.Object {
 		if obj == nil || !obj.Active || obj.IsDestroyed() || obj.UI {
 			continue
 		}
-		if _, ok := objectBounds(obj); ok {
+		if _, ok := objectBounds(obj, nil); ok {
 			continue // has real bounds; scene.Pick already covers it
 		}
 		screen := c.cam.WorldToScreen(obj.GetPosition())
@@ -396,8 +404,8 @@ func (c *ViewportComponent) pickEmptyObject(local math.Vector2) *core.Object {
 // beginDrag handles a plain left-press: it selects the object under the cursor (via
 // selectAt) and, if one was hit, captures the state needed to drag it. No undo entry is
 // recorded here — that happens on release, once, only if the object actually moved.
-func (c *ViewportComponent) beginDrag(local math.Vector2) {
-	c.selectAt(local)
+func (c *ViewportComponent) beginDrag(local math.Vector2, r core.Renderer) {
+	c.selectAt(local, r)
 	c.dragging = false
 	c.dragObj = nil
 	c.dragActive = false
@@ -883,7 +891,7 @@ func (c *ViewportComponent) AddObjectFromFile(rel string) *core.Object {
 	if c.scene == nil || rel == "" {
 		return nil
 	}
-	obj, err := core.LoadObjectFromFile(filepath.Join(c.projectDir, rel))
+	obj, err := core.LoadObjectFromFileLenient(filepath.Join(c.projectDir, rel))
 	if err != nil {
 		console.Print("load .obj: " + err.Error())
 		return nil
@@ -988,7 +996,7 @@ func (c *ViewportComponent) DuplicateObject(obj *core.Object) *core.Object {
 // Objects whose components report no bounds — or only a degenerate (zero-area) box,
 // e.g. a sprite with an empty texture path — have no bounds; the selection outline
 // falls back to marking their origin.
-func objectBounds(obj *core.Object) (math.Rect, bool) {
+func objectBounds(obj *core.Object, r core.Renderer) (math.Rect, bool) {
 	var b math.Rect
 	found := false
 
@@ -1012,19 +1020,25 @@ func objectBounds(obj *core.Object) (math.Rect, bool) {
 	// Pass 2: no visible sprite — union the non-sprite bounds providers (collider,
 	// trigger, ...) so a physics-only object still outlines its hitbox. Invisible
 	// sprites are skipped here too (they were already excluded in pass 1); an object
-	// whose only shape is a hidden sprite falls through to the origin marker.
+	// whose only shape is a hidden sprite falls through to the origin marker. A
+	// text-bearing component (MeasuredBoundsProvider, e.g. a sizeless @Label) reports
+	// its measured text extent when a renderer is available instead of its 0×0
+	// DebugBounds, so the outline hugs the text the user actually sees.
 	if !found {
 		for _, comp := range obj.ComponentsInDrawOrder() {
 			if _, isSprite := comp.(*Sprite); isSprite {
 				continue
 			}
 			if bp, ok := comp.(core.DebugBoundsProvider); ok {
-				r := bp.DebugBounds()
+				bounds := bp.DebugBounds()
+				if mbp, ok := comp.(core.MeasuredBoundsProvider); ok && r != nil {
+					bounds = mbp.MeasuredBounds(r)
+				}
 				if !found {
-					b = r
+					b = bounds
 					found = true
 				} else {
-					b = b.Union(r)
+					b = b.Union(bounds)
 				}
 			}
 		}
@@ -1215,7 +1229,7 @@ func (c *ViewportComponent) drawEmptyMarkers(r core.Renderer, rect math.Rect) {
 		if obj == nil || !obj.Active || obj.IsDestroyed() || obj.UI {
 			continue
 		}
-		if _, ok := objectBounds(obj); ok {
+		if _, ok := objectBounds(obj, nil); ok {
 			continue
 		}
 		p := c.cam.WorldToScreen(obj.GetPosition()).Add(rect.Position)
@@ -1291,7 +1305,7 @@ func (c *ViewportComponent) drawSelection(r core.Renderer, rect math.Rect) {
 
 	// UI object: no object transform to de-rotate, so draw its axis-aligned world bounds
 	// straight from their corners.
-	bounds, ok := objectBounds(c.selected)
+	bounds, ok := objectBounds(c.selected, r)
 	if !ok {
 		c.drawSelectionOrigin(r, rect)
 		return

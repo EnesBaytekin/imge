@@ -425,7 +425,7 @@ func (c *FileBrowserComponent) Update(ctx *core.Context) {
 		scene := c.GetScene()
 		rel := c.selected
 		closeActiveModal() // dismiss this window
-		spawnObjectEditor(scene, rel)
+		spawnObjectEditorForFile(scene, rel)
 		return
 	}
 

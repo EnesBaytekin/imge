@@ -32,7 +32,7 @@ func main() {
 	case "editor":
 		handleEditor()
 	case "version":
-		fmt.Printf("imge version %s\n", imge.EngineVersion)
+		fmt.Printf("imge version %s\n", imge.BuildVersion)
 	case "help", "-h", "--help":
 		printUsage()
 	default:
@@ -279,7 +279,7 @@ func handleInit() {
 }
 
 func printUsage() {
-	fmt.Printf("IMGE Minimal Game Engine CLI Tool (version %s)\n", imge.EngineVersion)
+	fmt.Printf("IMGE Minimal Game Engine CLI Tool (version %s)\n", imge.BuildVersion)
 	fmt.Println()
 	fmt.Println("Usage:")
 	fmt.Println("  imge init                 Initialize a blank game project (empty directory only)")

@@ -207,9 +207,10 @@ func (g *Generator) generateRegistry(kinds []componentKind) error {
 	// The engine version this build was produced by, exposed so a project (e.g. the
 	// editor) can show it. It is generated rather than imported, since the build's
 	// `_engine` copy carries the engine subpackages (core/engine/…) but not the root
-	// `imge` package that holds the version variable.
+	// `imge` package that holds the version variable. BuildVersion (not EngineVersion)
+	// is used so a local dev build's suffix appears in the editor too.
 	fmt.Fprintf(&b, "// engineVersion is the IMGE engine version this project was built with.\n")
-	fmt.Fprintf(&b, "const engineVersion = %q\n\n", imge.EngineVersion)
+	fmt.Fprintf(&b, "const engineVersion = %q\n\n", imge.BuildVersion)
 	b.WriteString("func init() {\n")
 	for _, k := range kinds {
 		fmt.Fprintf(&b, "\tcore.RegisterComponent(%q, func() core.Component { return &%s{} })\n", k.kind, k.typeName)

@@ -79,7 +79,7 @@ func cachedEditorBinary() (string, error) {
 	}
 
 	h := sha256.New()
-	io.WriteString(h, "version "+imge.EngineVersion+"\n")
+	io.WriteString(h, "version "+imge.BuildVersion+"\n")
 	io.WriteString(h, "goos "+runtime.GOOS+"\n")
 	io.WriteString(h, "goarch "+runtime.GOARCH+"\n")
 	if err := hashEmbed(h, imge.EditorTemplate); err != nil {

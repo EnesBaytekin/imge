@@ -6,10 +6,12 @@
 package components
 
 import (
+	"encoding/json"
 	"fmt"
 	stdmath "math"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -254,6 +256,178 @@ func setArg(v reflect.Value, s string) error {
 		return nil
 	}
 	return fmt.Errorf("unsupported field type %s", v.Type())
+}
+
+// ============================================================================
+// Raw-args schema: an unregistered (GenericComponent) component carries its args as a
+// verbatim JSON map rather than typed fields, so the args window edits the map directly.
+// ============================================================================
+
+// rawArg describes one entry of a RawArgsProvider component's args map, classified into
+// the widget kind that should edit it (editable=false renders read-only as JSON).
+type rawArg struct {
+	key      string
+	value    interface{}
+	kind     fieldKind
+	editable bool
+}
+
+// genericArgs returns the sorted raw-args entries of a RawArgsProvider component, or nil
+// when comp is not one. Sorting keeps the field order stable across reloads. The values
+// are JSON-decoded scalars (string/bool/float64) and containers (map[string]interface{}/
+// []interface{}), so a value's type is enough to pick the right widget. A provider with
+// no args yields an empty (non-nil) slice, so `!= nil` still identifies the provider.
+func genericArgs(comp core.Component) []rawArg {
+	p, ok := comp.(core.RawArgsProvider)
+	if !ok {
+		return nil
+	}
+	raw := p.RawArgs()
+	keys := make([]string, 0, len(raw))
+	for k := range raw {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := make([]rawArg, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, rawArg{key: k, value: raw[k], kind: classifyRawArg(raw[k]), editable: isRawArgEditable(raw[k])})
+	}
+	return out
+}
+
+// isRawArgEditable reports whether a raw-args value can be edited through a widget.
+// Scalars, bools, numbers, hex-color strings, and RGBA objects are editable; nested
+// objects/arrays/null are shown read-only as JSON.
+func isRawArgEditable(v interface{}) bool {
+	switch x := v.(type) {
+	case bool, string, float64, float32, int, int32, int64:
+		return true
+	case map[string]interface{}:
+		return isRGBAMap(x)
+	default:
+		return false
+	}
+}
+
+// classifyRawArg picks the widget kind for a raw-args value (only called on editable
+// values; read-only values use kindText but never build a widget).
+func classifyRawArg(v interface{}) fieldKind {
+	switch x := v.(type) {
+	case bool:
+		return kindCheck
+	case string:
+		if isHexColorString(x) {
+			return kindColor
+		}
+		return kindText
+	case map[string]interface{}:
+		if isRGBAMap(x) {
+			return kindColor
+		}
+		return kindText
+	default:
+		return kindText // numbers, arrays, null
+	}
+}
+
+// isHexColorString reports whether s is a "#RRGGBB"/"#RRGGBBAA" (or short) hex color.
+// The "#" prefix is required so an ordinary string like "face" is not mistaken for a
+// color; the scene file always writes colors with a leading "#".
+func isHexColorString(s string) bool {
+	if len(s) == 0 || s[0] != '#' {
+		return false
+	}
+	_, err := math.ParseHex(s)
+	return err == nil
+}
+
+// isRGBAMap reports whether m is a color object {"r":..,"g":..,"b":..[,"a":..]}, the
+// object form of a color in the scene file format (alpha optional, defaulting to 255).
+func isRGBAMap(m map[string]interface{}) bool {
+	for _, k := range []string{"r", "g", "b"} {
+		if !rawNum(m, k) {
+			return false
+		}
+	}
+	return true
+}
+
+// rawNum reports whether the map has a numeric value under key k.
+func rawNum(m map[string]interface{}, k string) bool {
+	switch m[k].(type) {
+	case float64, float32, int, int32, int64:
+		return true
+	}
+	return false
+}
+
+// rawColorFromMap builds a color from an RGBA object value. Alpha defaults to 255 when
+// absent; non-numeric or out-of-range channels clamp via uint8 conversion.
+func rawColorFromMap(m map[string]interface{}) math.Color {
+	ch := func(k string) uint8 {
+		switch v := m[k].(type) {
+		case float64:
+			return uint8(v)
+		case float32:
+			return uint8(v)
+		case int:
+			return uint8(v)
+		case int32:
+			return uint8(v)
+		case int64:
+			return uint8(v)
+		}
+		return 0
+	}
+	a := uint8(255)
+	if _, ok := m["a"]; ok {
+		a = ch("a")
+	}
+	return math.Color{R: ch("r"), G: ch("g"), B: ch("b"), A: a}
+}
+
+// rawMapFromColor builds an RGBA object value from a color, written back as float64s so
+// it round-trips through JSON encoding identically (float64(255) encodes as "255").
+func rawMapFromColor(c math.Color) map[string]interface{} {
+	return map[string]interface{}{
+		"r": float64(c.R),
+		"g": float64(c.G),
+		"b": float64(c.B),
+		"a": float64(c.A),
+	}
+}
+
+// formatRawValue renders a raw-args value as display text (read-only rows and the seed
+// text of editable scalar boxes).
+func formatRawValue(v interface{}) string {
+	switch x := v.(type) {
+	case nil:
+		return "null"
+	case bool:
+		return strconv.FormatBool(x)
+	case string:
+		return x
+	case float64:
+		return strconv.FormatFloat(x, 'g', -1, 64)
+	case float32:
+		return strconv.FormatFloat(float64(x), 'g', -1, 32)
+	case int:
+		return strconv.Itoa(x)
+	case int64:
+		return strconv.FormatInt(x, 10)
+	default:
+		return formatRawJSON(x)
+	}
+}
+
+// formatRawJSON renders a nested raw-args value (object/array) as compact JSON for the
+// read-only value column.
+func formatRawJSON(v interface{}) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprintf("%v", v)
+	}
+	return string(b)
 }
 
 // formatColorHex renders a color as #RRGGBB (opaque) or #RRGGBBAA.
@@ -1219,7 +1393,7 @@ func propagateObjectFile(src *core.Object) {
 	if src == nil || src.File == "" || src.Scene == nil {
 		return
 	}
-	tpl, err := core.LoadObjectFromFile(src.File)
+	tpl, err := core.LoadObjectFromFileLenient(src.File)
 	if err != nil {
 		return
 	}
@@ -1298,6 +1472,14 @@ func objectEditorActive() bool {
 		return false
 	}
 	return true
+}
+
+// objectEditorIsFile reports whether the object editor is open AND editing a file-based
+// .obj (as opposed to an inline scene object). The inspector uses this to decide which
+// property rows to hide: a .obj has no per-instance transform/active/ui, an inline object
+// does.
+func objectEditorIsFile() bool {
+	return objectEditorActive() && activeObjectEditor.rel != ""
 }
 
 // closeActiveObjectEditor closes the object editor if one is open. Called when the target

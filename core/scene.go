@@ -427,13 +427,24 @@ func (s *Scene) SetDebugSelection(c Component) { s.debugSelected = c }
 // considered — UI objects are screen-space and picked separately. The returned
 // component is the one to pass to SetDebugSelection to highlight it.
 func (s *Scene) Pick(point math.Vector2) Component {
+	return s.pick(point, nil)
+}
+
+// PickR is Pick with a renderer available so components that need one to measure their
+// bounds (MeasuredBoundsProvider, e.g. a @Label's text extent) are picked by that
+// measured area. Pass nil to fall back to DebugBounds.
+func (s *Scene) PickR(point math.Vector2, r Renderer) Component {
+	return s.pick(point, r)
+}
+
+func (s *Scene) pick(point math.Vector2, r Renderer) Component {
 	s.updateSortedObjects()
 	for i := len(s.SortedObjects) - 1; i >= 0; i-- {
 		obj := s.Objects[s.SortedObjects[i]]
 		if obj == nil || !obj.Active || obj.IsDestroyed() || obj.UI {
 			continue
 		}
-		if comp := pickComponent(obj, point); comp != nil {
+		if comp := pickComponent(obj, point, r); comp != nil {
 			return comp
 		}
 	}
@@ -445,8 +456,10 @@ func (s *Scene) Pick(point math.Vector2) Component {
 // VisibilityProvider) is skipped, so hidden sprites don't capture clicks. A provider that
 // also implements PointPicker is hit-tested against its precise rotated shape instead of
 // its axis-aligned bounds, so click-selection matches what collision and the debug outline
-// actually show.
-func pickComponent(obj *Object, point math.Vector2) Component {
+// actually show. When a renderer is supplied, a provider that also implements
+// MeasuredBoundsProvider is hit-tested against its measured bounds (e.g. text extent)
+// instead, since that measurement is only possible with a renderer.
+func pickComponent(obj *Object, point math.Vector2, r Renderer) Component {
 	comps := obj.ComponentsInDrawOrder()
 	for i := len(comps) - 1; i >= 0; i-- {
 		if vp, ok := comps[i].(VisibilityProvider); ok && !vp.IsVisible() {
@@ -454,6 +467,12 @@ func pickComponent(obj *Object, point math.Vector2) Component {
 		}
 		bp, isBounds := comps[i].(DebugBoundsProvider)
 		if !isBounds {
+			continue
+		}
+		if mbp, ok := comps[i].(MeasuredBoundsProvider); ok && r != nil {
+			if mbp.MeasuredBounds(r).ContainsPoint(point) {
+				return comps[i]
+			}
 			continue
 		}
 		if pp, ok := comps[i].(PointPicker); ok {
@@ -496,9 +515,25 @@ func (s *Scene) DrawWorld(renderer Renderer, drawDebug bool) {
 		for _, id := range s.SortedObjects {
 			obj := s.Objects[id]
 			if obj != nil && obj.Active && !obj.IsDestroyed() && !obj.UI {
-				s.drawObjectDebug(obj, renderer)
+				s.drawObjectDebug(obj, renderer, s.debugSelected)
 			}
 		}
+	}
+}
+
+// DrawObject draws a single object (world or UI) under the current camera, then its
+// DebugDrawer components when drawDebug is true, marking `selected` (a component on
+// the object, or nil) so a debug overlay can render its own selected state. Unlike
+// DrawWorld, it does not skip UI objects — it is the isolated object editor's render
+// path for one object, so a UI object (a window/panel) renders its elements under the
+// editor's camera exactly as the scene viewport draws them.
+func (s *Scene) DrawObject(obj *Object, renderer Renderer, drawDebug bool, selected Component) {
+	if obj == nil || !obj.Active || obj.IsDestroyed() {
+		return
+	}
+	obj.Draw(renderer)
+	if drawDebug {
+		s.drawObjectDebug(obj, renderer, selected)
 	}
 }
 
@@ -515,7 +550,7 @@ func (s *Scene) drawDebugOverlay(renderer Renderer) {
 	for _, id := range s.SortedObjects {
 		obj := s.Objects[id]
 		if obj != nil && obj.Active && !obj.IsDestroyed() && !obj.UI {
-			s.drawObjectDebug(obj, renderer)
+			s.drawObjectDebug(obj, renderer, s.debugSelected)
 		}
 	}
 
@@ -523,7 +558,7 @@ func (s *Scene) drawDebugOverlay(renderer Renderer) {
 	for _, id := range s.SortedObjects {
 		obj := s.Objects[id]
 		if obj != nil && obj.Active && !obj.IsDestroyed() && obj.UI {
-			s.drawObjectDebug(obj, renderer)
+			s.drawObjectDebug(obj, renderer, s.debugSelected)
 		}
 	}
 }
@@ -532,16 +567,35 @@ func (s *Scene) drawDebugOverlay(renderer Renderer) {
 // order, marking the selected one. Like Draw, it applies the object transform for
 // non-UI objects so a debug overlay (e.g. a collider hitbox) rotates and scales with
 // the object and is drawn in local space.
-func (s *Scene) drawObjectDebug(obj *Object, renderer Renderer) {
+func (s *Scene) drawObjectDebug(obj *Object, renderer Renderer, selected Component) {
 	if !obj.UI {
 		renderer.SetObjectTransform(obj.Transform.Position, obj.Transform.Rotation, obj.Transform.Scale)
 		defer renderer.ClearObjectTransform()
 	}
 	for _, comp := range obj.drawComponents() {
 		if dd, ok := comp.(DebugDrawer); ok {
-			dd.DrawDebug(renderer, DebugInfo{Selected: comp == s.debugSelected})
+			dd.DrawDebug(renderer, DebugInfo{Selected: comp == selected})
 		}
 	}
+}
+
+// PickObject returns the topmost DebugBoundsProvider component on obj whose bounds
+// contain point, or nil. It is the single-object counterpart to Pick, for the isolated
+// object editor (which picks on one object rather than the whole scene).
+func (s *Scene) PickObject(obj *Object, point math.Vector2) Component {
+	return s.pickObject(obj, point, nil)
+}
+
+// PickObjectR is PickObject with a renderer available for measured bounds, like PickR.
+func (s *Scene) PickObjectR(obj *Object, point math.Vector2, r Renderer) Component {
+	return s.pickObject(obj, point, r)
+}
+
+func (s *Scene) pickObject(obj *Object, point math.Vector2, r Renderer) Component {
+	if obj == nil || !obj.Active || obj.IsDestroyed() {
+		return nil
+	}
+	return pickComponent(obj, point, r)
 }
 
 // removeDestroyedObjects removes all objects marked for destruction.
@@ -733,6 +787,12 @@ func createObjectFromSceneObject(objConfig corejson.SceneObject, fsys fs.FS, len
 		for _, compConfig := range objConfigFile.Components {
 			component, err := CreateComponentFromJSON(compConfig.Kind, compConfig.Name, compConfig.Args)
 			if err != nil {
+				if lenient && !IsComponentRegistered(compConfig.Kind) {
+					// Preserve a custom component not compiled into this build as a
+					// GenericComponent, so it round-trips on save instead of being dropped.
+					obj.AddComponent(NewGenericComponent(compConfig.Kind, compConfig.Name, compConfig.Args))
+					continue
+				}
 				if lenient {
 					log.Printf("scene: skipping component %q on %q: %v", compConfig.Name, objConfig.Name, err)
 					continue

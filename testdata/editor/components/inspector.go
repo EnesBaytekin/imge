@@ -241,7 +241,11 @@ func (c *InspectorComponent) actionLabel(obj *core.Object) string {
 // value through the object's own API, so side effects (scene name/tag/depth indexing)
 // stay consistent. Only "ui" is a bool (@CheckBox); the rest are text. "active" has no
 // setter and stays read-only (the viewport owns activation).
-func (c *InspectorComponent) props(obj *core.Object, inObjEditor bool) []prop {
+//
+// fileObjEditor is true only when a file-based .obj is open in the object editor: a .obj
+// has no per-instance transform/active (those are scene-owned), so those rows are hidden
+// there. An inline object keeps them — it is a real scene object even while edited.
+func (c *InspectorComponent) props(obj *core.Object, fileObjEditor bool) []prop {
 	if obj == nil {
 		return nil
 	}
@@ -254,10 +258,10 @@ func (c *InspectorComponent) props(obj *core.Object, inObjEditor bool) []prop {
 			return "inline"
 		}, nil, kindText, nil},
 	}
-	// The transform and active flag are scene-owned (per-instance) — a .obj has none —
-	// so the object editor hides them. "ui" is also hidden there: the editor forces the
-	// template to world-space to render it, so toggling it would make the object vanish.
-	if !inObjEditor {
+	// The transform and active flag are scene-owned (per-instance) — a .obj has none — so
+	// a file-based .obj hides them in the object editor. "ui" is also hidden there: it is
+	// part of the template's definition, edited via the object itself, not the instance.
+	if !fileObjEditor {
 		out = append(out,
 			prop{"position", func() string { p := obj.GetPosition(); return formatFloat(p.X) + ", " + formatFloat(p.Y) }, func(s string) error {
 				x, y, err := parseTwoFloats(s)
@@ -302,7 +306,7 @@ func (c *InspectorComponent) props(obj *core.Object, inObjEditor bool) []prop {
 			return obj.SetDepth(f)
 		}, kindText, nil},
 	)
-	if !inObjEditor {
+	if !fileObjEditor {
 		out = append(out,
 			prop{"ui", func() string { return strconv.FormatBool(obj.UI) }, func(s string) error {
 				b, err := parseBool(s)
@@ -375,7 +379,7 @@ func (c *InspectorComponent) drawPropSeparator(r core.Renderer, rect math.Rect, 
 // buildBindings converts the object's editable properties into field bindings, one
 // widget per property. Read-only rows (nil setter) are skipped — the host draws them.
 func (c *InspectorComponent) buildBindings(obj *core.Object) []fieldBinding {
-	props := c.props(obj, objectEditorActive())
+	props := c.props(obj, objectEditorIsFile())
 	out := make([]fieldBinding, 0, len(props))
 	for i := range props {
 		p := &props[i]
@@ -536,7 +540,7 @@ func (c *InspectorComponent) layoutRows() {
 	layoutWidgets(c.bindings, c.GetOwner(), rect.Y()+c.titleH(), rect.X()+64, valueW, 0, c.RowHeight, rect.Y()+rect.Height())
 	if c.tagInput != nil {
 		obj := inspectorTarget(c.GetScene())
-		ar := c.tagAddRect(rect, propRows(c.props(obj, objectEditorActive())))
+		ar := c.tagAddRect(rect, propRows(c.props(obj, objectEditorIsFile())))
 		if ar.Width() > 0 {
 			c.tagInput.Width = ar.Width()
 			c.tagInput.Height = ar.Height()
@@ -618,7 +622,7 @@ func (c *InspectorComponent) Update(ctx *core.Context) {
 		comps = obj.ComponentsInDrawOrder()
 	}
 	inObjEditor := objectEditorActive()
-	props := c.props(obj, inObjEditor)
+	props := c.props(obj, objectEditorIsFile())
 	tags := sortedTags(obj)
 	nRows, nTags := propRows(props), len(tags)
 	compY := rect.Y() + c.compStart(nRows, nTags)
@@ -631,7 +635,7 @@ func (c *InspectorComponent) Update(ctx *core.Context) {
 	c.hoverDup = -1
 	c.hoverPlus = c.plusRect(rect, nRows, nTags).ContainsPoint(mouse)
 	c.hoverAction = !inObjEditor && obj != nil && c.actionRect(rect).ContainsPoint(mouse)
-	c.hoverEdit = !inObjEditor && obj != nil && obj.File != "" && c.editRect(rect).ContainsPoint(mouse)
+	c.hoverEdit = !inObjEditor && obj != nil && c.editRect(rect).ContainsPoint(mouse)
 	for i := range comps {
 		y := compY + float64(i)*c.RowHeight - c.scroll
 		if mouse.Y >= y && mouse.Y < y+c.RowHeight {
@@ -717,10 +721,16 @@ func (c *InspectorComponent) Update(ctx *core.Context) {
 		return
 	}
 
-	// Title-bar "edit" button: open the object editor for this file-referenced object.
+	// Title-bar "edit" button: open the object editor — file-referenced objects edit their
+	// .obj, inline objects edit that one live scene object.
 	if c.hoverEdit {
-		if obj != nil && obj.File != "" {
-			spawnObjectEditor(c.GetScene(), obj.File)
+		if obj == nil {
+			return
+		}
+		if obj.File != "" {
+			spawnObjectEditorForFile(c.GetScene(), obj.File)
+		} else {
+			spawnObjectEditorForObject(c.GetScene(), obj)
 		}
 		return
 	}
@@ -819,11 +829,12 @@ func (c *InspectorComponent) Draw(r core.Renderer) {
 		return
 	}
 
-	// Title-bar buttons. In the object editor (editing a .obj), the provenance action
-	// (make unique / make object) is hidden — that object is not a scene object there.
-	// The "edit" button opens the object editor for a file-referenced scene object.
+	// Title-bar buttons. While the object editor is open, the provenance action (make
+	// unique / make object) and the "edit" button are hidden — you're already editing that
+	// object. Otherwise "edit" opens the object editor for any scene object, file-referenced
+	// or inline.
 	inObjEditor := objectEditorActive()
-	if !inObjEditor && obj.File != "" {
+	if !inObjEditor {
 		er := c.editRect(rect)
 		if c.hoverEdit {
 			r.DrawRect(er, c.Accent.Lerp(math.White, 0.14))
@@ -847,7 +858,7 @@ func (c *InspectorComponent) Draw(r core.Renderer) {
 
 	// Property rows: the host draws the name label and any read-only value; editable
 	// values are drawn by their widgets (layer 1, above this chrome).
-	props := c.props(obj, inObjEditor)
+	props := c.props(obj, objectEditorIsFile())
 	tags := sortedTags(obj)
 	nRows, nTags := propRows(props), len(tags)
 	bodyTop := rect.Y() + c.titleH()

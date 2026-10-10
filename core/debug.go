@@ -50,3 +50,12 @@ type PointPicker interface {
 type VisibilityProvider interface {
 	IsVisible() bool
 }
+
+// MeasuredBoundsProvider is an optional interface a DebugBoundsProvider may also
+// implement to report a bounds that needs a renderer to compute — e.g. a @Label whose
+// extent is its rendered text rather than an explicit Width×Height. The editor's
+// picker prefers it (over DebugBounds) when a renderer is available, so such elements
+// are selectable by the same area the user sees them draw.
+type MeasuredBoundsProvider interface {
+	MeasuredBounds(r Renderer) math.Rect
+}

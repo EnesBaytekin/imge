@@ -128,10 +128,10 @@ func (c *ObjectEditorComponent) Initialize() {
 	}
 }
 
-// spawnObjectEditor opens the object editor for the .obj at the project-relative path
-// rel. It is a no-op when there is no project, the file can't be loaded, or a modal is
-// already open.
-func spawnObjectEditor(scene *core.Scene, rel string) {
+// spawnObjectEditorForFile opens the object editor for the .obj at the project-relative
+// path rel. It is a no-op when there is no project, the file can't be loaded, or a modal
+// is already open.
+func spawnObjectEditorForFile(scene *core.Scene, rel string) {
 	if scene == nil || rel == "" || modalOpen() || objectEditorActive() {
 		return
 	}
@@ -141,14 +141,11 @@ func spawnObjectEditor(scene *core.Scene, rel string) {
 	}
 	abs := filepath.Join(vp.CurrentProject(), rel)
 
-	obj, err := core.LoadObjectFromFile(abs)
+	obj, err := core.LoadObjectFromFileLenient(abs)
 	if err != nil {
 		console.Print("object editor: " + err.Error())
 		return
 	}
-	// A .obj is a world object: force world-space so DrawWorld draws it under the
-	// navigation camera (a template with "ui": true would otherwise be skipped).
-	obj.UI = false
 	// Record the file provenance so the write-through path (persistObjectFile) updates
 	// this .obj on every undoable edit, exactly as it does for file-ref scene objects.
 	obj.File = rel
@@ -161,6 +158,33 @@ func spawnObjectEditor(scene *core.Scene, rel string) {
 	}
 	world.InitializeForRender()
 
+	spawnObjectEditorWindow(scene, rel, abs, obj, world, vp)
+}
+
+// spawnObjectEditorForObject opens the object editor for a live (inline) scene object.
+// The object stays in the scene, so edits go through the normal scene paths (the .obj
+// write-through is skipped because File == "") and only that one object changes. The
+// throwaway world scene is left empty: it is only a receiver for DrawObject/PickObject,
+// never the object's home.
+func spawnObjectEditorForObject(scene *core.Scene, obj *core.Object) {
+	if scene == nil || obj == nil || modalOpen() || objectEditorActive() {
+		return
+	}
+	vp := lookupViewport(scene)
+	if vp == nil {
+		return
+	}
+
+	world := core.NewScene("object_editor")
+	world.BackgroundColor = viewportBackground
+
+	spawnObjectEditorWindow(scene, "", "", obj, world, vp)
+}
+
+// spawnObjectEditorWindow builds the floating object-editor window around an already
+// prepared edited object and throwaway world, adds it to the editor scene, and activates
+// the editing focus.
+func spawnObjectEditorWindow(scene *core.Scene, rel, abs string, obj *core.Object, world *core.Scene, vp *ViewportComponent) {
 	win := core.NewObject("object_editor")
 	win.UI = true
 	win.Layer = 3
@@ -178,11 +202,14 @@ func spawnObjectEditor(scene *core.Scene, rel string) {
 	editor.smoothShapes = vp.smoothShapes
 	editor.smoothRotation = vp.smoothRotation
 	editor.smoothRes = vp.smoothRes
-	// Restore this .obj's last pan/zoom when one was saved, skipping the auto-frame on
-	// the origin so reopening the file lands exactly where the user left it.
-	if saved, ok := vp.objectCams[rel]; ok {
-		editor.cam = editorCamera{x: saved.X, y: saved.Y, zoom: saved.Zoom}
-		editor.framed = true
+	// Restore this .obj's last pan/zoom when one was saved, skipping the auto-frame so
+	// reopening the file lands exactly where the user left it. Inline objects (rel == "")
+	// have no persisted camera and always auto-frame.
+	if rel != "" {
+		if saved, ok := vp.objectCams[rel]; ok {
+			editor.cam = editorCamera{x: saved.X, y: saved.Y, zoom: saved.Zoom}
+			editor.framed = true
+		}
 	}
 	win.AddComponent(editor)
 
@@ -201,12 +228,16 @@ func spawnObjectEditor(scene *core.Scene, rel string) {
 	raiseToFront(scene, win)
 }
 
-// frame centers the camera on the object's origin (0,0) — the object's own position,
-// which a .obj has no scene transform to move away from. The object and its components
-// (whose offsets are relative to that origin) then sit centered in the viewport, so the
+// frame centers the camera on the edited object's position. For a file-based .obj that is
+// the origin (a template has no scene transform, and its components' offsets are relative
+// to that origin); for an inline object it is the object's real scene position, so the
 // object is visible immediately on open with no panning. Pan/zoom stay free afterward.
 func (c *ObjectEditorComponent) frame(worldRect math.Rect) {
-	c.cam.frame(math.Zero(), worldRect.Width(), worldRect.Height())
+	center := math.Zero()
+	if c.obj != nil {
+		center = c.obj.Transform.Position
+	}
+	c.cam.frame(center, worldRect.Width(), worldRect.Height())
 }
 
 // gridStep returns the current grid spacing (world units) from the editor-settings view,
@@ -252,7 +283,7 @@ func (c *ObjectEditorComponent) refreshSceneInstances() {
 	if vp == nil || vp.TargetScene() == nil {
 		return
 	}
-	tpl, err := core.LoadObjectFromFile(c.rel)
+	tpl, err := core.LoadObjectFromFileLenient(c.rel)
 	if err != nil {
 		return
 	}
@@ -265,6 +296,13 @@ func (c *ObjectEditorComponent) refreshSceneInstances() {
 
 func (c *ObjectEditorComponent) Update(ctx *core.Context) {
 	if ctx == nil || ctx.Input == nil {
+		return
+	}
+	// An inline object edited here lives in the scene; if it is destroyed while the focus
+	// is open, dismiss rather than editing a dead object. (A file-based .obj's throwaway
+	// copy can't be destroyed out from under the editor, so it needs no such guard.)
+	if c.rel == "" && (c.obj == nil || c.obj.IsDestroyed()) {
+		c.dismiss = true
 		return
 	}
 	// A real modal (a component-args window, a confirm dialog) or an open menu bar is up:
@@ -377,7 +415,7 @@ func (c *ObjectEditorComponent) Update(ctx *core.Context) {
 	// area selects the component under the cursor and, when it has an offset field,
 	// captures the state to drag that offset.
 	if over && !blocked && !space && !middle && justPressed {
-		c.selectedComp = c.pickComponent(local)
+		c.selectedComp = c.pickComponent(local, ctx.Renderer)
 		c.dragComp = nil
 		c.draggingComp = false
 		c.dragMoved = false
@@ -436,13 +474,14 @@ func (c *ObjectEditorComponent) Update(ctx *core.Context) {
 }
 
 // pickComponent returns the topmost component of the edited object under a
-// viewport-local point (via the throwaway world's Pick), or nil when the point misses
-// every component (or lands on an invisible one).
-func (c *ObjectEditorComponent) pickComponent(local math.Vector2) core.Component {
-	if c.world == nil {
+// viewport-local point (via the throwaway world's single-object pick), or nil when the
+// point misses every component (or lands on an invisible one). The renderer (from
+// ctx.Renderer) lets text-bearing components measure their bounds.
+func (c *ObjectEditorComponent) pickComponent(local math.Vector2, r core.Renderer) core.Component {
+	if c.world == nil || c.obj == nil {
 		return nil
 	}
-	return c.world.Pick(c.cam.ScreenToWorld(local))
+	return c.world.PickObjectR(c.obj, c.cam.ScreenToWorld(local), r)
 }
 
 func (c *ObjectEditorComponent) centerOnce(ctx *core.Context) {
@@ -493,18 +532,18 @@ func (c *ObjectEditorComponent) Draw(r core.Renderer) {
 	c.drawGrid(r, worldRect)
 	c.drawAxes(r, worldRect)
 	r.SetCamera(c.cam.x-worldRect.X()/c.cam.zoom, c.cam.y-worldRect.Y()/c.cam.zoom, c.cam.zoom)
-	if c.world != nil {
+	if c.world != nil && c.obj != nil {
 		r.SetSmoothShapes(c.smoothShapes)
 		r.SetSmoothRotation(c.smoothRotation)
 		r.SetSmoothResolution(c.smoothRes)
-		c.world.DrawWorld(r, true)
+		c.world.DrawObject(c.obj, r, true, c.selectedComp)
 		r.SetSmoothResolution(0)
 		r.SetSmoothRotation(true)
 		r.SetSmoothShapes(false)
 	}
 	r.SetCamera(0, 0, 0)
 	// Only the selected component is highlighted — the object itself has no selection
-	// outline (a .obj's footprint is its components, and a bounds-less component may
+	// outline (an object's footprint is its components, and a bounds-less component may
 	// legitimately draw nothing).
 	c.drawComponentSelection(r, worldRect)
 
@@ -575,6 +614,9 @@ func (c *ObjectEditorComponent) drawComponentSelection(r core.Renderer, worldRec
 		return
 	}
 	bounds := bp.DebugBounds()
+	if mbp, ok := c.selectedComp.(core.MeasuredBoundsProvider); ok {
+		bounds = mbp.MeasuredBounds(r)
+	}
 	tl := c.cam.WorldToScreen(bounds.Position).Add(worldRect.Position)
 	br := c.cam.WorldToScreen(bounds.Position.Add(bounds.Size)).Add(worldRect.Position)
 	drawClippedOutline(r, worldRect, tl, br, c.Accent, selOutlineThickness)
@@ -610,8 +652,12 @@ func drawClippedOutline(r core.Renderer, clip math.Rect, tl, br math.Vector2, co
 }
 
 // captureCam writes the current view into the viewport's per-file object-camera store,
-// so this .obj reopens at the same pan/zoom. Idempotent; a no-op without a viewport.
+// so this .obj reopens at the same pan/zoom. Inline objects (rel == "") have no persisted
+// camera — an empty key would be shared by every inline object — so they are skipped.
 func (c *ObjectEditorComponent) captureCam() {
+	if c.rel == "" {
+		return
+	}
 	vp := lookupViewport(c.GetScene())
 	if vp == nil {
 		return

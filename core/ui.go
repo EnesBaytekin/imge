@@ -109,6 +109,15 @@ func (c *BaseUIComponent) Contains(p math.Vector2) bool {
 	return c.Rect().ContainsPoint(p)
 }
 
+// DebugBounds reports the element's screen-space rectangle for editor hit-testing and
+// selection, so a UI element (@Button/@Label/@Rect and any custom UI component) is
+// pickable by its own size and offset rather than the owner object's origin.
+func (c *BaseUIComponent) DebugBounds() math.Rect { return c.Rect() }
+
+// ContainsPoint reports whether a point lies inside the element's rectangle (its own
+// size and offset), for precise editor click-selection (see core.PointPicker).
+func (c *BaseUIComponent) ContainsPoint(point math.Vector2) bool { return c.Contains(point) }
+
 // SetClipRect restricts the element's Draw to the given screen-space rectangle. The
 // object draw loop honors it via ClipRectProvider; only the part of the element inside
 // the rect is rendered, so a partially-scrolled-out element is cut off instead of
