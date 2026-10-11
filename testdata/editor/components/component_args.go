@@ -83,6 +83,11 @@ type ComponentArgsComponent struct {
 	// the rows to match.
 	rectNineSlice bool
 
+	// buttonNineSlice records whether the Button layout currently shows the Texture
+	// (nine-slice) tab, so a mode change arriving outside a tab click (undo/redo) rebuilds
+	// the rows to match.
+	buttonNineSlice bool
+
 	// sourcePath is the source location of the target when it is an unregistered
 	// (GenericComponent) component, relative to the project directory — its .go file when
 	// found, otherwise the project's components/ directory. Shown in the footer and copied
@@ -195,6 +200,15 @@ func (c *ComponentArgsComponent) isRect() bool {
 	return ok
 }
 
+// isButton reports whether the window is editing a Button, which gets a custom grouped
+// layout: common fields (name/draw_layer/group/offset/size/flags), then text fields, then
+// a Color / Texture tab strip that switches the background mode without wiping the other
+// mode's data.
+func (c *ComponentArgsComponent) isButton() bool {
+	_, ok := c.target.(*ButtonComponent)
+	return ok
+}
+
 // spriteRowBase is the number of always-present rows in the Sprite layout: name,
 // draw_layer, group, separator, offset, visible, flip, color, size, separator, texture.
 const spriteRowBase = 11
@@ -216,6 +230,24 @@ const (
 	rectNineSliceRows = 2
 )
 
+// buttonRowBase is the number of always-present rows in the Button layout: name,
+// draw_layer, group, separator, offset, size (width|height), visible, enabled, blocking,
+// separator, text, font_id, font size, text_color, separator, and the tab strip. The
+// tab's content rows follow, then a trailing separator + event row.
+const buttonRowBase = 16
+
+// buttonTextureRows / buttonColorRows are the content rows appended after buttonRowBase
+// for each tab: the Texture tab shows normal/hover/pressed/disabled textures and border;
+// the Color tab shows color. A trailing separator + event row follows either tab.
+const (
+	buttonTextureRows = 5
+	buttonColorRows   = 1
+)
+
+// buttonTrailingRows are the rows appended after the tab content: a separator and the
+// event row.
+const buttonTrailingRows = 2
+
 // rowCount returns the number of visible rows (the name row + field rows + separators).
 // The Sprite layout appends its texture-only rows only when a texture is set; the Rect
 // layout appends its tab-content rows according to the active mode; other components use
@@ -232,6 +264,12 @@ func (c *ComponentArgsComponent) rowCount() int {
 			return rectRowBase + rectNineSliceRows
 		}
 		return rectRowBase + rectColorRows
+	}
+	if c.isButton() {
+		if b, _ := c.target.(*ButtonComponent); b != nil && b.IsNineSlice() {
+			return buttonRowBase + buttonTextureRows + buttonTrailingRows
+		}
+		return buttonRowBase + buttonColorRows + buttonTrailingRows
 	}
 	if gargs := genericArgs(c.target); gargs != nil {
 		return len(gargs) + 1 // name row + one row per raw arg
@@ -497,6 +535,14 @@ func (c *ComponentArgsComponent) Update(ctx *core.Context) {
 		}
 	}
 
+	// A Button mode change that did not come through a tab click (undo/redo flips Mode
+	// directly) rebuilds the rows so the Color / Texture tab content matches the mode.
+	if c.isButton() {
+		if b, _ := c.target.(*ButtonComponent); b != nil && b.IsNineSlice() != c.buttonNineSlice {
+			c.rebuildRows()
+		}
+	}
+
 	// Drag-to-move: while the title bar is held, follow the cursor (even outside the
 	// window). Moving the owner carries the value widgets with it, since their offsets
 	// are relative to the owner's transform.
@@ -599,6 +645,18 @@ func (c *ComponentArgsComponent) Update(ctx *core.Context) {
 			}
 			if c.rectTabButton(1).ContainsPoint(mouse) {
 				c.setRectMode("nine_slice")
+				return
+			}
+		}
+		// The Button layout's Color / Texture tab strip: clicking a tab switches the
+		// background mode without wiping the other mode's settings (both persist to JSON).
+		if c.isButton() {
+			if c.buttonTabButton(0).ContainsPoint(mouse) {
+				c.setButtonMode("color")
+				return
+			}
+			if c.buttonTabButton(1).ContainsPoint(mouse) {
+				c.setButtonMode("nine_slice")
 				return
 			}
 		}
@@ -708,6 +766,8 @@ func (c *ComponentArgsComponent) Draw(r core.Renderer) {
 		c.drawSpriteRows(r, rect, bodyTop, valX, th)
 	} else if c.isRect() {
 		c.drawRectRows(r, rect, bodyTop, valX, th)
+	} else if c.isButton() {
+		c.drawButtonRows(r, rect, bodyTop, valX, th)
 	} else if genericArgs(c.target) != nil {
 		c.drawRawRows(r, rect, bodyTop, valX, th)
 	} else {
@@ -968,6 +1028,86 @@ func (c *ComponentArgsComponent) drawRectRows(r core.Renderer, rect math.Rect, b
 	}
 }
 
+// drawButtonRows draws the Button's grouped layout chrome: field labels, separator lines
+// between related groups, and the Color / Texture tab strip. Editable values are drawn by
+// their widgets on layer 1; the tab strip is host-drawn because it is not a field widget —
+// it is the mode selector.
+func (c *ComponentArgsComponent) drawButtonRows(r core.Renderer, rect math.Rect, bodyTop, valX, th float64) {
+	b, _ := c.target.(*ButtonComponent)
+	texture := b != nil && b.IsNineSlice()
+
+	drawLabel := func(row int, label string) {
+		y := bodyTop + float64(row)*c.RowHeight - c.scroll
+		if y+c.RowHeight <= bodyTop || y >= rect.Y()+rect.Height() {
+			return
+		}
+		ty := y + (c.RowHeight-th)/2
+		if ty < y {
+			ty = y
+		}
+		r.DrawText(label, c.FontID, c.FontSize, math.NewVector2(rect.X()+6, ty), c.KeyText)
+	}
+
+	drawSeparator := func(row int) {
+		sepY := bodyTop + float64(row)*c.RowHeight - c.scroll + c.RowHeight/2
+		r.DrawLine(math.NewVector2(rect.X()+4, sepY), math.NewVector2(rect.X()+rect.Width()-10, sepY), c.BorderColor, 1)
+	}
+
+	drawLabel(0, "name")
+	drawLabel(1, "draw layer")
+	drawLabel(2, "group")
+	drawSeparator(3)
+	drawLabel(4, "offset")
+	drawLabel(5, "size")
+	drawLabel(6, "visible")
+	drawLabel(7, "enabled")
+	drawLabel(8, "blocking")
+	drawSeparator(9)
+	drawLabel(10, "text")
+	drawLabel(11, "font id")
+	drawLabel(12, "font size")
+	drawLabel(13, "text color")
+	drawSeparator(14)
+
+	// Tab strip (row 15): two buttons sharing the row, the active one filled with the
+	// accent so the current mode reads at a glance.
+	if strip, ok := c.buttonTabStrip(); ok {
+		inner := math.NewRect(strip.X()+4, strip.Y(), strip.Width()-8, strip.Height())
+		half := inner.Width() / 2
+		colorBtn := math.NewRect(inner.X(), inner.Y(), half, inner.Height())
+		textureBtn := math.NewRect(inner.X()+half, inner.Y(), half, inner.Height())
+		drawTabButton := func(btn math.Rect, label string, active bool) {
+			bg, txt := c.Background, c.KeyText
+			if active {
+				bg, txt = c.Accent, c.TitleText
+			}
+			r.DrawRect(btn, bg)
+			r.DrawRectOutline(btn, c.BorderColor, 1)
+			tw, _ := r.MeasureText(label, c.FontID, c.FontSize)
+			r.DrawText(label, c.FontID, c.FontSize, math.NewVector2(btn.X()+(btn.Width()-tw)/2, btn.Y()+(btn.Height()-th)/2), txt)
+		}
+		drawTabButton(colorBtn, "Color", !texture)
+		drawTabButton(textureBtn, "Texture", texture)
+	}
+
+	// Tab content labels, then the trailing separator + event row (editable values are
+	// the widgets on layer 1).
+	content := buttonRowBase
+	if texture {
+		drawLabel(content+0, "normal texture")
+		drawLabel(content+1, "hover texture")
+		drawLabel(content+2, "pressed texture")
+		drawLabel(content+3, "disabled texture")
+		drawLabel(content+4, "border")
+		drawSeparator(content + buttonTextureRows)
+		drawLabel(content+buttonTextureRows+1, "event")
+	} else {
+		drawLabel(content+0, "color")
+		drawSeparator(content + buttonColorRows)
+		drawLabel(content+buttonColorRows+1, "event")
+	}
+}
+
 // rectTabStrip returns the body rect of the Rect layout's tab-strip row (row 10), plus
 // whether the target is a Rect. The strip is host-drawn and host hit-tested, so it needs
 // its own rect rather than a field widget.
@@ -1008,6 +1148,52 @@ func (c *ComponentArgsComponent) setRectMode(mode string) {
 		"changed rect mode",
 		func() { p.Mode = old; persistObjectFile(owner) },
 		func() { p.Mode = mode; persistObjectFile(owner) },
+		true,
+	)
+	persistObjectFile(owner)
+	c.rebuildRows()
+}
+
+// buttonTabStrip returns the body rect of the Button layout's tab-strip row (row 15),
+// plus whether the target is a Button. The strip is host-drawn and host hit-tested, so it
+// needs its own rect rather than a field widget.
+func (c *ComponentArgsComponent) buttonTabStrip() (math.Rect, bool) {
+	b, ok := c.target.(*ButtonComponent)
+	if !ok || b == nil {
+		return math.Rect{}, false
+	}
+	rect := c.Rect()
+	y := rect.Y() + c.titleH() + float64(buttonRowBase-1)*c.RowHeight - c.scroll
+	return math.NewRect(rect.X(), y, rect.Width(), c.RowHeight), true
+}
+
+// buttonTabButton returns the clickable rect of one tab button (0 = Color, 1 = Texture)
+// within the tab strip, splitting the strip's inner width in half.
+func (c *ComponentArgsComponent) buttonTabButton(tab int) math.Rect {
+	strip, _ := c.buttonTabStrip()
+	inner := math.NewRect(strip.X()+4, strip.Y(), strip.Width()-8, strip.Height())
+	half := inner.Width() / 2
+	if tab == 0 {
+		return math.NewRect(inner.X(), inner.Y(), half, inner.Height())
+	}
+	return math.NewRect(inner.X()+half, inner.Y(), half, inner.Height())
+}
+
+// setButtonMode switches the Button's background mode and records an undo step, persisting
+// the .obj through so the mode is saved with the rest of the args. No field is cleared: the
+// color and textures+border data both survive the switch; only Mode flips.
+func (c *ComponentArgsComponent) setButtonMode(mode string) {
+	b, ok := c.target.(*ButtonComponent)
+	if !ok || b == nil || b.Mode == mode {
+		return
+	}
+	old := b.Mode
+	b.Mode = mode
+	owner := c.target.GetOwner()
+	history.record(
+		"changed button mode",
+		func() { b.Mode = old; persistObjectFile(owner) },
+		func() { b.Mode = mode; persistObjectFile(owner) },
 		true,
 	)
 	persistObjectFile(owner)
@@ -1115,6 +1301,8 @@ func (c *ComponentArgsComponent) rebuildRows() {
 		c.buildSpriteBindings()
 	} else if c.isRect() {
 		c.buildRectBindings()
+	} else if c.isButton() {
+		c.buildButtonBindings()
 	} else {
 		c.buildGenericBindings()
 	}
@@ -1158,6 +1346,12 @@ func (c *ComponentArgsComponent) rebuildRows() {
 	// texture set on load) rebuilds the rows to match.
 	if c.isRect() {
 		c.rectNineSlice = c.target.(*RectComponent).IsNineSlice()
+	}
+
+	// Record the Button's active tab so a mode change outside a tab click (undo/redo)
+	// rebuilds the rows to match.
+	if c.isButton() {
+		c.buttonNineSlice = c.target.(*ButtonComponent).IsNineSlice()
 	}
 }
 
@@ -1440,6 +1634,112 @@ func (c *ComponentArgsComponent) buildRectBindings() {
 	}
 }
 
+// buildButtonBindings builds the Button's custom grouped layout:
+//
+//	0 name, 1 draw_layer, 2 group, 3 separator, 4 offset, 5 size (width|height),
+//	6 visible, 7 enabled, 8 blocking, 9 separator, 10 text, 11 font_id, 12 font size,
+//	13 text_color, 14 separator, 15 tab strip, then the active tab's content
+//	(Texture → normal/hover/pressed/disabled textures and border; Color → color), then a
+//	separator and the event row.
+//
+// visible/enabled/blocking are *bool (not reflection-editable), so they are bound through
+// IsVisible/IsEnabled/BlocksPointer and their setters. Only the active tab's fields are
+// built; the other tab's data stays on the component untouched.
+func (c *ComponentArgsComponent) buildButtonBindings() {
+	b, _ := c.target.(*ButtonComponent)
+
+	c.placeBinding(c.buildNameBinding()) // row 0
+
+	if f, ok := c.fieldFor("draw_layer"); ok {
+		for _, bb := range c.bindingsFor(f) {
+			bb.row = 1
+			c.placeBinding(bb)
+		}
+	}
+	if f, ok := c.fieldFor("group"); ok {
+		for _, bb := range c.bindingsFor(f) {
+			bb.row = 2
+			c.placeBinding(bb)
+		}
+	}
+	// offset (Vector2, two side-by-side boxes) is always editable.
+	if f, ok := c.fieldFor("offset"); ok {
+		for _, bb := range c.bindingsFor(f) {
+			bb.row = 4
+			c.placeBinding(bb)
+		}
+	}
+
+	// size: width and height side-by-side on one row.
+	c.placePair("width", 0, 5)
+	c.placePair("height", 1, 5)
+
+	// visible/enabled/blocking checkboxes.
+	c.placeBinding(c.buttonFlagBinding("visible"))
+	c.placeBinding(c.buttonFlagBinding("enabled"))
+	c.placeBinding(c.buttonFlagBinding("blocking"))
+
+	// Text styling.
+	if f, ok := c.fieldFor("text"); ok {
+		for _, bb := range c.bindingsFor(f) {
+			bb.row = 10
+			c.placeBinding(bb)
+		}
+	}
+	if f, ok := c.fieldFor("font_id"); ok {
+		for _, bb := range c.bindingsFor(f) {
+			bb.row = 11
+			c.placeBinding(bb)
+		}
+	}
+	if f, ok := c.fieldFor("size"); ok {
+		for _, bb := range c.bindingsFor(f) {
+			bb.row = 12
+			c.placeBinding(bb)
+		}
+	}
+	if f, ok := c.fieldFor("text_color"); ok {
+		for _, bb := range c.bindingsFor(f) {
+			bb.row = 13
+			c.placeBinding(bb)
+		}
+	}
+
+	// Tab content + trailing event row.
+	content := buttonRowBase
+	if b != nil && b.IsNineSlice() {
+		c.placeBinding(c.buttonTextureBinding("normal", content+0))
+		c.placeBinding(c.buttonTextureBinding("hover", content+1))
+		c.placeBinding(c.buttonTextureBinding("pressed", content+2))
+		c.placeBinding(c.buttonTextureBinding("disabled", content+3))
+		if f, ok := c.fieldFor("border"); ok {
+			for _, bb := range c.bindingsFor(f) {
+				bb.row = content + 4
+				c.placeBinding(bb)
+			}
+		}
+		if f, ok := c.fieldFor("event"); ok {
+			for _, bb := range c.bindingsFor(f) {
+				bb.row = content + buttonTextureRows + 1
+				c.placeBinding(bb)
+			}
+		}
+	} else {
+		if f, ok := c.fieldFor("color"); ok {
+			for _, bb := range c.bindingsFor(f) {
+				bb.row = content + 0
+				c.placeBinding(bb)
+			}
+		}
+		if f, ok := c.fieldFor("event"); ok {
+			for _, bb := range c.bindingsFor(f) {
+				bb.row = content + buttonColorRows + 1
+				c.placeBinding(bb)
+			}
+		}
+	}
+}
+
 // rectFlagBinding builds one of the Rect's *bool flags (visible/enabled/blocking) as a
 // checkbox, bound through the BaseUIComponent accessors since a *bool is not
 // reflection-editable.
@@ -1507,6 +1807,100 @@ func (c *ComponentArgsComponent) rectTextureBinding() fieldBinding {
 	b.onBrowse = func() { c.browseTexture() }
 	b.old = b.get()
 	return b
+}
+
+// buttonFlagBinding builds one of the Button's *bool flags (visible/enabled/blocking) as
+// a checkbox, bound through the BaseUIComponent accessors since a *bool is not
+// reflection-editable.
+func (c *ComponentArgsComponent) buttonFlagBinding(field string) fieldBinding {
+	b := c.target.(*ButtonComponent)
+	row := 6
+	if field == "enabled" {
+		row = 7
+	} else if field == "blocking" {
+		row = 8
+	}
+	get := func() bool {
+		switch field {
+		case "visible":
+			return b.IsVisible()
+		case "enabled":
+			return b.IsEnabled()
+		default:
+			return b.BlocksPointer()
+		}
+	}
+	apply := func(s string) error {
+		v, err := parseBool(s)
+		if err != nil {
+			return err
+		}
+		switch field {
+		case "visible":
+			b.SetVisible(v)
+		case "enabled":
+			b.SetEnabled(v)
+		default:
+			b.SetBlocking(v)
+		}
+		return nil
+	}
+	fb := fieldBinding{
+		key:     field,
+		row:     row,
+		parts:   1,
+		kind:    kindCheck,
+		get:     func() string { return strconv.FormatBool(get()) },
+		apply:   apply,
+		getBool: get,
+	}
+	fb.old = fb.get()
+	return fb
+}
+
+// buttonTextureBinding builds one of the Button's per-state texture arguments
+// (normal/hover/pressed/disabled) as a file-selector button (kindFile) that opens the
+// project browser. On commit the path is written straight onto the Button's matching
+// texture field (a plain string — no texture cache to reset).
+func (c *ComponentArgsComponent) buttonTextureBinding(state string, row int) fieldBinding {
+	b := c.target.(*ButtonComponent)
+	get := func() string {
+		switch state {
+		case "hover":
+			return b.HoverTexture
+		case "pressed":
+			return b.PressedTexture
+		case "disabled":
+			return b.DisabledTexture
+		default:
+			return b.NormalTexture
+		}
+	}
+	apply := func(s string) error {
+		switch state {
+		case "hover":
+			b.HoverTexture = s
+		case "pressed":
+			b.PressedTexture = s
+		case "disabled":
+			b.DisabledTexture = s
+		default:
+			b.NormalTexture = s
+		}
+		return nil
+	}
+	fb := fieldBinding{
+		key:        state,
+		row:        row,
+		parts:      1,
+		kind:       kindFile,
+		get:        get,
+		apply:      apply,
+		fileFilter: func(rel string) bool { return fileTypeOf(rel) == "image" },
+	}
+	fb.onBrowse = func() { c.browseFile(state) }
+	fb.old = fb.get()
+	return fb
 }
 
 // frameSliderBinding builds the Sprite's `frame` argument as an integer slider bounded
@@ -1591,19 +1985,18 @@ func (c *ComponentArgsComponent) visibleBinding() fieldBinding {
 	return b
 }
 
-// browseTexture opens the project file browser to pick the target's texture image (used
-// by both the Sprite and Rect layouts). On selection the chosen project-relative path
-// commits through the texture binding (so it records undo; the Sprite's binding also
-// resets its cached texture size). It is a no-op when no scene is available or a modal is
-// already up.
-func (c *ComponentArgsComponent) browseTexture() {
+// browseFile opens the project file browser to pick an image path and commits the chosen
+// project-relative path into the binding with the given key (the Sprite/Rect texture
+// field, or one of the Button's per-state texture fields). It is a no-op when no scene is
+// available or a modal is already up.
+func (c *ComponentArgsComponent) browseFile(key string) {
 	scene := c.GetScene()
 	if scene == nil || modalOpen() {
 		return
 	}
 	idx := -1
 	for i := range c.bindings {
-		if c.bindings[i].key == "texture" {
+		if c.bindings[i].key == key {
 			idx = i
 			break
 		}
@@ -1617,6 +2010,14 @@ func (c *ComponentArgsComponent) browseTexture() {
 				_ = commitString(&c.bindings[idx], rel)
 			}
 		})
+}
+
+// browseTexture opens the project file browser to pick the target's texture image (used
+// by both the Sprite and Rect layouts). On selection the chosen project-relative path
+// commits through the texture binding (so it records undo; the Sprite's binding also
+// resets its cached texture size).
+func (c *ComponentArgsComponent) browseTexture() {
+	c.browseFile("texture")
 }
 
 // buildNameBinding returns the field binding for the component's name. get/apply read

@@ -9,9 +9,11 @@ import (
 // nine-sliced textures per state) and centered text, and emits an event when
 // clicked.
 //
-// Background: normal/hover/pressed/disabled are optional texture paths. When
-// normal is set the button nine-slices it with border; hover/pressed/disabled
-// override it for their state. When normal is empty the button fills with color.
+// Background: the fill mode is chosen explicitly via Mode ("color" or
+// "nine_slice"). In nine-slice mode, normal/hover/pressed/disabled are optional
+// texture paths; normal is the base nine-sliced with border, and hover/pressed/
+// disabled override it for their state. In color mode the button fills flat with
+// color.
 //
 // State tinting (the default when a state has no texture of its own): the flat
 // color — or the base/normal texture, when a state falls back to it — is tinted per
@@ -26,11 +28,18 @@ import (
 // form is valid. Occlusion (a button behind another panel) is a separate,
 // manager-level concern, not this flag.
 //
-// Export variables (JSON args): text, font_id, size, text_color, normal, hover,
-// pressed, disabled, border {left, top, right, bottom}, color, event, offset,
-// width, height, visible, enabled, group, draw_layer.
+// Export variables (JSON args): mode, text, font_id, size, text_color, normal,
+// hover, pressed, disabled, border {left, top, right, bottom}, color, event,
+// offset, width, height, visible, enabled, group, draw_layer.
 type ButtonComponent struct {
 	core.BaseUIComponent
+
+	// Mode selects the background: "color" (a flat Color fill) or "nine_slice"
+	// (nine-sliced textures per state, inset by Border). An empty Mode is normalized
+	// in Initialize: "nine_slice" when a normal texture is set (backward compatible),
+	// otherwise "color". Both modes' data (color and textures) are always kept, so an
+	// editor can offer Color / Texture tabs without wiping the other's values.
+	Mode string `json:"mode"`
 
 	Text      string     `json:"text"`
 	FontID    string     `json:"font_id"`
@@ -43,7 +52,7 @@ type ButtonComponent struct {
 	DisabledTexture string `json:"disabled"`
 
 	Border math.Border `json:"border"`
-	Color  math.Color  `json:"color"` // flat fill when no texture is set
+	Color  math.Color  `json:"color"` // flat fill in color mode
 
 	Event string `json:"event"` // event name emitted on click
 
@@ -62,7 +71,18 @@ func (b *ButtonComponent) Initialize() {
 		block := true
 		b.Blocking = &block
 	}
+	if b.Mode == "" {
+		if b.NormalTexture != "" {
+			b.Mode = "nine_slice"
+		} else {
+			b.Mode = "color"
+		}
+	}
 }
+
+// IsNineSlice reports whether the button draws its background as nine-sliced
+// per-state textures.
+func (b *ButtonComponent) IsNineSlice() bool { return b.Mode == "nine_slice" }
 
 // SetHovered sets the hover state, driven by a @UIManager (the button no longer
 // reads the mouse itself).
@@ -97,12 +117,17 @@ func (b *ButtonComponent) Draw(r core.Renderer) {
 	}
 	rect := b.Rect()
 
-	if tex, explicit := b.currentState(); tex != "" {
-		transform := math.ColorTransform{}
-		if !explicit {
-			transform = b.stateTransform()
+	if b.IsNineSlice() {
+		if tex, explicit := b.currentState(); tex != "" {
+			transform := math.ColorTransform{}
+			if !explicit {
+				transform = b.stateTransform()
+			}
+			core.DrawNineSliceTransform(r, tex, b.Border, rect, transform)
+		} else {
+			// Nine-slice mode with no texture yet: show the flat color as a placeholder.
+			r.DrawRect(rect, b.stateColor())
 		}
-		core.DrawNineSliceTransform(r, tex, b.Border, rect, transform)
 	} else {
 		r.DrawRect(rect, b.stateColor())
 	}
