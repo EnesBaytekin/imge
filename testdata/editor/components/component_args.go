@@ -209,6 +209,14 @@ func (c *ComponentArgsComponent) isButton() bool {
 	return ok
 }
 
+// isLabel reports whether the window is editing a Label, which gets a custom grouped
+// layout: common fields (name/draw_layer/group/offset/size/visible), then the text fields
+// (text/font_id/font size/color/max width/wrap).
+func (c *ComponentArgsComponent) isLabel() bool {
+	_, ok := c.target.(*LabelComponent)
+	return ok
+}
+
 // spriteRowBase is the number of always-present rows in the Sprite layout: name,
 // draw_layer, group, separator, offset, visible, flip, color, size, separator, texture.
 const spriteRowBase = 11
@@ -248,6 +256,11 @@ const (
 // event row.
 const buttonTrailingRows = 2
 
+// labelRowBase is the number of always-present rows in the Label layout: name, draw_layer,
+// group, separator, offset, size (width|height), visible, separator, text, font_id, font
+// size, color, max_width, wrap. The Label has no tabs or conditional rows.
+const labelRowBase = 14
+
 // rowCount returns the number of visible rows (the name row + field rows + separators).
 // The Sprite layout appends its texture-only rows only when a texture is set; the Rect
 // layout appends its tab-content rows according to the active mode; other components use
@@ -270,6 +283,9 @@ func (c *ComponentArgsComponent) rowCount() int {
 			return buttonRowBase + buttonTextureRows + buttonTrailingRows
 		}
 		return buttonRowBase + buttonColorRows + buttonTrailingRows
+	}
+	if c.isLabel() {
+		return labelRowBase
 	}
 	if gargs := genericArgs(c.target); gargs != nil {
 		return len(gargs) + 1 // name row + one row per raw arg
@@ -768,6 +784,8 @@ func (c *ComponentArgsComponent) Draw(r core.Renderer) {
 		c.drawRectRows(r, rect, bodyTop, valX, th)
 	} else if c.isButton() {
 		c.drawButtonRows(r, rect, bodyTop, valX, th)
+	} else if c.isLabel() {
+		c.drawLabelRows(r, rect, bodyTop, valX, th)
 	} else if genericArgs(c.target) != nil {
 		c.drawRawRows(r, rect, bodyTop, valX, th)
 	} else {
@@ -1108,6 +1126,42 @@ func (c *ComponentArgsComponent) drawButtonRows(r core.Renderer, rect math.Rect,
 	}
 }
 
+// drawLabelRows draws the Label's grouped layout chrome: field labels and separator lines
+// between related groups. Editable values are drawn by their widgets on layer 1.
+func (c *ComponentArgsComponent) drawLabelRows(r core.Renderer, rect math.Rect, bodyTop, valX, th float64) {
+	drawLabel := func(row int, label string) {
+		y := bodyTop + float64(row)*c.RowHeight - c.scroll
+		if y+c.RowHeight <= bodyTop || y >= rect.Y()+rect.Height() {
+			return
+		}
+		ty := y + (c.RowHeight-th)/2
+		if ty < y {
+			ty = y
+		}
+		r.DrawText(label, c.FontID, c.FontSize, math.NewVector2(rect.X()+6, ty), c.KeyText)
+	}
+
+	drawSeparator := func(row int) {
+		sepY := bodyTop + float64(row)*c.RowHeight - c.scroll + c.RowHeight/2
+		r.DrawLine(math.NewVector2(rect.X()+4, sepY), math.NewVector2(rect.X()+rect.Width()-10, sepY), c.BorderColor, 1)
+	}
+
+	drawLabel(0, "name")
+	drawLabel(1, "draw layer")
+	drawLabel(2, "group")
+	drawSeparator(3)
+	drawLabel(4, "offset")
+	drawLabel(5, "size")
+	drawLabel(6, "visible")
+	drawSeparator(7)
+	drawLabel(8, "text")
+	drawLabel(9, "font id")
+	drawLabel(10, "font size")
+	drawLabel(11, "color")
+	drawLabel(12, "max width")
+	drawLabel(13, "wrap")
+}
+
 // rectTabStrip returns the body rect of the Rect layout's tab-strip row (row 10), plus
 // whether the target is a Rect. The strip is host-drawn and host hit-tested, so it needs
 // its own rect rather than a field widget.
@@ -1303,6 +1357,8 @@ func (c *ComponentArgsComponent) rebuildRows() {
 		c.buildRectBindings()
 	} else if c.isButton() {
 		c.buildButtonBindings()
+	} else if c.isLabel() {
+		c.buildLabelBindings()
 	} else {
 		c.buildGenericBindings()
 	}
@@ -1740,6 +1796,76 @@ func (c *ComponentArgsComponent) buildButtonBindings() {
 	}
 }
 
+// buildLabelBindings builds the Label's custom grouped layout:
+//
+//	0 name, 1 draw_layer, 2 group, 3 separator, 4 offset, 5 size (width|height),
+//	6 visible, 7 separator, 8 text, 9 font_id, 10 font size, 11 color, 12 max_width,
+//	13 wrap.
+//
+// visible is a *bool (not reflection-editable), so it is bound through IsVisible/
+// SetVisible. wrap is a WrapMode enum shown as a "word"/"char"/"clip" combobox rather than
+// a raw integer.
+func (c *ComponentArgsComponent) buildLabelBindings() {
+	c.placeBinding(c.buildNameBinding()) // row 0
+
+	if f, ok := c.fieldFor("draw_layer"); ok {
+		for _, bb := range c.bindingsFor(f) {
+			bb.row = 1
+			c.placeBinding(bb)
+		}
+	}
+	if f, ok := c.fieldFor("group"); ok {
+		for _, bb := range c.bindingsFor(f) {
+			bb.row = 2
+			c.placeBinding(bb)
+		}
+	}
+	if f, ok := c.fieldFor("offset"); ok {
+		for _, bb := range c.bindingsFor(f) {
+			bb.row = 4
+			c.placeBinding(bb)
+		}
+	}
+
+	c.placePair("width", 0, 5)
+	c.placePair("height", 1, 5)
+
+	c.placeBinding(c.labelVisibleBinding()) // row 6
+
+	if f, ok := c.fieldFor("text"); ok {
+		for _, bb := range c.bindingsFor(f) {
+			bb.row = 8
+			c.placeBinding(bb)
+		}
+	}
+	if f, ok := c.fieldFor("font_id"); ok {
+		for _, bb := range c.bindingsFor(f) {
+			bb.row = 9
+			c.placeBinding(bb)
+		}
+	}
+	if f, ok := c.fieldFor("size"); ok {
+		for _, bb := range c.bindingsFor(f) {
+			bb.row = 10
+			c.placeBinding(bb)
+		}
+	}
+	if f, ok := c.fieldFor("color"); ok {
+		for _, bb := range c.bindingsFor(f) {
+			bb.row = 11
+			c.placeBinding(bb)
+		}
+	}
+	if f, ok := c.fieldFor("max_width"); ok {
+		for _, bb := range c.bindingsFor(f) {
+			bb.row = 12
+			c.placeBinding(bb)
+		}
+	}
+
+	c.placeBinding(c.labelWrapBinding()) // row 13
+}
+
 // rectFlagBinding builds one of the Rect's *bool flags (visible/enabled/blocking) as a
 // checkbox, bound through the BaseUIComponent accessors since a *bool is not
 // reflection-editable.
@@ -1901,6 +2027,83 @@ func (c *ComponentArgsComponent) buttonTextureBinding(state string, row int) fie
 	fb.onBrowse = func() { c.browseFile(state) }
 	fb.old = fb.get()
 	return fb
+}
+
+// labelVisibleBinding builds the Label's `visible` argument as a checkbox. `visible` is a
+// *bool (nil = default true), so it is not reflection-editable; it is bound here through
+// IsVisible/SetVisible instead.
+func (c *ComponentArgsComponent) labelVisibleBinding() fieldBinding {
+	l := c.target.(*LabelComponent)
+	b := fieldBinding{
+		key:   "visible",
+		row:   6,
+		parts: 1,
+		kind:  kindCheck,
+		get:   func() string { return strconv.FormatBool(l.IsVisible()) },
+		apply: func(s string) error {
+			v, err := parseBool(s)
+			if err != nil {
+				return err
+			}
+			l.SetVisible(v)
+			return nil
+		},
+		getBool: func() bool { return l.IsVisible() },
+	}
+	b.old = b.get()
+	return b
+}
+
+// labelWrapBinding builds the Label's `wrap` argument as a combobox of the three wrap
+// modes ("word", "char", "clip"), so the enum reads as text instead of a raw integer.
+func (c *ComponentArgsComponent) labelWrapBinding() fieldBinding {
+	l := c.target.(*LabelComponent)
+	b := fieldBinding{
+		key:   "wrap",
+		row:   13,
+		parts: 1,
+		kind:  kindCombobox,
+		get:   func() string { return wrapModeName(l.Wrap) },
+		apply: func(s string) error {
+			m, err := parseWrapMode(s)
+			if err != nil {
+				return err
+			}
+			l.Wrap = m
+			return nil
+		},
+		getOptions: func() []string { return []string{"word", "char", "clip"} },
+	}
+	b.old = b.get()
+	return b
+}
+
+// wrapModeName returns the JSON string name of a WrapMode, used as the Label wrap
+// combobox's value.
+func wrapModeName(m core.WrapMode) string {
+	switch m {
+	case core.WrapChar:
+		return "char"
+	case core.WrapClip:
+		return "clip"
+	default:
+		return "word"
+	}
+}
+
+// parseWrapMode parses a wrap-mode name ("word", "char", or "clip", case-insensitive)
+// into a WrapMode, mirroring core.WrapMode.UnmarshalJSON.
+func parseWrapMode(s string) (core.WrapMode, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "word":
+		return core.WrapWord, nil
+	case "char":
+		return core.WrapChar, nil
+	case "clip":
+		return core.WrapClip, nil
+	default:
+		return 0, fmt.Errorf("invalid wrap mode %q: expected word, char, or clip", s)
+	}
 }
 
 // frameSliderBinding builds the Sprite's `frame` argument as an integer slider bounded

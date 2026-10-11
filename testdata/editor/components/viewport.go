@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/EnesBaytekin/imge/core"
 	imgejson "github.com/EnesBaytekin/imge/core/json"
@@ -128,12 +129,52 @@ type ViewportComponent struct {
 	// empty space was clicked). The target scene's debug selection is synced to one of
 	// the object's components so its DrawDebug pass still highlights the pick.
 	selected *core.Object
+
+	// sceneStamp is the modtime+size of the loaded .scene file as we last knew it — the
+	// baseline the external-change poll compares against. It is re-snapshotted on every
+	// load and after every Save, so the editor's own writes never look like external
+	// changes.
+	sceneStamp fileStamp
+
+	// promptedStamp is the scene stamp we last surfaced the reload prompt for, so
+	// dismissing the prompt (cancel/outside-click) doesn't re-detect the same change on
+	// the next poll. A reload resets it (via snapshotSceneStamp).
+	promptedStamp fileStamp
+
+	// lastExternalPoll throttles the change poll so it stats the scene file at most a
+	// few times a second rather than every frame.
+	lastExternalPoll time.Time
+}
+
+// fileStamp is a cheap fingerprint of a file's content version: its modification time
+// and size. It is what the external-change poll tracks, so a scene edited on disk
+// (while the editor is open) is detected and can be reloaded.
+type fileStamp struct {
+	modTime time.Time
+	size    int64
+}
+
+// statStamp fingerprints the file at path, reporting ok=false when it cannot be stat'ed
+// (e.g. it was deleted on disk).
+func statStamp(path string) (fileStamp, bool) {
+	if path == "" {
+		return fileStamp{}, false
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return fileStamp{}, false
+	}
+	return fileStamp{modTime: info.ModTime(), size: info.Size()}, true
 }
 
 const (
 	viewportMinZoom = 0.1
 	viewportMaxZoom = 16.0
 	zoomPerNotch    = 1.15
+
+	// externalPollInterval is how often the viewport re-stats the loaded .scene file to
+	// detect edits made outside the editor.
+	externalPollInterval = time.Second
 
 	// defaultGridStep is the fixed spacing (in world units) between grid lines. The
 	// grid is a static world lattice: it does not get denser or sparser with zoom.
@@ -254,6 +295,10 @@ func (c *ViewportComponent) Update(ctx *core.Context) {
 	if ctx == nil || ctx.Input == nil {
 		return
 	}
+	// Detect external edits to the loaded scene before the focus gate below, so the poll
+	// runs every frame regardless of what has focus (the prompt itself only appears when
+	// nothing else is up).
+	c.pollExternalChanges()
 	// A modal, the object editor's focus, or an open menu bar is up: this panel is inert.
 	if editorNavBlocked() {
 		return
@@ -597,6 +642,73 @@ func (c *ViewportComponent) ReloadScene() {
 	c.loadProjectScene()
 }
 
+// ReloadExternal re-reads the current target scene from disk after an external change,
+// discarding in-memory edit state (selection, drag, undo history, open component-args
+// windows) WITHOUT saving first — the point is to adopt the on-disk content, not to
+// overwrite it. The object editor is closed (it references the scene's live objects), and
+// the file stamp is re-snapshotted by loadProjectScene so the change is not re-detected.
+func (c *ViewportComponent) ReloadExternal() {
+	if c.scene == nil || c.sceneFile == "" {
+		return
+	}
+	c.selected = nil
+	c.dragging = false
+	c.dragObj = nil
+	c.dragActive = false
+	c.dragMoved = false
+	delete(c.scenes, c.sceneFile) // force a fresh read from disk below
+	c.scene = nil
+	c.sceneFile = ""
+	closeAllArgsWindows()
+	closeActiveObjectEditor() // references the scene's live objects
+	history.clear()           // undo entries reference the discarded scene's live components
+	c.loadProjectScene()
+}
+
+// snapshotSceneStamp records the loaded scene file's current stamp as the baseline (and
+// clears the prompted stamp), so a change to that same content is not re-detected. It is a
+// no-op when no scene is loaded.
+func (c *ViewportComponent) snapshotSceneStamp() {
+	if st, ok := statStamp(c.sceneFile); ok {
+		c.sceneStamp = st
+		c.promptedStamp = st
+	} else {
+		c.sceneStamp = fileStamp{}
+		c.promptedStamp = fileStamp{}
+	}
+}
+
+// pollExternalChanges detects edits made to the loaded .scene file outside the editor and
+// offers to reload. It runs on a throttle and only surfaces the prompt when nothing else
+// has focus, so it never stacks on another modal or interrupts the object editor.
+func (c *ViewportComponent) pollExternalChanges() {
+	if c.projectDir == "" || c.sceneFile == "" {
+		return
+	}
+	now := time.Now()
+	if !c.lastExternalPoll.IsZero() && now.Sub(c.lastExternalPoll) < externalPollInterval {
+		return
+	}
+	c.lastExternalPoll = now
+
+	cur, ok := statStamp(c.sceneFile)
+	if !ok {
+		return // file deleted on disk; out of scope for the reload prompt
+	}
+	if cur == c.sceneStamp || cur == c.promptedStamp {
+		return
+	}
+	if editorNavBlocked() {
+		return // a modal, object editor, or menu is up; re-check on a later poll
+	}
+	c.promptedStamp = cur
+	message := "Scene changed on disk. Reload?"
+	if history.isDirty() {
+		message = "Scene changed on disk. Reload? Unsaved edits lost."
+	}
+	spawnReloadDialog(c.GetScene(), message, c.ReloadExternal)
+}
+
 // Save serializes the loaded target scene and writes it back to its .scene file. It
 // returns an error when no scene is loaded (no project, or the load failed). On success
 // it marks the document clean, so the unsaved-changes prompt stays quiet until the next
@@ -612,6 +724,7 @@ func (c *ViewportComponent) Save() error {
 		return err
 	}
 	history.markSaved()
+	c.snapshotSceneStamp() // our own write is not an external change
 	return nil
 }
 
@@ -1541,6 +1654,7 @@ func (c *ViewportComponent) loadProjectScene() bool {
 	}
 
 	log.Printf("viewport: loaded %s (%d objects)", sceneFile, len(scene.Objects))
+	c.snapshotSceneStamp()
 	return true
 }
 

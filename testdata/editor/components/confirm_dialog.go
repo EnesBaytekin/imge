@@ -25,10 +25,12 @@ type ConfirmDialogComponent struct {
 
 	message   string
 	onConfirm func()
-	confirm   *ButtonComponent
-	cancel    *ButtonComponent
-	dismiss   bool
-	centered  bool
+	// confirmText overrides the confirm button's label ("Delete" when empty).
+	confirmText string
+	confirm     *ButtonComponent
+	cancel      *ButtonComponent
+	dismiss     bool
+	centered    bool
 }
 
 func (c *ConfirmDialogComponent) Initialize() {
@@ -55,6 +57,19 @@ func (c *ConfirmDialogComponent) Initialize() {
 // spawnConfirmDialog opens a confirm modal showing message. onConfirm runs when the
 // "Delete" button is clicked. It is a no-op when a modal is already open.
 func spawnConfirmDialog(scene *core.Scene, message string, onConfirm func()) {
+	spawnConfirmDialogWith(scene, message, "", math.Color{}, 220, onConfirm)
+}
+
+// spawnReloadDialog opens a confirm modal offering to reload the loaded scene after an
+// external change. Its confirm button reads "Reload" and uses a non-destructive accent.
+func spawnReloadDialog(scene *core.Scene, message string, onConfirm func()) {
+	spawnConfirmDialogWith(scene, message, "Reload", math.NewColor(0x3a, 0x6e, 0x8a, 0xff), 300, onConfirm)
+}
+
+// spawnConfirmDialogWith opens a confirm modal with a custom confirm label, accent, and
+// width. An empty confirmText falls back to "Delete"; a zero accent falls back to the
+// destructive red set in Initialize.
+func spawnConfirmDialogWith(scene *core.Scene, message, confirmText string, accent math.Color, width float64, onConfirm func()) {
 	if scene == nil || modalOpen() {
 		return
 	}
@@ -64,12 +79,19 @@ func spawnConfirmDialog(scene *core.Scene, message string, onConfirm func()) {
 	obj.Layer = 3
 	obj.Transform.Position = math.NewVector2(200, 100) // centered lazily on first Update
 
+	if width <= 0 {
+		width = 220
+	}
 	dlg := &ConfirmDialogComponent{}
 	dlg.SetName("confirm_dialog")
-	dlg.Width = 220
+	dlg.Width = width
 	dlg.Height = 72
 	dlg.message = message
 	dlg.onConfirm = onConfirm
+	dlg.confirmText = confirmText
+	if accent != (math.Color{}) {
+		dlg.Accent = accent
+	}
 	obj.AddComponent(dlg)
 
 	if err := scene.AddObject(obj); err != nil {
@@ -85,7 +107,11 @@ func spawnConfirmDialog(scene *core.Scene, message string, onConfirm func()) {
 // buildWidgets creates the confirm/cancel buttons as children of the same object.
 func (c *ConfirmDialogComponent) buildWidgets() {
 	owner := c.GetOwner()
-	c.confirm = makePanelButton(owner, "confirm", "Delete", math.NewVector2(8, 40), 98, 20, c.FontID, c.FontSize, c.Accent)
+	label := c.confirmText
+	if label == "" {
+		label = "Delete"
+	}
+	c.confirm = makePanelButton(owner, "confirm", label, math.NewVector2(8, 40), 98, 20, c.FontID, c.FontSize, c.Accent)
 	c.cancel = makePanelButton(owner, "cancel", "Cancel", math.NewVector2(112, 40), 100, 20, c.FontID, c.FontSize, c.BorderColor)
 }
 
