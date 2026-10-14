@@ -32,6 +32,8 @@ type Camera struct {
 
 	viewportW float64
 	viewportH float64
+
+	zoomTween *Tween
 }
 
 // NewCamera returns a camera with the view's top-left corner at the origin and 1x zoom.
@@ -74,6 +76,44 @@ func (c *Camera) centerOn(x, y float64) {
 func (c *Camera) StopFollow() {
 	c.following = false
 	c.target = nil
+}
+
+// ZoomTo animates the camera's Zoom toward zoom over seconds, easing with the given
+// Easing (default EaseLinear). Passing seconds <= 0 snaps immediately. A new call
+// replaces any in-flight zoom. The scene drives it each Update via updateZoom.
+func (c *Camera) ZoomTo(zoom float64, seconds float64, easing ...Easing) {
+	if seconds <= 0 {
+		c.Zoom = zoom
+		c.zoomTween = nil
+		return
+	}
+	from := c.Zoom
+	if from <= 0 {
+		from = 1
+	}
+	var ease Easing
+	if len(easing) > 0 && easing[0] != nil {
+		ease = easing[0]
+	}
+	c.zoomTween = &Tween{
+		From:     from,
+		To:       zoom,
+		Duration: seconds,
+		Easing:   ease,
+		OnUpdate: func(v float64) { c.Zoom = v },
+	}
+}
+
+// updateZoom advances an in-flight zoom tween by dt seconds. Called once per frame by
+// the scene. A nil camera's tween simply never runs.
+func (c *Camera) updateZoom(dt float64) {
+	if c.zoomTween == nil {
+		return
+	}
+	c.zoomTween.Update(dt)
+	if c.zoomTween.Done() {
+		c.zoomTween = nil
+	}
 }
 
 // Tick advances the camera toward its follow target, applying smoothing. Called

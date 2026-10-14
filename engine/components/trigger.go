@@ -34,6 +34,15 @@ type Trigger struct {
 	overlaps map[uint64]*core.Object
 }
 
+// TriggerEvent is the Data of a Trigger's "trigger_enter" / "trigger_exit" event. It
+// carries both the sensor that detected the overlap and the object that entered/left it,
+// so a listener can tell which of several triggers fired without inspecting event.Source
+// (which is type-erased to *BaseComponent and so loses the concrete *Trigger).
+type TriggerEvent struct {
+	Trigger *Trigger     // the sensor that emitted the event
+	Other   *core.Object // the object that entered (or left) the trigger
+}
+
 // Initialize applies defaults.
 func (t *Trigger) Initialize() {
 	if t.Width <= 0 {
@@ -62,13 +71,13 @@ func (t *Trigger) Update(ctx *core.Context) {
 		}
 		current[other.ID] = other
 		if _, seen := t.overlaps[other.ID]; !seen {
-			t.Emit("trigger_enter", other)
+			t.Emit("trigger_enter", TriggerEvent{Trigger: t, Other: other})
 		}
 	}
 
 	for id, other := range t.overlaps {
 		if _, still := current[id]; !still {
-			t.Emit("trigger_exit", other)
+			t.Emit("trigger_exit", TriggerEvent{Trigger: t, Other: other})
 		}
 	}
 

@@ -98,6 +98,57 @@ func TestComponentEvents(t *testing.T) {
 	}
 }
 
+func TestComponentOnEventReceivesFullEvent(t *testing.T) {
+	RegisterComponent("test/emitter2", func() Component { return &testComponent{} })
+	RegisterComponent("test/listener2", func() Component { return &testComponent{} })
+
+	scene := NewScene("main")
+
+	emitter, _ := CreateComponentFromJSON("test/emitter2", "e", nil)
+	listener, _ := CreateComponentFromJSON("test/listener2", "l", nil)
+
+	obj := NewObject("o")
+	if err := obj.AddComponent(emitter); err != nil {
+		t.Fatal(err)
+	}
+	if err := obj.AddComponent(listener); err != nil {
+		t.Fatal(err)
+	}
+	if err := scene.AddObject(obj); err != nil {
+		t.Fatal(err)
+	}
+
+	le := emitter.(*testComponent)
+	li := listener.(*testComponent)
+
+	// OnEvent hands the handler the whole event, so it can identify the emitter via
+	// Source (GetName/GetOwner) in addition to reading Data.
+	var gotName string
+	var gotOwner *Object
+	var gotData any
+	li.OnEvent("ping", func(e *Event) {
+		gotName = e.Source.GetName()
+		gotOwner = e.Source.GetOwner()
+		gotData = e.Data
+	})
+
+	// First Update initializes and syncs the subscription.
+	scene.Update(&Context{})
+
+	le.Emit("ping", "hello")
+	scene.Update(&Context{}) // delivers the queued event
+
+	if gotName != "e" {
+		t.Fatalf("expected Source name %q, got %q", "e", gotName)
+	}
+	if gotOwner != obj {
+		t.Fatalf("expected Source owner to be the shared object, got %v", gotOwner)
+	}
+	if gotData != "hello" {
+		t.Fatalf("expected Data %q, got %v", "hello", gotData)
+	}
+}
+
 func TestComponentConfigInjection(t *testing.T) {
 	type configured struct {
 		BaseComponent

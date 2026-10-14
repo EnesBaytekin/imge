@@ -120,6 +120,11 @@ type BaseComponent struct {
 
 	// handlers maps event name -> registered handler functions, populated via On().
 	handlers map[string][]func(any)
+
+	// eventHandlers maps event name -> registered full-event handlers, populated via
+	// OnEvent(). Handlers here receive the whole *Event (Name, Data, Source) instead
+	// of just Data, so they can filter by the emitting component or its owner.
+	eventHandlers map[string][]func(*Event)
 }
 
 // SetOwner sets the parent object that owns this component.
@@ -198,11 +203,32 @@ func (c *BaseComponent) OnDisable() {}
 //	    amount := data.(float64)
 //	    ...
 //	})
+//
+// On passes only the event's Data. Use OnEvent when the handler also needs the
+// event's Source (which component emitted it) or Name.
 func (c *BaseComponent) On(name string, handler func(any)) {
 	if c.handlers == nil {
 		c.handlers = make(map[string][]func(any))
 	}
 	c.handlers[name] = append(c.handlers[name], handler)
+}
+
+// OnEvent registers a handler that receives the full event (Name, Data, Source),
+// not just its Data. This is the ergonomic way to filter a scene-wide event by its
+// source — e.g. a "died" event emitted by several objects where the listener only
+// cares about one of them:
+//
+//	c.OnEvent("died", func(e *core.Event) {
+//	    if e.Source.GetOwner() == player { ... }
+//	})
+//
+// It runs alongside On handlers for the same event name, in registration order
+// across both (On handlers first, then OnEvent handlers).
+func (c *BaseComponent) OnEvent(name string, handler func(*Event)) {
+	if c.eventHandlers == nil {
+		c.eventHandlers = make(map[string][]func(*Event))
+	}
+	c.eventHandlers[name] = append(c.eventHandlers[name], handler)
 }
 
 // Emit broadcasts an event to the scene's event queue. It is delivered to every
@@ -217,21 +243,30 @@ func (c *BaseComponent) Emit(name string, data any) {
 	c.owner.Scene.EventManager.Emit(&Event{Name: name, Data: data, Source: c})
 }
 
-// EventNames returns the event names this component has handlers for.
-// Used by the EventManager to sync subscriptions after Initialize.
+// EventNames returns the event names this component has handlers for (via On or
+// OnEvent). Used by the EventManager to sync subscriptions after Initialize.
 func (c *BaseComponent) EventNames() []string {
-	names := make([]string, 0, len(c.handlers))
+	names := make([]string, 0, len(c.handlers)+len(c.eventHandlers))
 	for name := range c.handlers {
 		names = append(names, name)
+	}
+	for name := range c.eventHandlers {
+		if _, exists := c.handlers[name]; !exists {
+			names = append(names, name)
+		}
 	}
 	return names
 }
 
-// HandleEvent delivers an event to this component's registered handlers.
-// Used internally by the EventManager.
+// HandleEvent delivers an event to this component's registered handlers — On
+// handlers (Data only) first, then OnEvent handlers (the full event). Used
+// internally by the EventManager.
 func (c *BaseComponent) HandleEvent(event *Event) {
 	for _, handler := range c.handlers[event.Name] {
 		handler(event.Data)
+	}
+	for _, handler := range c.eventHandlers[event.Name] {
+		handler(event)
 	}
 }
 

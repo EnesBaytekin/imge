@@ -23,13 +23,13 @@ type triggerRecorder struct {
 
 func (r *triggerRecorder) Initialize() {
 	r.On("trigger_enter", func(data any) {
-		if obj, ok := data.(*core.Object); ok {
-			r.enters = append(r.enters, obj)
+		if ev, ok := data.(TriggerEvent); ok {
+			r.enters = append(r.enters, ev.Other)
 		}
 	})
 	r.On("trigger_exit", func(data any) {
-		if obj, ok := data.(*core.Object); ok {
-			r.exits = append(r.exits, obj)
+		if ev, ok := data.(TriggerEvent); ok {
+			r.exits = append(r.exits, ev.Other)
 		}
 	})
 }

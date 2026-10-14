@@ -351,6 +351,12 @@ func (s *Scene) Update(ctx *Context) {
 	s.frame++
 	ctx.Scene = s
 
+	// Advance any in-flight camera zoom tween (Camera.ZoomTo). The position follow
+	// runs in Draw (it needs the viewport size); zoom is viewport-independent.
+	if s.Camera != nil {
+		s.Camera.updateZoom(ctx.DeltaTime())
+	}
+
 	for _, obj := range s.Objects {
 		if obj.IsDestroyed() {
 			continue
