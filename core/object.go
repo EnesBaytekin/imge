@@ -5,6 +5,7 @@ package core
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -657,6 +658,17 @@ func loadObjectFromJSON(data []byte, lenient bool) (*Object, error) {
 // LoadObjectFromFile loads an object from a JSON file.
 func LoadObjectFromFile(path string) (*Object, error) {
 	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read object file %s: %w", path, err)
+	}
+	return LoadObjectFromJSON(data)
+}
+
+// LoadObjectFromFS loads an object from a JSON file within the given filesystem. It
+// is the embedded-asset counterpart to LoadObjectFromFile, used on web builds where
+// object templates are read from an fs.FS instead of the OS disk.
+func LoadObjectFromFS(fsys fs.FS, path string) (*Object, error) {
+	data, err := fs.ReadFile(fsys, path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read object file %s: %w", path, err)
 	}

@@ -68,6 +68,12 @@ type Scene struct {
 	// EventManager handles the event queue and subscriptions for this scene.
 	// Processed after all component Update() calls each frame.
 	EventManager *EventManager
+
+	// assetFS is the filesystem the scene was loaded from (nil on native builds,
+	// where assets come from the OS disk). Scene.InstantiateFromTemplate uses it to
+	// read object template files, so runtime spawns work identically on web builds
+	// (where data is embedded and there is no real filesystem).
+	assetFS fs.FS
 }
 
 // ============================================================================
@@ -648,6 +654,7 @@ func (s *Scene) generateUniqueName(base string) string {
 
 // LoadFromJSON loads a scene from JSON data.
 func (s *Scene) LoadFromJSON(data []byte) error {
+	s.assetFS = nil
 	return s.loadFromJSON(data, nil, false)
 }
 
@@ -659,6 +666,7 @@ func (s *Scene) LoadFromFS(fsys fs.FS, path string) error {
 	if err != nil {
 		return fmt.Errorf("failed to read scene file %s: %w", path, err)
 	}
+	s.assetFS = fsys
 	return s.loadFromJSON(data, fsys, false)
 }
 
@@ -1017,8 +1025,17 @@ func toSceneObject(obj *Object) corejson.SceneObject {
 // InstantiateFromTemplate creates an object from a template file and adds it to the scene.
 // Returns the created object or error.
 func (s *Scene) InstantiateFromTemplate(templatePath string, transform *math.Transform) (*Object, error) {
-	// Load object from template file
-	obj, err := LoadObjectFromFile(templatePath)
+	// Load object from template file — from the embedded filesystem when the scene
+	// was loaded from one (web), otherwise from the OS disk (native).
+	var (
+		obj *Object
+		err error
+	)
+	if s.assetFS != nil {
+		obj, err = LoadObjectFromFS(s.assetFS, templatePath)
+	} else {
+		obj, err = LoadObjectFromFile(templatePath)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to load template %s: %w", templatePath, err)
 	}

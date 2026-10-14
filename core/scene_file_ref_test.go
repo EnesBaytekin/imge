@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"testing/fstest"
 )
 
 // fileRefTestComponent is a trivial registered component used by the file-reference
@@ -133,5 +134,36 @@ func TestInlineObjectRoundTripsInline(t *testing.T) {
 	}
 	if len(so.Components) != 1 {
 		t.Fatalf("inline components = %d, want 1", len(so.Components))
+	}
+}
+
+// TestInstantiateFromTemplateUsesSceneFS verifies that a scene loaded from an embedded
+// filesystem (the web-build path) spawns runtime objects from that same filesystem —
+// not the OS disk, which does not exist in the browser. It uses an in-memory FS so the
+// template is only reachable through the scene's stored fs.FS.
+func TestInstantiateFromTemplateUsesSceneFS(t *testing.T) {
+	fsys := fstest.MapFS{
+		"main.scene": &fstest.MapFile{Data: []byte(`{ "name": "main" }`)},
+		"objects/enemy.obj": &fstest.MapFile{Data: []byte(`{
+			"name": "Enemy",
+			"tags": ["enemy"],
+			"components": [ { "kind": "fileRef.test", "name": "c", "args": { "speed": 7 } } ]
+		}`)},
+	}
+
+	scene := NewScene("s")
+	if err := scene.LoadFromFS(fsys, "main.scene"); err != nil {
+		t.Fatalf("LoadFromFS: %v", err)
+	}
+
+	obj, err := scene.InstantiateFromTemplate("objects/enemy.obj", nil)
+	if err != nil {
+		t.Fatalf("InstantiateFromTemplate: %v", err)
+	}
+	if obj == nil || obj.Name != "Enemy" {
+		t.Fatalf("got %+v, want Enemy object", obj)
+	}
+	if comp, ok := obj.Components["c"].(*fileRefTestComponent); !ok || comp.Speed != 7 {
+		t.Fatalf("template component missing or wrong: %v", obj.Components["c"])
 	}
 }
